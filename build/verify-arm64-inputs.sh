@@ -96,9 +96,27 @@ esac
 # BUILD_VARIANT (stamped at install-time). At build-time neither is normally
 # set, so default to "desktop" (the gate only skips the cix-debs check on
 # server/headless, so on a build host we want to ENFORCE the check by default).
+# NCZ_BUILD_VARIANT_FILE overrides the stamp path so fixtures stay hermetic on
+# an installed host (a live stamp of "server" would otherwise SKIP the
+# cix-debs class and silently drop its checks -- the same host-state leak the
+# baked-allowlist fixture had with COMPONENTS; see NCZ_COMP_FILE there).
 BUILD_VARIANT="${BUILD_VARIANT:-${NCZ_BUILD_VARIANT:-}}"
-if [ -z "$BUILD_VARIANT" ] && [ -r /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
-    BUILD_VARIANT="$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_VARIANT)"
+NCZ_BUILD_VARIANT_FILE="${NCZ_BUILD_VARIANT_FILE:-/usr/local/lib/cix-installer/BUILD_VARIANT}"
+if [ -z "$BUILD_VARIANT" ] && [ -r "$NCZ_BUILD_VARIANT_FILE" ]; then
+    BUILD_VARIANT="$(tr -d '[:space:]' < "$NCZ_BUILD_VARIANT_FILE")"
+fi
+
+# --- prebuilt-deb kernel BOM ------------------------------------------
+# Since r297 the Sky1 kernel is three pinned prebuilt debs
+# (assets/kernel/mainline.debs, staged by build/stage-arm64-kernel.sh). That
+# kernel tracks no per-KVER accelerator overlays: mali/mgm/pma ship in the
+# image deb, and aipu/amvx/panthor/mali are built by DKMS on the target from the
+# pinned source debs. With a BOM the gates below require those DKMS source debs
+# (present once, ledger-pinned, coherent with the kernel) instead of prebuilt
+# overlays, and check any prebuilt overlay that does exist in full.
+BOM_ARGS=()
+if [ -s "$ROOT/assets/kernel/mainline.debs" ]; then
+    BOM_ARGS=(--bom)
 fi
 
 # --- collect every miss BEFORE exiting --------------------------------
@@ -196,7 +214,8 @@ case "$BUILD_VARIANT" in
             # A stale panthor-cix-dkms deb (pre-7.3 panthor_drv.c) passed the
             # prefix check above and left the r200 O6N without panthor.ko.
             if ! python3 "$SCRIPT_DIR/verify-dkms-deb-sources.py" \
-                    --root "$ROOT" --deb-dir "$DEB_DIR" | sed "s/^/verify-arm64-inputs: /"; then
+                    --root "$ROOT" --deb-dir "$DEB_DIR" ${BOM_ARGS[@]+"${BOM_ARGS[@]}"} \
+                    | sed "s/^/verify-arm64-inputs: /"; then
                 mark_miss "cix-debs.dkms-source" "$DEB_DIR (stale DKMS deb; see above). Fix: build/stage-canonical-assets.sh, or build/build-dkms-debs.sh <mali|panthor|vpu> (needs dpkg-deb; run in the ncz-imagebuild container on Fedora hosts) and replace the old deb in $DEB_DIR with build/dkms-debs/<name>-dkms_*.deb"
             fi
             N_DEBS=$(find "$DEB_DIR" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')
@@ -294,14 +313,14 @@ fi
 # fixtures) has no pin to check against and is skipped; a dangling pin fails.
 N_OVERLAY_CRC=skip
 if [ -e "$ROOT/assets/kernel/mainline" ] || [ -L "$ROOT/assets/kernel/mainline" ]; then
-    if python3 "$SCRIPT_DIR/verify-overlay-modversions.py" --root "$ROOT"; then
+    if python3 "$SCRIPT_DIR/verify-overlay-modversions.py" --root "$ROOT" ${BOM_ARGS[@]+"${BOM_ARGS[@]}"}; then
         N_OVERLAY_CRC=ok
     else
         mark_miss "overlay-modversions" "$ROOT/assets/kernel/{mali,vpu,npu,panthor}/<kver>/*.ko vs the pinned kernel Module.symvers (see build/verify-overlay-modversions.py output above)"
     fi
     # Same kver dirs: each overlay must have been compiled from today's
     # assets/kernel/<drv> source (SOURCE.sha256 from build-accel-overlays.sh).
-    if ! python3 "$SCRIPT_DIR/verify-dkms-deb-sources.py" --root "$ROOT" --overlays; then
+    if ! python3 "$SCRIPT_DIR/verify-dkms-deb-sources.py" --root "$ROOT" --overlays ${BOM_ARGS[@]+"${BOM_ARGS[@]}"}; then
         mark_miss "overlay-source" "$ROOT/assets/kernel/{mali,vpu,npu,panthor}/<kver>/SOURCE.sha256 vs assets/kernel/<drv> (rebuild with build/build-accel-overlays.sh)"
     fi
 fi
@@ -328,6 +347,10 @@ verify-arm64-inputs: one or more required inputs are absent.
     - overlay-modversions: copy the pinned staging dir's overlays/<dir>/<kver>/
                            *.ko into assets/kernel/<dir>/<kver>/ (or rebuild them
                            with build/build-accel-overlays.sh against its headers).
+                           With a prebuilt-deb kernel BOM (assets/kernel/mainline.debs)
+                           overlays are optional: fix or remove the prebuilt .ko
+                           named above, and make sure the four DKMS source debs
+                           match manifests/ncz-packages.tsv (cix-debs.dkms-source).
 
   Override: set NCZ_CIX_DEB_MIN=0 to build a deliberately GPU-less image
             (NOT recommended for arm64 Sky1 -- boot reaches a black screen).

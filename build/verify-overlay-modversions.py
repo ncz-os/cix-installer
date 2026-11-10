@@ -32,10 +32,20 @@ WHAT IT CHECKS, for the kernel pinned by assets/kernel/mainline:
     and the kernel refused all three Mali modules ("section size must match")
     while every check here passed.
 
+--bom (prebuilt-deb kernel BOM, assets/kernel/mainline.debs; r297 and later):
+the kernel tracks no per-KVER overlays, aipu/amvx/panthor/mali are built by
+DKMS on the target (their source debs are held by verify-dkms-deb-sources.py
+--bom). An overlay dir with no .ko for KVER is then not a failure, and when no
+prebuilt .ko exists at all there is nothing to compare: SKIP, exit 0. Any
+prebuilt .ko that does exist gets every check above, against the Module.symvers
+build/stage-arm64-kernel.sh derives at the top of the payload dir
+(<staging>/Module.symvers; the BOM payload has no headers-dir). The BOM KVER
+must equal the staged KVER.
+
 Usage:
   build/verify-overlay-modversions.py [--root DIR] [--staging DIR]
                                       [--symvers FILE] [--kver KVER]
-                                      [--ref-ko KO]
+                                      [--ref-ko KO] [--bom]
 Environment: VERIFY_ROOT (same as --root), OVERLAY_STAGING_DIR (--staging).
 
 The staging dir defaults to the target of the assets/kernel/mainline symlink;
@@ -168,7 +178,7 @@ def reference_layout(staging, kver, explicit):
         sections = None
         with tarfile.open(tgz, "r:*") as tf:
             for m in tf:
-                name = m.name[2:] if m.name.startswith("./") else m.name
+                name = m.name.removeprefix("./")
                 if m.isfile() and name.startswith(prefix) and name.endswith(".ko"):
                     sections, _ = parse_sections(tf.extractfile(m).read())
                     where = f"{tgz}:{name}"
@@ -191,6 +201,26 @@ def load_symvers(path):
             if len(parts) >= 2 and parts[0].startswith("0x"):
                 crcs[parts[1]] = int(parts[0], 16) & 0xFFFFFFFF
     return crcs
+
+
+def overlay_kos(root, drv, kver):
+    base = os.path.join(root, "assets", "kernel", drv, kver)
+    if not os.path.isdir(base):
+        return []
+    return sorted(os.path.join(base, n) for n in os.listdir(base) if n.endswith(".ko"))
+
+
+def bom_kver(root):
+    """KVER of the prebuilt-deb kernel BOM (assets/kernel/mainline.debs), or None."""
+    try:
+        with open(os.path.join(root, "assets", "kernel", "mainline.debs")) as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line.startswith("KVER="):
+                    return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
 
 
 def resolve_staging(root, explicit):
@@ -220,9 +250,25 @@ def main():
     ap.add_argument("--staging", default=os.environ.get("OVERLAY_STAGING_DIR"))
     ap.add_argument("--symvers")
     ap.add_argument("--kver")
-    ap.add_argument("--ref-ko", help="in-tree module of the pinned build (struct module reference)")
+    ap.add_argument(
+        "--ref-ko", help="in-tree module of the pinned build (struct module reference)"
+    )
+    ap.add_argument(
+        "--bom",
+        action="store_true",
+        help="prebuilt-deb kernel BOM: overlays optional, symvers at <staging>/Module.symvers",
+    )
     a = ap.parse_args()
     tag = "verify-overlay-modversions"
+    bkver = None
+    if a.bom:
+        bkver = bom_kver(a.root)
+        if not bkver:
+            print(
+                f"{tag}: ERROR: --bom requires assets/kernel/mainline.debs with a KVER= line",
+                file=sys.stderr,
+            )
+            return 2
 
     staging, wanted = resolve_staging(a.root, a.staging)
     kver = a.kver
@@ -241,6 +287,20 @@ def main():
                 f"{tag}: ERROR: cannot read KVER in {staging}: {exc}", file=sys.stderr
             )
             return 2
+    if a.bom:
+        if bkver != kver:
+            print(
+                f"{tag}: FAIL: assets/kernel/mainline.debs KVER {bkver} != staged KVER {kver}"
+            )
+            return 1
+        prebuilt = [d for d in OVERLAY_DIRS if overlay_kos(a.root, d, kver)]
+        if not prebuilt:
+            print(
+                f"{tag}: SKIP: no prebuilt overlay .ko for {kver} in assets/kernel/"
+                f"{{{','.join(OVERLAY_DIRS)}}}/{kver}/ (prebuilt-deb kernel BOM: DKMS builds "
+                "them on the target); nothing to compare"
+            )
+            return 0
     symvers = a.symvers
     if not symvers:
         if not staging:
@@ -249,9 +309,18 @@ def main():
                 file=sys.stderr,
             )
             return 2
-        symvers = os.path.join(
-            staging, "headers-dir", "lib", "modules", kver, "build", "Module.symvers"
-        )
+        if a.bom:
+            symvers = os.path.join(staging, "Module.symvers")
+        else:
+            symvers = os.path.join(
+                staging,
+                "headers-dir",
+                "lib",
+                "modules",
+                kver,
+                "build",
+                "Module.symvers",
+            )
     if not os.path.isfile(symvers):
         print(f"{tag}: ERROR: Module.symvers not found: {symvers}", file=sys.stderr)
         return 2
@@ -294,13 +363,12 @@ def main():
 
     kos = []
     for d in OVERLAY_DIRS:
-        base = os.path.join(a.root, "assets", "kernel", d, kver)
-        found = (
-            sorted(os.path.join(base, n) for n in os.listdir(base) if n.endswith(".ko"))
-            if os.path.isdir(base)
-            else []
-        )
-        if not found:
+        found = overlay_kos(a.root, d, kver)
+        if not found and a.bom:
+            print(
+                f"SKIP assets/kernel/{d}/{kver}/: no prebuilt overlay (DKMS on the target)"
+            )
+        elif not found:
             failures.append(f"MISSING overlay set: assets/kernel/{d}/{kver}/*.ko")
         kos.extend(found)
 

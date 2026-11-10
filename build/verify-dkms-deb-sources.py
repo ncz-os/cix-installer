@@ -37,9 +37,29 @@ Together with verify-overlay-modversions.py (CRCs vs the pinned kernel) this
 means a kernel bump cannot ship without a panthor.ko compiled from the current
 source against that kernel.
 
+--bom: the tree pins a prebuilt-deb Sky1 kernel (assets/kernel/mainline.debs,
+r297 and later). That kernel tracks no per-KVER overlays: aipu, amvx, panthor
+and mali are built by DKMS on the target from the four source debs, so those
+debs are what must be right (2026-11-03, r297 image stage). With --bom the deb
+check also requires, for each of cix-gpu-kmd-dkms, panthor-cix-dkms,
+cix-vpu-driver-dkms and cix-npu-driver-dkms:
+  - exactly one <package>_*.deb in the deb dir, whose control Package is that
+    package and whose control Version is the version in its file name;
+  - its sha256 equal to the single manifests/ncz-packages.tsv row for its
+    (Package, Version, Architecture);
+  - exactly one usr/src/<NAME>-<VERSION>/dkms.conf with that PACKAGE_NAME and
+    PACKAGE_VERSION, the deb Version being PACKAGE_VERSION plus a +, - or ~
+    suffix; BUILD_EXCLUSIVE_KERNEL / BUILD_EXCLUSIVE_ARCH, when set, must admit
+    the BOM kernel and aarch64;
+and the BOM KVER must equal kernel-manifest.json variants.mainline.kver and
+the staged assets/kernel/mainline/KVER (when that is present).
+--overlays --bom: a missing <kver>/ overlay dir is not a failure (DKMS builds
+the driver on the target); an overlay dir that does exist is still held to its
+SOURCE.sha256 stamp.
+
 Usage:
-  build/verify-dkms-deb-sources.py [--root DIR] [--deb-dir DIR] [--driver D ...]
-  build/verify-dkms-deb-sources.py [--root DIR] --overlays [KVER] [--driver D ...]
+  build/verify-dkms-deb-sources.py [--root DIR] [--deb-dir DIR] [--driver D ...] [--bom]
+  build/verify-dkms-deb-sources.py [--root DIR] --overlays [KVER] [--driver D ...] [--bom]
   build/verify-dkms-deb-sources.py [--root DIR] --source-digest DRV
 Environment: VERIFY_ROOT (same as --root).
 
@@ -52,6 +72,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -63,6 +84,16 @@ DRIVERS = ("panthor", "mali", "vpu", "npu")
 #   panthor: the whole asset dir minus build artifacts, patches/ and the
 #            per-KVER prebuilt overlay dirs
 #   others:  src/ plus dkms.conf
+# The DKMS source debs a prebuilt-deb kernel BOM depends on (--bom). The NPU
+# deb is the vendor aipu package and has no assets/kernel source tree.
+BOM_DKMS_DEBS = (
+    "cix-gpu-kmd-dkms",
+    "panthor-cix-dkms",
+    "cix-vpu-driver-dkms",
+    "cix-npu-driver-dkms",
+)
+TARGET_UNAME_ARCH = "aarch64"
+
 ARTIFACT_SUFFIXES = (".o", ".ko", ".cmd", ".a", ".order", ".symvers")
 
 
@@ -213,10 +244,246 @@ def pinned_kver(root):
         return None
 
 
-def check_overlays(root, drivers, kver):
+def bom_kver(root):
+    """KVER of the prebuilt-deb kernel BOM (assets/kernel/mainline.debs), or None."""
+    path = os.path.join(root, "assets", "kernel", "mainline.debs")
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line.startswith("KVER="):
+                    return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
+
+
+def bom_coherence(root, kver):
+    """Failures where the BOM KVER disagrees with the manifest or staged payload."""
+    out = []
+    mk = pinned_kver(root)
+    if mk != kver:
+        out.append(
+            f"assets/kernel/mainline.debs KVER {kver} != assets/kernel-manifest.json "
+            f"variants.mainline.kver {mk}"
+        )
+    staged = os.path.join(root, "assets", "kernel", "mainline", "KVER")
+    if os.path.isfile(staged):
+        with open(staged, encoding="utf-8") as f:
+            sk = f.read().strip()
+        if sk != kver:
+            out.append(
+                f"assets/kernel/mainline.debs KVER {kver} != staged assets/kernel/mainline/KVER {sk}"
+            )
+    return out
+
+
+def deb_control(path):
+    """Return the deb's control fields as a dict."""
+    blob = None
+    mode = "r:*"
+    if shutil.which("dpkg-deb"):
+        p = subprocess.run(
+            ["dpkg-deb", "--ctrl-tarfile", path], capture_output=True, check=False
+        )
+        if p.returncode != 0:
+            raise ValueError(
+                "dpkg-deb --ctrl-tarfile failed: "
+                + p.stderr.decode(errors="replace").strip()
+            )
+        blob, mode = p.stdout, "r:"
+    else:
+        for name, data in ar_members(path):
+            if name.startswith("control.tar"):
+                blob = data
+                if name.endswith(".zst"):
+                    if not shutil.which("zstd"):
+                        raise ValueError("control.tar.zst needs dpkg-deb or zstd")
+                    blob = subprocess.run(
+                        ["zstd", "-dc"], input=data, capture_output=True, check=True
+                    ).stdout
+                    mode = "r:"
+                break
+        if blob is None:
+            raise ValueError("no control.tar member")
+    text = None
+    with tarfile.open(fileobj=io.BytesIO(blob), mode=mode) as tf:
+        for m in tf:
+            if m.isfile() and m.name.removeprefix("./") == "control":
+                text = tf.extractfile(m).read().decode("utf-8", "replace")
+                break
+    if text is None:
+        raise ValueError("no control file")
+    fields = {}
+    for line in text.splitlines():
+        if line[:1].isspace() or ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        fields[k.strip()] = v.strip()
+    return fields
+
+
+def conf_text_get(text, key):
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith(key + "="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
+
+def deb_dkms_confs(path):
+    """Return [(dir name under usr/src, dkms.conf text)] found in the deb."""
+    out = []
+    with deb_data_tar(path) as tf:
+        for m in tf:
+            name = m.name.removeprefix("./")
+            parts = name.split("/")
+            if (
+                m.isfile()
+                and len(parts) == 4
+                and parts[:2] == ["usr", "src"]
+                and parts[3] == "dkms.conf"
+            ):
+                out.append(
+                    (parts[2], tf.extractfile(m).read().decode("utf-8", "replace"))
+                )
+    return out
+
+
+def ledger_rows(root):
+    """{(name, version, arch): [sha256, ...]} from manifests/ncz-packages.tsv,
+    one entry per row (a duplicated row is two entries, not one)."""
+    rows = {}
+    with open(
+        os.path.join(root, "manifests", "ncz-packages.tsv"), encoding="utf-8"
+    ) as f:
+        for line in f:
+            if not line.strip() or line.startswith("#"):
+                continue
+            c = line.rstrip("\n").split("\t")
+            if len(c) >= 4:
+                rows.setdefault((c[0], c[1], c[2]), []).append(c[3])
+    return rows
+
+
+def check_bom_debs(root, deb_dir, kver):
+    """The DKMS source debs a prebuilt-deb kernel BOM builds on the target."""
+    failures = 0
+    for msg in bom_coherence(root, kver):
+        print(f"FAIL bom: {msg}")
+        failures += 1
+    try:
+        ledger = ledger_rows(root)
+    except OSError as e:
+        print(f"FAIL bom: cannot read manifests/ncz-packages.tsv: {e}")
+        return failures + 1
+    for pkg in BOM_DKMS_DEBS:
+        debs = sorted(glob.glob(os.path.join(deb_dir, f"{pkg}_*.deb")))
+        if not debs:
+            print(
+                f"FAIL {pkg}: no {pkg}_*.deb in {deb_dir}; the {kver} BOM kernel "
+                "ships no prebuilt overlay, so DKMS needs this source deb on the target"
+            )
+            failures += 1
+            continue
+        if len(debs) > 1:
+            print(
+                f"FAIL {pkg}: {len(debs)} {pkg} debs staged, expected one: "
+                + " ".join(os.path.basename(d) for d in debs)
+            )
+            failures += 1
+            continue
+        deb = debs[0]
+        base = os.path.basename(deb)
+        errs = []
+        try:
+            ctl = deb_control(deb)
+            confs = deb_dkms_confs(deb)
+        except (
+            ValueError,
+            OSError,
+            tarfile.TarError,
+            subprocess.CalledProcessError,
+        ) as e:
+            print(f"FAIL {pkg}: cannot read {base}: {e}")
+            failures += 1
+            continue
+        ver = ctl.get("Version", "")
+        arch = ctl.get("Architecture", "")
+        if ctl.get("Package") != pkg:
+            errs.append(f"control Package is {ctl.get('Package')!r}")
+        fname_ver = base[len(pkg) + 1 :].rsplit("_", 1)[0]
+        fname_ver = re.sub(r"%3[aA]", ":", fname_ver)
+        if fname_ver != ver:
+            errs.append(f"file name says {fname_ver}, control Version is {ver}")
+        rows = ledger.get((pkg, ver, arch), [])
+        with open(deb, "rb") as f:
+            have = sha256(f.read())
+        if len(rows) != 1:
+            errs.append(
+                f"{len(rows)} manifests/ncz-packages.tsv row(s) for {pkg} {ver} {arch} (want exactly 1)"
+            )
+        elif have not in rows:
+            errs.append(
+                f"sha256 {have[:12]} != manifests/ncz-packages.tsv {rows[0][:12]}"
+            )
+        if len(confs) != 1:
+            errs.append(f"{len(confs)} usr/src/*/dkms.conf in the deb (want exactly 1)")
+        else:
+            d, text = confs[0]
+            name = conf_text_get(text, "PACKAGE_NAME")
+            pver = conf_text_get(text, "PACKAGE_VERSION")
+            upstream = ver.split(":", 1)[-1]
+            if not name or not pver or d != f"{name}-{pver}":
+                errs.append(
+                    f"usr/src/{d}/dkms.conf PACKAGE_NAME={name} PACKAGE_VERSION={pver} "
+                    "does not name its own directory"
+                )
+            elif not (
+                upstream == pver
+                or (upstream.startswith(pver) and upstream[len(pver)] in "+-~")
+            ):
+                errs.append(
+                    f"dkms.conf PACKAGE_VERSION {pver} is not the upstream part of {ver}"
+                )
+            bek = conf_text_get(text, "BUILD_EXCLUSIVE_KERNEL")
+            if bek:
+                try:
+                    if not re.search(bek, kver):
+                        errs.append(
+                            f"dkms.conf BUILD_EXCLUSIVE_KERNEL {bek!r} excludes {kver}"
+                        )
+                except re.error as e:
+                    errs.append(
+                        f"dkms.conf BUILD_EXCLUSIVE_KERNEL {bek!r} is not a regex: {e}"
+                    )
+            bea = conf_text_get(text, "BUILD_EXCLUSIVE_ARCH")
+            if bea:
+                try:
+                    if not re.search(bea, TARGET_UNAME_ARCH):
+                        errs.append(
+                            f"dkms.conf BUILD_EXCLUSIVE_ARCH {bea!r} excludes {TARGET_UNAME_ARCH}"
+                        )
+                except re.error as e:
+                    errs.append(
+                        f"dkms.conf BUILD_EXCLUSIVE_ARCH {bea!r} is not a regex: {e}"
+                    )
+        if errs:
+            failures += 1
+            print(f"FAIL {pkg}: {base}: " + "; ".join(errs))
+        else:
+            print(
+                f"OK {pkg}: {base} pinned (sha256 {have[:12]}), dkms.conf admits {kver}"
+            )
+    return failures
+
+
+def check_overlays(root, drivers, kver, allow_absent=False):
     """Every <drv>/<kver>/ overlay dir must carry SOURCE.sha256 equal to the
     digest of today's assets/kernel/<drv> source (written by
-    build/build-accel-overlays.sh when it compiles the overlay)."""
+    build/build-accel-overlays.sh when it compiles the overlay). With
+    allow_absent (prebuilt-deb kernel BOM) a missing dir is a SKIP: DKMS builds
+    the driver on the target; a dir that exists is still checked."""
     failures = 0
     for drv in drivers:
         if not os.path.isfile(os.path.join(root, "assets", "kernel", drv, "dkms.conf")):
@@ -229,6 +496,12 @@ def check_overlays(root, drivers, kver):
         want = source_digest(want_tree)
         rel = os.path.join("assets", "kernel", drv, kver)
         stamp = os.path.join(root, rel, "SOURCE.sha256")
+        if not os.path.isdir(os.path.join(root, rel)) and allow_absent:
+            print(
+                f"SKIP {drv}: no prebuilt overlay {rel}/ (prebuilt-deb kernel BOM: "
+                "DKMS builds it on the target)"
+            )
+            continue
         if not os.path.isdir(os.path.join(root, rel)):
             print(f"FAIL {drv}: no overlay dir {rel}/ for the pinned kernel")
             failures += 1
@@ -276,9 +549,25 @@ def main():
         help="check overlay SOURCE.sha256 stamps instead of debs "
         "(KVER defaults to assets/kernel-manifest.json variants.mainline.kver)",
     )
+    ap.add_argument(
+        "--bom",
+        action="store_true",
+        help="the tree pins a prebuilt-deb kernel (assets/kernel/mainline.debs): "
+        "require the pinned DKMS source debs, accept absent overlay dirs",
+    )
     args = ap.parse_args()
 
     root = args.root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bkver = None
+    if args.bom:
+        bkver = bom_kver(root)
+        if not bkver:
+            print(
+                "verify-dkms-deb-sources: --bom requires assets/kernel/mainline.debs "
+                f"with a KVER= line under {root}",
+                file=sys.stderr,
+            )
+            return 2
     if args.source_digest:
         tree = expected_tree(root, args.source_digest)
         if not tree:
@@ -287,11 +576,18 @@ def main():
         print(source_digest(tree))
         return 0
     if args.overlays is not None:
-        kver = args.overlays or pinned_kver(root)
+        kver = args.overlays or bkver or pinned_kver(root)
         if not kver:
             print("verify-dkms-deb-sources: overlays: SKIP (no pinned kver)")
             return 0
-        failures = check_overlays(root, args.driver or list(DRIVERS), kver)
+        failures = 0
+        if args.bom:
+            for msg in bom_coherence(root, bkver):
+                print(f"FAIL bom: {msg}")
+                failures += 1
+        failures += check_overlays(
+            root, args.driver or list(DRIVERS), kver, allow_absent=args.bom
+        )
         if failures:
             print(f"verify-dkms-deb-sources: overlays {kver}: FAIL ({failures})")
             return 1
@@ -375,6 +671,16 @@ def main():
                 f"OK {drv}: {os.path.basename(deb)} matches assets/kernel/{drv} ({len(want)} files)"
             )
 
+    if args.bom:
+        bom_fail = check_bom_debs(root, deb_dir, bkver)
+        if bom_fail:
+            print(f"verify-dkms-deb-sources: bom {bkver}: FAIL ({bom_fail})")
+            failures += bom_fail
+        else:
+            print(
+                f"verify-dkms-deb-sources: bom {bkver}: PASS ({len(BOM_DKMS_DEBS)} DKMS source debs "
+                "present once, ledger-pinned, coherent with the kernel)"
+            )
     if failures:
         print(
             f"verify-dkms-deb-sources: FAIL ({failures} failure(s), {checked} deb(s) read)"

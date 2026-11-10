@@ -241,9 +241,53 @@ fi
 # outside the pool, the WRONG class (the 2026-09-28 incident: the single
 # shipping pointer was repointed at r278 rc5, and a 7.2.8 kernel then sat
 # under "edge"), or not the newest build of its class.
+check_arm64_bom() {
+    # Prebuilt Sky1 kernel BOM (assets/kernel/mainline.debs, r297+). The
+    # kernel is pinned by sha256, not by "newest rNNN dir in the pool", and
+    # assets/kernel/mainline is the payload build/stage-arm64-kernel.sh derived
+    # from the pinned debs (build/kernel-mainline/<release>, relative link).
+    # Fresh = that payload is the pinned build: KVER and Image sha256 equal the
+    # BOM, DERIVED.sha256 verifies, and its STAMP names exactly the deb sha256s
+    # assets/kernel-manifest.json pins.
+    local lp="assets/kernel/mainline" bom="assets/kernel/mainline.debs" rel kver img real stamp
+    rel="$(sed 's/#.*//' assets/kernel/mainline.release 2>/dev/null | tr -d '[:space:]')"
+    kver="$(sed -n 's/^KVER=//p' "$bom" | tr -d '[:space:]')"
+    img="$(sed -n 's/^IMAGE_SHA256=//p' "$bom" | tr -d '[:space:]')"
+    if [ ! -L "$lp" ] || [ ! -d "$lp" ]; then
+        echo "[3] FAIL: arm64 mainline -- $lp is not a link to a derived payload (run build/stage-arm64-kernel.sh)"
+        FAIL=$((FAIL + 1)); return
+    fi
+    real="$(cd "$lp" && pwd -P)"
+    if [ "$real" != "$(cd "build/kernel-mainline/$rel" 2>/dev/null && pwd -P)" ]; then
+        echo "[3] FAIL: arm64 mainline -- $lp -> $real is not build/kernel-mainline/$rel (the pinned release)"
+        FAIL=$((FAIL + 1)); return
+    fi
+    if [ "$(tr -d '[:space:]' < "$lp/KVER" 2>/dev/null)" != "$kver" ] \
+       || [ "$(sha256sum "$lp/Image-cixmini.bin" 2>/dev/null | awk '{print $1}')" != "$img" ] \
+       || ! (cd "$lp" && sha256sum -c --quiet DERIVED.sha256 >/dev/null 2>&1); then
+        echo "[3] FAIL: arm64 mainline -- the derived payload is not the pinned $kver build (KVER, Image sha256 or DERIVED.sha256); re-run build/stage-arm64-kernel.sh"
+        FAIL=$((FAIL + 1)); return
+    fi
+    local pinned
+    stamp="$(awk 'NF == 2 && $1 ~ /^[0-9a-f]{64}$/ {print $2, $1}' "$lp/STAMP" 2>/dev/null | sort)"
+    pinned="$(python3 -I -c 'import json,sys
+for d in json.load(open(sys.argv[1]))["kernel_debs"]: print(d["file"].rsplit("/",1)[-1], d["sha256"])' assets/kernel-manifest.json 2>/dev/null | sort)"
+    # Both sides must be non-empty: a missing STAMP and an unreadable manifest
+    # would otherwise compare equal and pass.
+    if [ -z "$stamp" ] || [ -z "$pinned" ] || [ "$stamp" != "$pinned" ]; then
+        echo "[3] FAIL: arm64 mainline -- the payload was derived from other debs than assets/kernel-manifest.json pins; re-run build/stage-arm64-kernel.sh"
+        FAIL=$((FAIL + 1)); return
+    fi
+    echo "[3] OK: arm64 mainline -- prebuilt BOM $rel ($kver), payload derived from the pinned debs"
+}
+
 check_arm64_channel() {
     local local_pointer="$1" want_class="$2" required="$3"
     local label
+    if [ -f "${REPO_ROOT:-.}/assets/kernel/mainline.debs" ]; then
+        check_arm64_bom
+        return
+    fi
     label="$(basename "$local_pointer")"
     if [ ! -L "$local_pointer" ] && [ ! -e "$local_pointer" ]; then
         if [ "$required" = required ]; then
