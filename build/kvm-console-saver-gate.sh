@@ -16,6 +16,16 @@
 #       idle -> saver appears on a free VT, a real key -> VT restored,
 #       no leftover processes, power budget (saver CPU <= 2% of one core,
 #       RSS < 16 MB), daemon left running, no respawn loop.
+#   --installed-evidence <target-logs-dir> --variant server|desktop
+#       [--installed-disk <installed.img> --arch amd64|arm64]
+#       asserts the post-install end state from a kvm-install-gate run's
+#       evidence dir (target-logs/): hook 61 RAN (no ORPHAN), logged its
+#       install, and (with --installed-disk) the installed layout paths are
+#       present on the installed rootfs. No VM, no boot: this is the
+#       deterministic half of the --live assertions (2026-11-10 c337: the
+#       medium boots the interactive installer, so a serial-only live driver
+#       cannot reach the installed system; the install gate already produces
+#       the evidence).
 #   --self-test   unit tests for the parsers/threshold helpers (fixtures
 #       only, no VM) so this gate has a runnable green state on any host.
 #
@@ -202,6 +212,63 @@ cmd_live() {
 }
 
 # ---------------------------------------------------------------------------
+# installed-evidence phase: the deterministic half of --live. Consumes a
+# kvm-install-gate run's target-logs/ dir (cix-installer-late.log is the
+# post-install hook journal) and, optionally, the installed disk image.
+# ---------------------------------------------------------------------------
+hook_ran() { # stdin: cix-installer-late.log -- true when hook 61 ran (not ORPHAN)
+    grep -q '\[61-ncz-console-saver\]' && ! grep -q 'ORPHAN: 61-ncz-console-saver'
+}
+hook_logged_install() { # stdin: late.log, $1=variant -- true on its install line
+    case "$1" in
+        server)  grep -q '\[61-ncz-console-saver\] ncz-console-saver.service enabled (server variant)' ;;
+        desktop) grep -q '\[61-ncz-console-saver\] BUILD_VARIANT=desktop -- desktop SKU; skipping' ;;
+        *) return 1 ;;
+    esac
+}
+
+cmd_evidence() {
+    local logs="" variant="" disk="" arch="amd64"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --variant) variant="$2"; shift 2 ;;
+            --installed-disk) disk="$2"; shift 2 ;;
+            --arch) arch="$2"; shift 2 ;;
+            --) shift; break ;;
+            -*) die "unknown installed-evidence option $1" ;;
+            *) [ -z "$logs" ] || die "extra argument $1"; logs="$1"; shift ;;
+        esac
+    done
+    [ -d "$logs" ] || die "--installed-evidence needs a target-logs dir"
+    case "$variant" in server|desktop) : ;; *) die "--variant server|desktop required" ;; esac
+    local late="$logs/cix-installer-late.log"
+    [ -f "$late" ] || die "$late missing (not a kvm-install-gate evidence dir?)"
+    if grep -q 'ORPHAN: 61-ncz-console-saver' "$late"; then
+        no "$late: ORPHAN: 61-ncz-console-saver -- hook 61 never ran on the installed system"
+    elif grep -q '\[61-ncz-console-saver\]' "$late"; then
+        ok "$late: hook 61 ran (no ORPHAN)"
+    else
+        no "$late: no [61-ncz-console-saver] journal lines at all"
+    fi
+    if hook_logged_install "$variant" < "$late"; then
+        ok "$late: hook 61 logged its $variant install decision"
+    else
+        no "$late: hook 61 install line for variant=$variant missing"
+    fi
+    if [ -n "$disk" ]; then
+        local root="$logs/.cs-evidence-root.raw"
+        say "installed-disk: extracting rootfs of $disk ($arch)"
+        extract_rootfs "$disk" "$root"
+        check_variant "$root" "installed($variant)" \
+            "$([ "$variant" = server ] && echo present || echo absent)"
+        rm -f "$root"
+    else
+        say "no --installed-disk: installed-layout file assertions skipped (journal evidence only)"
+    fi
+    verdict
+}
+
+# ---------------------------------------------------------------------------
 # self-test: the gate's pure logic against fixtures (no VM, any host)
 # ---------------------------------------------------------------------------
 conf_apply_idle() { # stdin: conf, $1: idle -- the live phase's edit, pure
@@ -251,6 +318,22 @@ cmd_self_test() {
     printf 'foo.service\nbar.service/\n' | wants_link_present \
         && no "absent link must not match" || ok "absent link correctly not matched"
 
+    echo "[self-test] hook_ran / hook_logged_install (late.log journal fixtures)"
+    printf '[cix-installer] running 61-ncz-console-saver.sh\n[61-ncz-console-saver] enforcing console-saver install on server variants\n[61-ncz-console-saver] ncz-console-saver.service enabled (server variant)\n' \
+        | hook_ran && ok "journal with hook output: ran" || no "journal with hook output: ran"
+    printf '[cix-installer]   ORPHAN: 61-ncz-console-saver.sh\n[cix-installer] nothing else\n' \
+        | hook_ran && no "ORPHAN journal must not count as ran" || ok "ORPHAN journal correctly not ran"
+    printf '[cix-installer] unrelated lines only\n' \
+        | hook_ran && no "journal without hook lines must not count" || ok "journal without hook lines correctly not ran"
+    printf '[61-ncz-console-saver] enforcing console-saver install on server variants\n[61-ncz-console-saver] ncz-console-saver.service enabled (server variant)\n' \
+        | hook_logged_install server && ok "server install line detected" || no "server install line detected"
+    printf '[61-ncz-console-saver] BUILD_VARIANT=desktop -- desktop SKU; skipping\n' \
+        | hook_logged_install desktop && ok "desktop skip line detected" || no "desktop skip line detected"
+    printf '[61-ncz-console-saver] ncz-console-saver.service enabled (server variant)\n' \
+        | hook_logged_install desktop && no "server line must not satisfy desktop" || ok "server line correctly not desktop"
+    printf '[61-ncz-console-saver] FATAL: assets missing\n' \
+        | hook_logged_install server && no "FATAL-only journal must not count as install" || ok "FATAL-only journal correctly not an install"
+
     verdict
 }
 
@@ -264,6 +347,7 @@ verdict() {
 case "${1:-}" in
     --static) shift; cmd_static "$@" ;;
     --live) shift; cmd_live "$@" ;;
+    --installed-evidence) shift; cmd_evidence "$@" ;;
     --self-test) cmd_self_test ;;
     -h|--help) usage 0 ;;
     *) usage 2 ;;
