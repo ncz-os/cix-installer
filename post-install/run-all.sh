@@ -340,9 +340,17 @@ fi
 # (not regex-derived) so the relationship between a toggle and its hooks is
 # readable in one place. Lines that map a hook to a toggle that no chooser
 # currently writes are inert (no skipping).
-COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
-[ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
-[ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+# NCZ_COMP_FILE overrides the record location (fixture hermeticity: without it,
+# build/test-run-all-baked-allowlist.sh silently inherited the build host's
+# COMPONENTS record and the component-skip filters dropped hooks the fixture
+# expected to run).
+if [ -n "${NCZ_COMP_FILE:-}" ]; then
+    COMP_FILE="$NCZ_COMP_FILE"
+else
+    COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
+    [ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
+    [ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+fi
 _CDESKTO=1; _CBRW=1; _CMGMT=1; _CRESC=1; _CWP=1
 if [ -r "$COMP_FILE" ]; then
     _ck=$(tr -d ' \t\r\n' < "$COMP_FILE" 2>/dev/null || true)
