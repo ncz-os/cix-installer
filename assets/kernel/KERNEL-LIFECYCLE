@@ -20,13 +20,15 @@ LIFECYCLE_SOURCE=seed-rc4-20261107
 # Lowest upstream kernel version any default may pin.
 MIN_VERSION=7.3.3
 
-# amd64: T2 7.4.0-rc2-2 (HYDRA build 2026-11-09), CANDIDATE on the 7.4 kernel
-# line (operator 2026-11-09 22:20Z). KVM boot gate PASS 2026-11-09 (gate-kvm2);
-# hardware boot PENDING (NEEDS 6) -- promotion to the live registry waits for
-# the human-supervised boot per the same order. Pool dir in
+# amd64: T2 7.4.0-rc2-3 (forky rebuild 2026-11-10 of the 7.4.0-rc2-2 source;
+# -2 was an Ubuntu-host build and is never promoted, 03:05Z order A), on the
+# 7.4 kernel line (operator 2026-11-09 22:20Z). KVM boot gate PASS 2026-11-10
+# (TYPHON k743-kvm-gate); HARDWARE PASS 2026-11-10 (DELL .70 + MEDUSA .38
+# one-shot boots, 05:03Z). Registry t2-amd64 current = 7.4.0-rc2-t2-ncz+3
+# (promoted 2026-11-10; 7.3.3-t2-ncz+r297 retired). Pool dir in
 # amd64-stable-manifest.json.
 CURRENT_KVER_amd64=7.4.0-rc2-t2-ncz
-CURRENT_PKG_amd64=7.4.0-rc2-2
+CURRENT_PKG_amd64=7.4.0-rc2-3
 
 # arm64: Sky1 7.4.0-rc2-sky1-ncz r299 (ULTRA non-git export build 2026-11-10,
 # v7.4-rc2 7475ea8b, linux-cix kernel-dev/sky1-7.4-rc2-r3 f6950f68, 32 patches,
