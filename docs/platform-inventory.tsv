@@ -242,6 +242,7 @@ build/test-install-options.sh	common	-	every install-option combination ends boo
 build/test-rescue-kernel-channel.sh	common	-	proves 72-rescue-partition.sh stages the arm64 rescue kernel from assets/kernel/mainline, not the retired edge channel
 build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
+build/test-kernel-line-switch-74.sh	common	-	7.4 line-switch guard tests (install/publish/target case blocks accept 7.3+7.4 while DEFAULT_BASE=7.3,7.4)
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-image-assets.sh	common	-	no SSH public key body, retired key comment, authorized_keys writer, private 192.168 address or rescue static fallback in any image-bound file (planted fixtures prove each rule fires)
 build/test-pipefail-grep.sh	common	-	WRITER | grep -q under pipefail: large-input control (grep -q fails, grep >/dev/null passes) and a scan of build/, build/lib/ and tools/ for the unsafe form
