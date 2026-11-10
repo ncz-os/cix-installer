@@ -465,12 +465,23 @@ if [ -s "$POLICY_FILE" ]; then
     if [ -z "$DEFAULT_BASE" ]; then
         err "assets/kernel/KERNEL-POLICY has no DEFAULT_BASE"
     elif [ -n "$_default_kver" ]; then
-        case "$_default_kver" in
-            "$DEFAULT_BASE"|"$DEFAULT_BASE".*|"$DEFAULT_BASE"-*)
-                log "default kernel '$_default_kver' matches pinned base $DEFAULT_BASE" ;;
-            *)
-                err "default kernel '$_default_kver' is not the pinned $DEFAULT_BASE series (assets/kernel/KERNEL-POLICY)" ;;
-        esac
+        # DEFAULT_BASE may be a comma-separated list while a directed kernel
+        # line switch is in flight (operator 2026-11-09 22:20Z: 7.3.x -> 7.4.x
+        # on both architectures); the default must match one listed base.
+        _base_ok=""; _ifs="$IFS"; IFS=','
+        for _base in $DEFAULT_BASE; do
+            IFS="$_ifs"
+            case "$_default_kver" in
+                "$_base"|"$_base".*|"$_base"-*) _base_ok=1 ;;
+            esac
+            IFS=','
+        done
+        IFS="$_ifs"
+        if [ -n "$_base_ok" ]; then
+            log "default kernel '$_default_kver' matches pinned base $DEFAULT_BASE"
+        else
+            err "default kernel '$_default_kver' is not the pinned $DEFAULT_BASE series (assets/kernel/KERNEL-POLICY)"
+        fi
         # Stronger: refuse any 7.2.x default specifically (the retired series).
         case "$_default_kver" in
             7.2.*|7.2-*) err "default kernel '$_default_kver' is from the retired 7.2.x series" ;;
@@ -481,9 +492,9 @@ if [ -s "$POLICY_FILE" ]; then
                 err "default kernel '$_default_kver' is an -rcN but RC_DEFAULT_ALLOWED is not 1 in assets/kernel/KERNEL-POLICY"
             else
                 if [ -z "$RC_DEFAULT_EXPIRY_NOTE" ]; then
-                    err "RC_DEFAULT_ALLOWED=1 but RC_DEFAULT_EXPIRY_NOTE is empty (must say 'replace by 7.3.0 final')"
+                    err "RC_DEFAULT_ALLOWED=1 but RC_DEFAULT_EXPIRY_NOTE is empty (must say which final release replaces the rc)"
                 else
-                    log "rc default '$_default_kver' allowed (RC_DEFAULT_EXPIRY_NOTE present; replace by 7.3.0 final)"
+                    log "rc default '$_default_kver' allowed (RC_DEFAULT_EXPIRY_NOTE present; $RC_DEFAULT_EXPIRY_NOTE)"
                 fi
             fi
         else

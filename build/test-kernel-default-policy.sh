@@ -126,6 +126,16 @@ run "arm64: 7.3.0 final mainline (no rc allowance)" 0 --root "$r" --arch arm64
 r="$WORK/p3"; mkamd64 "$r" "7.3.0-rc7-t2-ncz" "7.3.0-rc7-t2-ncz"; pin "$r"
 run "amd64: 7.3.0-rc7 default (Wunner + SEP ANFE quirk)" 0 --root "$r" --arch amd64
 
+echo "=== Positive: 7.4 line switch (operator 2026-11-09 22:20Z) ==="
+r="$WORK/p74"; mkamd64 "$r" "7.4.0-rc2-t2-ncz" "7.4.0-rc2-t2-ncz"; pin "$r"
+sed -i 's/^DEFAULT_BASE=7.3$/DEFAULT_BASE=7.3,7.4/' "$r/assets/kernel/KERNEL-POLICY"
+run "amd64: 7.4.0-rc2 default accepted via the 7.3,7.4 base list" 0 --root "$r" --arch amd64
+r="$WORK/p74b"; mkroot "$r" "7.4.0-rc2-sky1-ncz" "7.4.0-rc2-sky1-ncz"; pin "$r"
+sed -i 's/^DEFAULT_BASE=7.3$/DEFAULT_BASE=7.3,7.4/' "$r/assets/kernel/KERNEL-POLICY"
+run "arm64: 7.4.0-rc2 default accepted via the 7.3,7.4 base list" 0 --root "$r" --arch arm64
+r="$WORK/p74c"; mkamd64 "$r" "7.4.0-rc2-t2-ncz" "7.4.0-rc2-t2-ncz"; pin "$r"
+run "amd64: 7.4.0-rc2 default still refused on the 7.3-only base list" 1 --root "$r" --arch amd64
+
 echo "=== Negative: retired 7.2.x ==="
 r="$WORK/n1"; mkroot "$r" "7.2.9-sky1-ncz" "7.2.9-sky1-ncz"
 printf 'DEFAULT_BASE=7.3\nRC_DEFAULT_ALLOWED=1\nRC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final\nRESCUE_SAME_KERNEL=1\nRESCUE_ARM64_BLACKLIST=panthor\nEDGE_ENABLED=0\n' > "$r/assets/kernel/KERNEL-POLICY"
