@@ -176,6 +176,36 @@ def pick_firmware(arch):
     return None, None
 
 
+def sniff_format(path):
+    """'qcow2' when the file carries the QFI\\xfb magic, else 'raw'."""
+    with open(path, "rb") as f:
+        return "qcow2" if f.read(4) == b"QFI\xfb" else "raw"
+
+
+def make_boot_copy(src, work):
+    """Return (boot_path, boot_format) for a scratch boot of `src`.
+
+    Prefers a qcow2 overlay (instant, sparse, leaves the source bytes
+    untouched even across writes) -- the kvm-install-gate keeps its installed
+    target as target.qcow2, so a byte copy here would materialize 30G.
+    Falls back to a full copy when qemu-img is unavailable.
+    """
+    fmt = sniff_format(src)
+    overlay = os.path.join(work, "test-boot.qcow2")
+    qemu_img = shutil.which("qemu-img") or "qemu-img"
+    if os.path.exists(overlay):
+        os.unlink(overlay)
+    r = subprocess.run(
+        [qemu_img, "create", "-f", "qcow2", "-b", os.path.abspath(src),
+         "-F", fmt, overlay],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if r.returncode == 0:
+        return overlay, "qcow2"
+    dst = os.path.join(work, "test.img")
+    shutil.copyfile(src, dst)
+    return dst, fmt
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--disk", required=True)
@@ -188,8 +218,7 @@ def main():
     work = args.workdir or os.path.join(
         "/tmp", "ncz-cs-live-%d" % os.getpid())
     os.makedirs(work, exist_ok=True)
-    disk = os.path.join(work, "test.img")
-    shutil.copyfile(args.disk, disk)
+    disk, boot_format = make_boot_copy(args.disk, work)
 
     code, vars_f = pick_firmware(args.arch)
     if not code:
@@ -213,7 +242,7 @@ def main():
         "-accel", "kvm", "-smp", "2", "-m", "2048",
         "-drive", "if=pflash,format=raw,unit=0,file=%s,readonly=on" % code,
         "-drive", "if=pflash,format=raw,unit=1,file=%s" % vars_work,
-        "-drive", "file=%s,if=virtio,format=raw" % disk,
+        "-drive", "file=%s,if=virtio,format=%s" % (disk, boot_format),
         "-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0,romfile=",
         "-serial", "unix:%s,server,nowait" % serial_path,
         "-monitor", "unix:%s,server,nowait" % monitor_path,
@@ -249,7 +278,13 @@ def main():
         # 1. boot to the serial login prompt
         if ex.read_until(r"[Ll]ogin:") is None:
             no("boot: no serial login prompt within %ds" % args.boot_timeout)
-            tail = ex.buf.decode("utf-8", "replace")[-800:]
+            seen = ex.buf.decode("utf-8", "replace")
+            if re.search(r"Debian.*installer|component-selector|cdebconf|"
+                         r"ncz_unattended|disk-fs-chooser", seen, re.I):
+                say("hint: this disk booted the d-i INSTALLER, not an "
+                    "installed system -- pass the kept target.qcow2 from a "
+                    "kvm-install-gate run, not the installer medium")
+            tail = seen[-800:]
             if tail.strip():
                 say("serial tail: %s" % tail.strip()[-500:])
             return 1

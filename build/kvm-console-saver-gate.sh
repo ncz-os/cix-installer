@@ -11,8 +11,10 @@
 #       ncz-payload/assets/console-saver/ staging bundle (server stages it,
 #       desktop must not); installed layout + hook registration belong to the
 #       --live gate on an installed system (hook 61 installs at post-install).
-#   --live <server.img> --arch amd64|arm64 [--idle N] [--workdir DIR]
-#       boots the server image under KVM and drives the saver live:
+#   --live <installed-target.img> --arch amd64|arm64 [--idle N] [--workdir DIR]
+#       boots the INSTALLED target (the kept target.qcow2 printed by a
+#       kvm-install-gate run -- NOT the installer medium, which boots d-i)
+#       under KVM and drives the saver live:
 #       idle -> saver appears on a free VT, a real key -> VT restored,
 #       no leftover processes, power budget (saver CPU <= 2% of one core,
 #       RSS < 16 MB), daemon left running, no respawn loop.
@@ -205,7 +207,7 @@ cmd_live() {
             *) [ -z "$disk" ] || die "extra argument $1"; disk="$1"; shift ;;
         esac
     done
-    [ -n "$disk" ] || die "--live needs <server.img>"
+    [ -n "$disk" ] || die "--live needs <installed-target.img> (a kvm-install-gate kept target.qcow2)"
     python3 "$SCRIPT_DIR/kvm-console-saver-live.py" \
         --disk "$disk" --arch "$arch" --idle "$idle" ${work:+--workdir "$work"}
     verdict
