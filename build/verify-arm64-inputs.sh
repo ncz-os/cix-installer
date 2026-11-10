@@ -96,9 +96,14 @@ esac
 # BUILD_VARIANT (stamped at install-time). At build-time neither is normally
 # set, so default to "desktop" (the gate only skips the cix-debs check on
 # server/headless, so on a build host we want to ENFORCE the check by default).
+# NCZ_BUILD_VARIANT_FILE overrides the stamp path so fixtures stay hermetic on
+# an installed host (a live stamp of "server" would otherwise SKIP the
+# cix-debs class and silently drop its checks -- the same host-state leak the
+# baked-allowlist fixture had with COMPONENTS; see NCZ_COMP_FILE there).
 BUILD_VARIANT="${BUILD_VARIANT:-${NCZ_BUILD_VARIANT:-}}"
-if [ -z "$BUILD_VARIANT" ] && [ -r /usr/local/lib/cix-installer/BUILD_VARIANT ]; then
-    BUILD_VARIANT="$(tr -d '[:space:]' < /usr/local/lib/cix-installer/BUILD_VARIANT)"
+NCZ_BUILD_VARIANT_FILE="${NCZ_BUILD_VARIANT_FILE:-/usr/local/lib/cix-installer/BUILD_VARIANT}"
+if [ -z "$BUILD_VARIANT" ] && [ -r "$NCZ_BUILD_VARIANT_FILE" ]; then
+    BUILD_VARIANT="$(tr -d '[:space:]' < "$NCZ_BUILD_VARIANT_FILE")"
 fi
 
 # --- prebuilt-deb kernel BOM ------------------------------------------

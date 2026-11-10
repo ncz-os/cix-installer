@@ -93,8 +93,13 @@ mkpassing_root() {
 run_gate() {
     local label="$1" want_rc="$2" want_pat="$3" envstr="$4"; shift 4
     local out rc
+    # NCZ_BUILD_VARIANT_FILE points at a nonexistent stamp so an INSTALLED
+    # host (whose /usr/local/lib/cix-installer/BUILD_VARIANT may say "server")
+    # cannot leak into the fixture: the gate then takes its build-host default
+    # (desktop -> cix-debs checks enforced), which is what the cases assume.
     out=$(env -i PATH="$PATH" HOME="$HOME" LC_ALL=C \
         NCZ_CIX_DEB_MIN=22 \
+        NCZ_BUILD_VARIANT_FILE="$TMPROOT/no-such-variant-stamp" \
         $envstr \
         bash "$GATE" "$@" 2>&1) || rc=$?
     rc="${rc:-0}"
@@ -118,6 +123,7 @@ assert_no_missing() {
     local out
     out=$(env -i PATH="$PATH" HOME="$HOME" LC_ALL=C \
         NCZ_CIX_DEB_MIN=22 \
+        NCZ_BUILD_VARIANT_FILE="$TMPROOT/no-such-variant-stamp" \
         $envstr \
         bash "$GATE" "$@" 2>&1) || true
     if printf '%s\n' "$out" | grep >/dev/null -E 'verify-arm64-inputs: MISSING'; then
@@ -281,6 +287,19 @@ mkstub "$SERVER_ROOT/assets/rescue/rescue-rootfs-arm64.tar.zst"
 run_gate "arm64 BUILD_VARIANT=server skips cix-debs check -> OK" \
     0 'verify-arm64-inputs: OK' \
     "NCZ_TARGET_ARCH=arm64 BUILD_VARIANT=server VERIFY_ROOT=$SERVER_ROOT"
+
+# Case B8b: the install-time stamp file is honoured through
+# NCZ_BUILD_VARIANT_FILE. On an installed host the live stamp says
+# "server"; without the override that leaked into every fixture above and
+# silently SKIPPED the cix-debs class (the panthor and aipu-pin cases then
+# passed vacuously). With the override pointed at a server stamp the SKIP
+# must still happen -- proving the stamp is read via the override, and that
+# the default cases (override -> nonexistent file) take the build-host
+# default of ENFORCED cix-debs checks.
+printf 'server\n' > "$TMPROOT/variant-stamp"
+run_gate "arm64 stamp file (server) via NCZ_BUILD_VARIANT_FILE skips cix-debs -> OK" \
+    0 'verify-arm64-inputs: cix-debs: SKIP \(BUILD_VARIANT=server\)' \
+    "NCZ_TARGET_ARCH=arm64 NCZ_BUILD_VARIANT_FILE=$TMPROOT/variant-stamp VERIFY_ROOT=$SERVER_ROOT"
 
 # Case B9: --verify-firmware-dir flag overrides the firmware root. This
 # is the per-flag path (used by the retired ISO builder) to check a different
