@@ -19,8 +19,8 @@
 #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
 #   amd64: assets/kernel/amd64-stable/KVER
 # amd64 is 7.4.0-rc2-t2-ncz (7.4.0-rc2-2, CANDIDATE: KVM-gated 2026-11-09,
-# hardware boot pending). arm64 is 7.3.3-sky1-ncz (r298, boot-tested on O6N)
-# until its 7.4-rc2 staged build pins.
+# hardware boot pending). arm64 is 7.4.0-rc2-sky1-ncz (r299, CANDIDATE:
+# KVM-gated 2026-11-10, hardware boot pending).
 # Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
 # assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.
 DEFAULT_BASE=7.3,7.4

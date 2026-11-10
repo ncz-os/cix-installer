@@ -28,15 +28,17 @@ MIN_VERSION=7.3.3
 CURRENT_KVER_amd64=7.4.0-rc2-t2-ncz
 CURRENT_PKG_amd64=7.4.0-rc2-2
 
-# arm64: Sky1 7.3.3-sky1-ncz r298 (ULTRA build 2026-11-07, v7.3.3 d50d994bffa3,
-# meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N 2026-11-08 (Image
-# sha256 f47b74e2..., vmlinux build id 19c5ddd7...). Pool dir
-# kernel-staging/r298-7.3.3-sky1-ncz-20261107 (assets/kernel/mainline.release).
-CURRENT_KVER_arm64=7.3.3-sky1-ncz
-CURRENT_PKG_arm64=7.3.3-sky1-ncz+r298
+# arm64: Sky1 7.4.0-rc2-sky1-ncz r299 (ULTRA non-git export build 2026-11-10,
+# v7.4-rc2 7475ea8b, linux-cix kernel-dev/sky1-7.4-rc2-r3 f6950f68, 32 patches,
+# localversion-ncz -sky1-ncz). CANDIDATE: KVM boot gate PASS (r299 staging),
+# hardware boot PENDING (NEEDS 6) per the 2026-11-09 22:20Z order. Pool dir
+# kernel-staging/r299-7.4.0-rc2-sky1-ncz-20261109 (assets/kernel/mainline.release).
+CURRENT_KVER_arm64=7.4.0-rc2-sky1-ncz
+CURRENT_PKG_arm64=7.4.0-rc2-sky1-ncz+r299
 
 # Retired KVERs, comma-separated: never pinned again, on any arch.
-# 7.3.3-t2-ncz retired at the 7.4 line switch (candidate pin bump; the rescue
-# entry on installed hosts keeps the same kernel + accelerator blacklist per
-# ONE-KERNEL, so nothing pins a retired KVER).
-RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.3-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz
+# 7.3.3-t2-ncz retired at the amd64 7.4 line switch and 7.3.3-sky1-ncz at the
+# arm64 one (candidate pin bumps; the rescue entry on installed hosts keeps the
+# same kernel + accelerator blacklist per ONE-KERNEL, so nothing pins a retired
+# KVER).
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.3-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz,7.3.3-sky1-ncz
