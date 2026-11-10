@@ -1520,3 +1520,18 @@ for d in "$OUT"/*.deb; do
     echo "--- $d ---"
     dpkg-deb -f "$d" Package Version Architecture Depends Installed-Size
 done
+
+# ----------------------------------------------------------------------
+# Manifest-order fix (2026-11-10): assets/kernel-manifest.json must be
+# generated AFTER the final deb bytes exist.  release-kernel.sh runs gen at
+# its end, but a standalone packaging run (the r299 forky-rebuild class)
+# used to leave the manifest pinning PRE-rebuild shas -- the pin-coherence
+# kernel-revision rule caught it only at the next image cycle.  Re-gen and
+# check here so packaging can never leave a stale manifest behind.
+# ----------------------------------------------------------------------
+echo ""
+echo "== kernel manifest (post-packaging) =="
+( cd "$REPO" && python3 build/kernel-manifest.py gen ) \
+    || { echo "build-kernel-debs: kernel-manifest.py gen FAILED after packaging" >&2; exit 1; }
+( cd "$REPO" && python3 build/kernel-manifest.py check --strict ) \
+    || { echo "build-kernel-debs: kernel-manifest check FAILED -- do not ship these debs" >&2; exit 1; }

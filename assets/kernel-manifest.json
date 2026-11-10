@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-11-10T01:49:00Z",
+  "generated_utc": "2026-11-10T17:12:40Z",
   "generator": "build/kernel-manifest.py",
   "kernel_debs": [
     {
@@ -8,11 +8,11 @@
     },
     {
       "file": "build/kernel-debs/linux-headers-cixmini_7.4.0-rc2-sky1-ncz+r299_arm64.deb",
-      "sha256": "76cc98af4fb888ebaf08522afe2bbd1c72e36bc33e2b4813b16aa7c0253c0604"
+      "sha256": "8d1af04a47dc5115e576c3e930ee1b59a14fc346a588eff210b73f86c36bff7b"
     },
     {
       "file": "build/kernel-debs/linux-image-cixmini_7.4.0-rc2-sky1-ncz+r299_arm64.deb",
-      "sha256": "1feb360423d9458ccd177abd68e93801c39a01aa031be86631644690181a7c15"
+      "sha256": "fbd9cf9431286563aa35509e1a46a359fc2f8da33be1582aacc1659c46e5d2bc"
     }
   ],
   "schema": 1,
@@ -20,19 +20,19 @@
     "mainline": {
       "config": {
         "file": "assets/kernel/mainline/config-7.4.0-rc2-sky1-ncz",
-        "sha256": "ff08a75b61c5fb49ced2e455b887e88216db51d5efb8c5824e9a340464683e2d"
+        "sha256": "beca6ff880b686c53bf19de20d39080199516d2e095105ee05fc97f7a325e271"
       },
       "dir": "assets/kernel/mainline",
       "image": {
         "file": "assets/kernel/mainline/Image-cixmini.bin",
-        "sha256": "cd64e6eb60100a83c0b9c14a1f363965e1d564d41e832cf5f074adb44a8f4007",
+        "sha256": "82b6fbbd6efc8308ea7716f4714cd5a05950e0b47bd8c83db4336afeb474503a",
         "size": 50506240
       },
       "kver": "7.4.0-rc2-sky1-ncz",
       "modules": {
         "file": "assets/kernel/mainline/modules-cixmini.tgz",
-        "sha256": "8a4eb892c2ae3a9d851460db9e63ec2e3178ba371432c98f85f378505bc511f7",
-        "size": 245513577
+        "sha256": "2b46797d7fb5046c9a962a96e5ded5b5cb87261378e05cc69a86f45d8b040eb3",
+        "size": 245430547
       },
       "npu": null
     }
