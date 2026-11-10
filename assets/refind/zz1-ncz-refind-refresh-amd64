@@ -19,13 +19,17 @@
 # postinst via run-parts).
 #
 # Called by dpkg/kernel postinst as: <this-script> <kernel-version>
-# <boot-image-path> (standard /etc/kernel/postinst.d/ contract). We only
-# use it as a trigger -- the real KVER_STABLE is re-derived from a live
-# /boot scan, not from $1, since a single apt transaction can touch the
-# line and only a fresh scan is authoritative.
+# <boot-image-path> (standard /etc/kernel/postinst.d/ contract).
+# ADD-ONLY FIX (2026-11-10, the 01:16Z hardware finding): stage/add the
+# kernel BEING INSTALLED ($1), side-by-side, never promote. The previous
+# design re-derived KVER_STABLE from a /boot scan instead of $1, and the
+# scan picked a different kernel than dpkg was installing (observed on the
+# 7.4.0-rc2 install: it re-added the 7.3.3 entry and staged nothing for
+# 7.4). The scan remains only as the fallback for trigger-style calls
+# without $1.
 set -uo pipefail
 
-REFRESH=/usr/local/sbin/ncz-refind-refresh-amd64
+REFRESH="${NCZ_REFIND_REFRESH:-/usr/local/sbin/ncz-refind-refresh-amd64}"
 [ -x "$REFRESH" ] || { echo "zz1-ncz-refind-refresh-amd64: $REFRESH not present, skipping"; exit 0; }
 
 BOOTDIR="${BOOTDIR:-/boot}"
@@ -83,11 +87,25 @@ find_newest() {
     echo "$newest"
 }
 
-KVER_STABLE=$(find_newest)
+KVER_ARG="${1:-}"
+if [ -n "$KVER_ARG" ]; then
+    # The kernel dpkg is installing: stage THIS one, side-by-side.
+    if [ "$(classify "$KVER_ARG")" != "default" ]; then
+        echo "zz1-ncz-refind-refresh-amd64: $KVER_ARG is not a default-class NCZ kernel (7.3/7.4), skipping"
+        exit 0
+    fi
+    if [ ! -s "$BOOTDIR/vmlinuz-$KVER_ARG" ] || [ ! -s "$BOOTDIR/initrd.img-$KVER_ARG" ]; then
+        echo "zz1-ncz-refind-refresh-amd64: $KVER_ARG lacks vmlinuz/initrd in $BOOTDIR (mid-transaction?), skipping" >&2
+        exit 0
+    fi
+    KVER_STABLE="$KVER_ARG"
+else
+    KVER_STABLE=$(find_newest)
+fi
 KVER_EDGE=""
 
 if [ -z "$KVER_STABLE" ]; then
-    echo "zz1-ncz-refind-refresh-amd64: no 7.3 default kernel with a ready initrd found, skipping"
+    echo "zz1-ncz-refind-refresh-amd64: no default-class kernel (7.3/7.4) with a ready initrd found, skipping"
     exit 0
 fi
 
@@ -95,7 +113,7 @@ BUILD_VERSION="(unknown)"
 [ -f /usr/local/lib/cix-installer/BUILD_VERSION ] && \
     BUILD_VERSION=$(cat /usr/local/lib/cix-installer/BUILD_VERSION 2>/dev/null || true)
 
-echo "zz1-ncz-refind-refresh-amd64: KVER_STABLE=$KVER_STABLE (unified 7.3; no edge channel)"
+echo "zz1-ncz-refind-refresh-amd64: KVER_STABLE=$KVER_STABLE (add-only: staging side-by-side; never promotes)"
 # ADD-ONLY (2026-11-02): this hook runs on every kernel install, so it must NOT
 # regenerate the menu. Before this change it called the tool with no verb,
 # which WIPED the ESP and rebuilt the whole menu -- making the kernel that had
