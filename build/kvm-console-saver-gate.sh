@@ -6,6 +6,11 @@
 #   --static <server.img> [<desktop.img>]  debugfs checks: the saver ships and
 #       is enabled on the server variant and is ABSENT from the desktop
 #       variant. Covers "service enabled on server / absent on desktop".
+#       Medium-layout images (installer media: dists/ncz-payload/pool at the
+#       partition root) are checked at the right layer: the
+#       ncz-payload/assets/console-saver/ staging bundle (server stages it,
+#       desktop must not); installed layout + hook registration belong to the
+#       --live gate on an installed system (hook 61 installs at post-install).
 #   --live <server.img> --arch amd64|arm64 [--idle N] [--workdir DIR]
 #       boots the server image under KVM and drives the saver live:
 #       idle -> saver appears on a free VT, a real key -> VT restored,
@@ -112,6 +117,40 @@ check_variant() { # $1=root.raw $2=label $3=present|absent
     fi
 }
 
+# A server *medium* (installer image) has the offline-medium layout
+# (dists/ncz-payload/pool at the partition root); installed-layout paths are
+# absent there BY DESIGN -- hook 61-ncz-console-saver.sh installs them onto the
+# installed system at post-install. For mediums the static assertions are the
+# payload staging bundle (stage_console_saver(), server-variant guard); the
+# installed layout + hook registration (hooks.list.*, run-all.sh
+# MACHINE_HOOKS_RE) are the live gate's assertions on an installed system.
+check_medium_staging() { # $1=root.raw $2=label $3=present|absent
+    local root="$1" label="$2" want="$3" p have
+    local bundle="/ncz-payload/assets/console-saver/ncz-console-saver \
+/ncz-payload/assets/console-saver/ncz-bh-console \
+/ncz-payload/assets/console-saver/console-saver.conf \
+/ncz-payload/assets/console-saver/ncz-console-saver.service \
+/ncz-payload/assets/console-saver/README.md"
+    for p in $bundle; do
+        have=no
+        fs_has "$root" "$p" && have=yes
+        if [ "$want" = present ] && [ "$have" = yes ]; then
+            ok "$label stages $p"
+        elif [ "$want" = present ]; then
+            no "$label is missing staged $p"
+        elif [ "$have" = yes ]; then
+            no "$label must NOT stage $p"
+        else
+            ok "$label correctly does not stage $p"
+        fi
+    done
+    say "$label is a medium layout: installed layout + hook registration are asserted by the live gate on an installed system"
+}
+
+is_medium() { # $1=root.raw -- true when the partition root is an offline medium
+    fs_has "$1" "/ncz-payload" && fs_has "$1" "/pool"
+}
+
 cmd_static() {
     local srv="${1:-}" desk="${2:-}"
     [ -n "$srv" ] || die "--static needs <server.img>"
@@ -120,11 +159,20 @@ cmd_static() {
     echo "[static] server image: $srv"
     extract_rootfs "$srv" "$work/server.root.raw"
     root="$work/server.root.raw"
-    check_variant "$root" "server" present
+    if is_medium "$root"; then
+        echo "[static] server image is a medium layout (dists/ncz-payload/pool): asserting payload staging"
+        check_medium_staging "$root" "server" present
+    else
+        check_variant "$root" "server" present
+    fi
     if [ -n "$desk" ]; then
         echo "[static] desktop image: $desk (must not carry the saver)"
         extract_rootfs "$desk" "$work/desktop.root.raw"
-        check_variant "$work/desktop.root.raw" "desktop" absent
+        if is_medium "$work/desktop.root.raw"; then
+            check_medium_staging "$work/desktop.root.raw" "desktop" absent
+        else
+            check_variant "$work/desktop.root.raw" "desktop" absent
+        fi
     else
         say "no desktop image given; the absent side is unchecked"
     fi
