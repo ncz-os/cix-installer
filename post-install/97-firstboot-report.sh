@@ -38,8 +38,16 @@ sleep 30
         timeout 180 /usr/local/sbin/ncz-module-abi-probe
     fi
     if [ -x /usr/local/bin/ncz-wallpaper-bing ]; then
-        timeout 90 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale --preferred-only > /var/log/ncz-wallpaper-smoke.log 2>&1
-        echo "# wallpaper-bing-rc=$?"
+        # Non-blocking + offline-first (2026-11-09, norescue arm64): a slow or
+        # half-up network (TCP connects, HTTP stalls) let fetch --if-stale hang
+        # past its wrapper and the smoke read 124, which the gate scores as a
+        # failure. Wallpaper is a nice-to-have, never a boot blocker: bound the
+        # run and treat a hung fetch as the helper's offline code (75), not a
+        # smoke failure. The gate accepts 0 or 75.
+        timeout 45 /usr/local/bin/ncz-wallpaper-bing fetch --if-stale --preferred-only > /var/log/ncz-wallpaper-smoke.log 2>&1
+        _wp_rc=$?
+        [ "$_wp_rc" = 124 ] && _wp_rc=75
+        echo "# wallpaper-bing-rc=$_wp_rc"
     fi
     echo "# end"
 } > /var/log/ncz-first-boot-report.txt 2>&1

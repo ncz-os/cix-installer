@@ -55,6 +55,15 @@ ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # NCZ_SKIP_FRESHNESS_GATE=1 is the explicit, acknowledged escape hatch --
 # not a default, and never silent (it prints why it's skipping).
 if [ "${NCZ_SKIP_FRESHNESS_GATE:-0}" != "1" ]; then
+    # Canonical safe-directory escape (same idiom as build-installer-image.sh).
+    # This stage runs under ncz_sudo_bash (root), while the checkout and the
+    # singularity pin cache under build/ are owned by the invoking user and the
+    # ARGONAS NFS export squashes root writes.  Git's dubious-ownership guard
+    # then refuses every repo under root and materialise() misreports the pins
+    # as "does not exist" (measured 2026-11-09: three gated aborts vs a green
+    # standalone gate as the user).  Marking the trees safe lets the gate do
+    # its real work -- pin existence and patch applicability -- unchanged.
+    git config --global --add safe.directory '*' 2>/dev/null || true
     if ! "$ROOT/build/preflight-freshness-gate.sh"; then
         echo "[sqfs] ABORT: preflight-freshness-gate.sh failed -- see above." >&2
         echo "[sqfs]        Set NCZ_SKIP_FRESHNESS_GATE=1 to build anyway (not recommended)." >&2

@@ -40,5 +40,20 @@
 # build/check-payload-ships-patches.sh rc=0, version
 # 20261106212410+bk0+git6427e9c4. Both rows now describe the same upstream source,
 # so the earlier deliberate skew is CLOSED.
+# 2026-11-09 (cycle 272): a TYPHON desktop layer build rebuilt the payload from
+# the SAME pinned sources (84 pins, native ninja 10236/10236) as version
+# 20261109175812+bk0+tgzaaf1065d; its supersede logic pruned the reviewed
+# 20261106212410 deb from assets/cix-debs and the vendor mirror, and the
+# rebuilt payload could NOT simply replace it: the 0.3.26 screensaver plugin's
+# ABI lock (post-install/lib/ncz-screensavers-plugin.lock) pins libsingularity
+# sha256 for BOTH arches to the reviewed build, so a rebuilt (byte-different)
+# payload breaks check-ssplugin-abi.sh at the image stage.
+# 2026-11-09 (cycle 273): RECOVERY -- the reviewed deb was found intact in the
+# artifact store (ncz-singularity-debs/payload-20261106222540/amd64/, sha256
+# verified against this pin) and restored to assets/cix-debs; the unreviewed
+# 20261109175812 rebuild is discarded. This row is reverted to the reviewed
+# bytes so the payload/plugin/ABI trio matches the published payload
+# (20261108-9937de3c). Keep this pin until the plugin is rebuilt against a
+# new payload with a matching lock update.
 amd64	7a6149d3b8fa74f7c78c9f4015e1e4d4e5ac0ba3e25b136a206c9e0bb67b4db5	ncz-singularity-desktop_20261106212410+bk0+git6427e9c4_amd64.deb
 arm64	56626ecb80a4e176a1b8a48209708b1c97222bc2983e6e1456c92df810c28ff5	ncz-singularity-desktop_20261106222540+bk0+git6427e9c4_arm64.deb

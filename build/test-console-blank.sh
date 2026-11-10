@@ -29,6 +29,18 @@ grep -qE 'apt-get install[^#]*(cmatrix|pipes)' "$H" && bad "third-party saver in
 for f in assets/refind/ncz-refind-refresh-amd64.sh assets/refind/ncz-refind-refresh.sh; do
     grep -q 'consoleblank=300' "$ROOT/$f" && ok "$f server cmdline" || bad "$f missing consoleblank=300"
 done
+# The string alone is not enough: the append must land in the option strings
+# each generator actually EMITS. On arm64 the amd64 STABLE_* names do not
+# exist, so an append to them was a silent no-op and the installed server menu
+# carried no consoleblank=300 (kvm-gate caught it 2026-11-09).
+grep -q 'STABLE_OPTIONS="$STABLE_OPTIONS consoleblank=300"' "$ROOT/assets/refind/ncz-refind-refresh-amd64.sh" \
+    && ok "amd64 DEFAULT entry append targets STABLE_OPTIONS" || bad "amd64 STABLE_OPTIONS append missing"
+grep -q 'STABLE_CONSOLE_OPTIONS="$STABLE_CONSOLE_OPTIONS consoleblank=300"' "$ROOT/assets/refind/ncz-refind-refresh-amd64.sh" \
+    && ok "amd64 Console entry append targets STABLE_CONSOLE_OPTIONS" || bad "amd64 STABLE_CONSOLE_OPTIONS append missing"
+grep -q 'NEXT_CONSOLE_OPTIONS="$NEXT_CONSOLE_OPTIONS consoleblank=300"' "$ROOT/assets/refind/ncz-refind-refresh.sh" \
+    && ok "arm64 Console entry append targets NEXT_CONSOLE_OPTIONS" || bad "arm64 NEXT_CONSOLE_OPTIONS append missing"
+grep -q 'RESCUEPART_OPTIONS="$RESCUEPART_OPTIONS consoleblank=300"' "$ROOT/assets/refind/ncz-refind-refresh.sh" \
+    && ok "arm64 Rescue Partition entry append targets RESCUEPART_OPTIONS" || bad "arm64 RESCUEPART_OPTIONS append missing"
 grep -q 'consoleblank=300' "$ROOT/build/kvm-install-gate-gpt.sh" && ok "gate asserts the cmdline" || bad "gate does not assert the cmdline"
 grep -q 'ncz-console-blank.service' "$ROOT/build/kvm-install-gate-gpt.sh" && ok "gate asserts the enabled unit" || bad "gate does not assert the unit"
 

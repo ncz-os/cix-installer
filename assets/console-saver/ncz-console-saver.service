@@ -1,0 +1,21 @@
+[Unit]
+Description=NCZ Magnetar console screen saver
+Documentation=file:/usr/share/doc/ncz-console-saver/README.md
+# Server variant only: the image build enables this unit; the desktop image
+# never installs it (docs/MAGNETAR-SERVER-VARIANT.md).
+ConditionPathExists=/dev/tty0
+After=multi-user.target
+# The saver must not race a suspend/shutdown; stop cleanly on both.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ncz-console-saver
+Restart=on-failure
+RestartSec=30
+# The daemon needs VT ioctls and the input devices.
+User=root
+# Never let a hung saver daemon block shutdown.
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

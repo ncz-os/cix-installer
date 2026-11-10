@@ -1672,6 +1672,13 @@ stage_static_gates() {
     # inside the build rack.
     suites+=("$(_sg_suite "$ROOT/build/test-no-lan-urls.sh")")
     suites+=("$(_sg_suite "$ROOT/build/test-greeter-console-fallback.sh")")
+    # Server console burn-in protection (operator 2026-11-08). Wired in
+    # 2026-11-09: the arm64 rEFInd generator appended consoleblank=300 to the
+    # amd64 script's STABLE_* variable names -- a silent no-op, so the
+    # installed server menu carried no consoleblank and only the kvm gate
+    # caught it after a full install. This suite asserts the append lands in
+    # the option strings each generator emits; it is greps only, no root.
+    suites+=("$(_sg_suite "$ROOT/build/test-console-blank.sh")")
 
     local s
     for s in "${suites[@]}"; do

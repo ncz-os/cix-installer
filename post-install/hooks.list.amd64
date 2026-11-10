@@ -50,6 +50,7 @@
 59-desktop-curate.sh
 59-ncz-screensavers-pkg.sh
 60-boot-splash.sh
+61-ncz-console-saver.sh
 62-cygnus-screensaver-default.sh
 63-ncz-idle-lock-order.sh
 64-ncz-lock-saver-plan.sh

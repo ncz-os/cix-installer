@@ -101,7 +101,7 @@ echo "[48] getty@tty2 enabled (default operator console)"
 # more; any key wakes. Kernel cmdline also carries consoleblank=300 for the
 # boot menu entries; this unit re-applies the same policy on every VT (the
 # cmdline only covers the boot console) and re-runs when a new VT appears.
-mkdir -p /etc/ncz
+mkdir -p /etc/ncz /etc/systemd/system /etc/udev/rules.d
 cat > /etc/ncz/console.conf <<'CONF'
 # /etc/ncz/console.conf -- server console idle policy (ncz-console-blank).
 # Sourceable by /bin/sh. NCZ_CONSOLE_BLANK=no disables everything.
@@ -115,6 +115,11 @@ NCZ_CONSOLE_BANNER=yes
 CONF
 chmod 0644 /etc/ncz/console.conf
 
+# Install the helper where the unit expects it, but never hard-fail the hook
+# on an unwritable /usr/local/sbin: the hook must run unprivileged in test
+# sandboxes, and aborting half-way (target set, DM masked, no blank) is worse
+# than a loud skip. A real install chroot is root-owned, so this always runs.
+if [ -w /usr/local/sbin ]; then
 cat > /usr/local/sbin/ncz-console-blank <<'SCRIPT'
 #!/bin/bash
 # ncz-console-blank -- apply the /etc/ncz/console.conf idle policy to every VT.
@@ -137,6 +142,9 @@ done
 exit 0
 SCRIPT
 chmod 0755 /usr/local/sbin/ncz-console-blank
+else
+    echo "[48] WARN: /usr/local/sbin is not writable; ncz-console-blank helper not installed (non-root/sandbox run)"
+fi
 
 cat > /etc/systemd/system/ncz-console-blank.service <<'UNIT'
 [Unit]
@@ -169,6 +177,7 @@ echo "[48] console idle blanking installed (ncz-console-blank, /etc/ncz/console.
 # (so "any key" is the same read that resets the idle clock), and only draws
 # between 2 minutes idle and the blank deadline, then stops writing so the
 # kernel can blank the panel without being woken by the saver.
+if [ -w /usr/local/sbin ]; then
 cat > /usr/local/sbin/ncz-console-saver <<'SAVER'
 #!/usr/bin/env python3
 """ncz-console-saver -- idle console protection; any key stops it.
@@ -325,6 +334,9 @@ if __name__ == "__main__":
     sys.exit(main())
 SAVER
 chmod 0755 /usr/local/sbin/ncz-console-saver
+else
+    echo "[48] WARN: /usr/local/sbin is not writable; ncz-console-saver helper not installed (non-root/sandbox run)"
+fi
 
 cat > /etc/systemd/system/ncz-console-saver.service <<'UNIT'
 [Unit]

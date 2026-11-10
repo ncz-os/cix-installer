@@ -489,6 +489,18 @@ gzip -9c "$OUT/dists/$SUITE/main/binary-$ARCH/Packages" > "$OUT/dists/$SUITE/mai
     -o "APT::FTPArchive::Release::Architectures=$ARCH" \
     release "dists/$SUITE" > "dists/$SUITE/Release" )
 
+# Determinism fix (operator 2026-11-08 "LAND THE DETERMINISM FIXES"; measured
+# 2026-11-09): apt-ftparchive stamps Date: with the wall clock, so every
+# regeneration re-dates dists/$SUITE/Release and the ncz-pool tarball that
+# embeds it drifts to a new sha256 with otherwise byte-identical content
+# (published 54fc8e93 vs rebuild fe9f4b8b -- exactly one Date: line apart).
+# Pin Date to SOURCE_DATE_EPOCH, the build's existing reproducibility clock,
+# so identical inputs reproduce identical bytes.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    _ncz_rel_date="$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%a, %d %b %Y %H:%M:%S +0000')"
+    sed -i "s/^Date: .*/Date: ${_ncz_rel_date}/" "$OUT/dists/$SUITE/Release"
+fi
+
 # closure packages that the local mirror did NOT have (informational)
 FILLED="$T/filled"
 if [ -f "$IDX" ]; then

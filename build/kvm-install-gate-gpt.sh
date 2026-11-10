@@ -111,6 +111,11 @@ SMP="${SMP:-4}"
 #   NCZ_GATE_SERVER_PAYLOAD       path to base.squashfs (default $SERVER_DEFAULTS)
 #   NCZ_GATE_SERVER_ASSETS        path to ncz-assets-<arch>.tar.gz (default
 #                                 $SERVER_DEFAULTS)
+#   NCZ_GATE_SERVER_ONLINE        1 = force online mode (the medium pins a
+#                                 published URL: preflight it at its own host
+#                                 instead of shadow-serving), 0 = force the
+#                                 legacy shadow server, unset = auto (see
+#                                 build/kvm-gate-server-lib.sh)
 # Both defaults are the build's payload work dir of the same run
 # ($WORK/..: build-image.sh passes WORKDIR=$RUN_DIR/kvm-gate/<set> and keeps
 # the layer payloads under $RUN_DIR).
@@ -124,6 +129,11 @@ case "$NCZ_GATE_SERVER_OFFLINE" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_O
 # operator found desktop options offered on such a medium, MEDUSA 2026-11-08).
 NCZ_GATE_SERVER_MEDIUM="${NCZ_GATE_SERVER_MEDIUM:-0}"
 case "$NCZ_GATE_SERVER_MEDIUM" in 0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_MEDIUM must be 0 or 1" >&2; exit 2 ;; esac
+NCZ_GATE_SERVER_ONLINE="${NCZ_GATE_SERVER_ONLINE:-}"
+case "$NCZ_GATE_SERVER_ONLINE" in ''|0|1) ;; *) echo "GATE FAIL: NCZ_GATE_SERVER_ONLINE must be empty, 0 or 1" >&2; exit 2 ;; esac
+# local shadow-serve vs online preflight decisions live in the sourced lib so
+# build/test-kvm-gate-server.sh section 9 tests the exact code the gate runs.
+. "$(dirname "${BASH_SOURCE[0]}")/kvm-gate-server-lib.sh"
 if [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Server install = console system: no desktop, no management container.
     # The rescue partition IS selected: the documented server menu is
@@ -508,6 +518,35 @@ ncz_srv_cleanup() {
     [ -n "$SRV_PID" ] && wait "$SRV_PID" 2>/dev/null || true
     SRV_PID=""
 }
+ncz_gate_srv_dead_manifest() {
+    # $1 = the run's qemutest image COPY. Rewrite the pinned URLs in its
+    # NCZDATA ncz-payload/ncz-fetch-payload.manifest to a refused endpoint
+    # (build/kvm-gate-dead-manifest.sh: names, hashes and modes preserved) so
+    # the negative run's fetch fails AT THE PINNED SOURCE. Needed because in
+    # online mode the medium pins a LIVE published URL and "the payload server
+    # is OFF" alone cannot make the guest fail (measured 2026-11-09: the
+    # negative run fetched all three artifacts from the live bucket). The
+    # shipped image is never modified -- only this run's copy, same as the
+    # rEFInd entry patching in step [3/6].
+    local img="$1" _dpart _dlba _dend _db
+    _dpart=$("$SGDISK" -p "$img" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $NF == "NCZDATA" {print $1; exit}')
+    [ -n "$_dpart" ] && [ "$_dpart" -ge 1 ] || return 1
+    _dlba=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    _dend=$("$SGDISK" -i "$_dpart" "$img" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+    [ -n "$_dlba" ] && [ -n "$_dend" ] || return 1
+    _db=$(mktemp "$WORK/.dead-data-XXXXXX.raw")
+    if ! qemu-img convert --image-opts -S 4k -O raw \
+        "driver=raw,file.driver=file,file.filename=$img,offset=$((_dlba * 512)),size=$(( ($_dend - _dlba + 1) * 512 ))" "$_db" >/dev/null 2>&1; then
+        rm -f "$_db"; return 1
+    fi
+    if ! "$SCRIPT_DIR/kvm-gate-dead-manifest.sh" "$_db"; then
+        rm -f "$_db"; return 1
+    fi
+    if ! dd if="$_db" of="$img" bs=512 seek="$_dlba" conv=notrunc status=none; then
+        rm -f "$_db"; return 1
+    fi
+    rm -f "$_db"
+}
 ncz_gate_srv_start() {
     # $1 = the base URL the guest's manifest pins (scheme://host[:port]).
     # Starts the server and proves it actually ANSWERS (a full HTTP request
@@ -650,6 +689,25 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # ncz-assets-<arch>.tar.gz; the pin is authoritative).
     _srv_name=$(basename "${_srv_aurl%%\?*}")
     _srv_pool_name=$(basename "${_srv_lurl%%\?*}")
+    # LOCAL vs ONLINE. A pin naming a host of this machine (10.0.2.2 for the
+    # QEMU user-net gateway, or NCZ_GATE_SERVER_HOST at build time) is served
+    # by the gate's own shadow server AT the pin, so the two cannot drift. A
+    # pin naming a REMOTE endpoint (the published release payload on the
+    # public R2 bucket) cannot be bound -- `bind pub-…r2.dev:80` is
+    # [Errno 99] Cannot assign requested address (measured 2026-11-09, run
+    # server-online-amd64-20261109) -- and must not be shadow-served at all:
+    # the "KVM after upload" run verifies the REAL endpoint the release
+    # installs from, so the gate only preflights it and the guest fetches
+    # through QEMU's NAT. Decided by ncz_gate_srv_mode (tested lib).
+    SRV_MODE=$(ncz_gate_srv_mode "$_srv_pinhost")
+    echo "  server mode: ${SRV_MODE} (pin host ${_srv_pinhost}, NCZ_GATE_SERVER_ONLINE=${NCZ_GATE_SERVER_ONLINE:-auto})"
+    if [ "$SRV_MODE" = online ]; then
+        SRV_URL_BASE="$_srv_base"
+        for _srv_u in "$_srv_purl" "$_srv_aurl" "$_srv_lurl"; do
+            _srv_c=$(ncz_gate_srv_preflight "$_srv_u") || fail "server gate (online): the published URL is not reachable at ${_srv_u} (got: ${_srv_c}) -- the guest would fail at install time"
+        done
+        echo "  all three artifacts answer 200 at the pinned host (online mode: the guest installs from the published URL; no shadow server)"
+    else
     # Armed before the start, which can exit while its server is still alive;
     # INT/TERM too, until the QEMU-phase traps replace these.
     trap 'ncz_srv_cleanup' EXIT
@@ -701,11 +759,18 @@ PY
     case "$_srv_code_a" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the asset bundle is not being served at ${_srv_aurl} (got: ${_srv_code_a}) -- the guest's fetcher would refuse it at install time" ;; esac
     case "$_srv_code_l" in "HTTP/"*" 200 "*) : ;; *) fail "server gate: the offline apt pool is not being served at ${_srv_lurl} (got: ${_srv_code_l}) -- the guest's fetcher would refuse it at install time" ;; esac
     echo "  all three artifacts answer 200 on the gate's server"
+    fi
 elif [ "$NCZ_GATE_SERVER" = 1 ]; then
     # Negative run: the server is deliberately absent. The guest's fetcher
     # must fail loud and bounded; phase 2 and the finish checks below are
     # replaced by the no-rootfs assertions at the end of this gate.
-    echo "  NEGATIVE run: the payload HTTP server is OFF; the install must fail within the deadline and leave no rootfs"
+    # The pinned source must be DEAD for that to be provable: an online-mode
+    # medium pins a LIVE published URL, so dead-end the manifest on this run's
+    # copy before boot (2026-11-09: without this the "offline" negative run
+    # fetched every artifact from the live bucket and proved nothing).
+    ncz_gate_srv_dead_manifest "$TEST_IMG" \
+        || fail "negative server run: could not dead-end the manifest pins in $TEST_IMG"
+    echo "  NEGATIVE run: the payload HTTP server is OFF and the manifest pins are dead-ended; the install must fail within the deadline and leave no rootfs"
 fi
 
 
@@ -723,6 +788,48 @@ FWD_SSH_BOOT=$(ncz_free_port 2224)
 # the rescue partition was not selected (disk-fs-chooser.sh 2- or 3-stanza).
 ncz_last_partnum() {
     "$SGDISK" -p "$1" 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {n=$1} END {print n}'
+}
+
+# ncz_extract_part RAW LBA END OUT -- carve one partition out of a whole-disk
+# raw image by sector range. dd, NOT `qemu-img convert --image-opts offset=...`:
+# qemu-img mis-reads the offset for the root partition here and writes an
+# unrecognised "data" image where dd reads a valid ext4 superblock, so
+# /etc/os-release and /etc/issue came back empty and the server gate reported
+# them "not extracted" (measured 2026-11-08 on the arm64 server-medium cell,
+# tip 9937de3c). dd reads the same sectors correctly; debugfs then reads the
+# os-release/issue from the carved root without needing a journal recovery.
+ncz_extract_part() {
+    local raw="$1" lba="$2" end="$3" out="$4"
+    [ -n "$lba" ] && [ -n "$end" ] && [ "$end" -ge "$lba" ] 2>/dev/null || return 1
+    dd if="$raw" of="$out" bs=512 skip="$lba" count=$((end - lba + 1)) status=none 2>/dev/null
+    [ -s "$out" ]
+}
+
+# ncz_carve_root DISK OUT -- carve the installed root partition of a target
+# qcow2 out to OUT (rootless): convert to raw, take the LAST GPT partition
+# (the installed root: p3 after ESP + NCZRESCUE, p2 without the rescue
+# partition), dd its sector range. The shared evidence path deletes its big
+# raw root after the installed-target verifier runs, so every later server
+# assertion re-carves with this. Always re-extract: a failed earlier run in
+# the same work dir leaves its root behind, and reading that would judge the
+# wrong install.
+ncz_carve_root() {
+    local disk="$1" out="$2" evd part lba end
+    [ -s "$disk" ] || return 1
+    rm -f "$out"
+    evd="$WORK/.carve-evidence.raw"
+    rm -f "$evd"
+    qemu-img convert -S 4k -O raw "$disk" "$evd" >/dev/null 2>&1 || { rm -f "$evd"; return 1; }
+    part=$(ncz_last_partnum "$evd" || true)
+    if [ -n "$part" ] && [ "$part" -ge 1 ] 2>/dev/null; then
+        lba=$("$SGDISK" -i "$part" "$evd" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        end=$("$SGDISK" -i "$part" "$evd" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
+        if [ -n "$lba" ] && [ -n "$end" ]; then
+            ncz_extract_part "$evd" "$lba" "$end" "$out" || true
+        fi
+    fi
+    rm -f "$evd"
+    [ -s "$out" ]
 }
 
 echo
@@ -830,9 +937,7 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" = 1 ]; then
             ROOT_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
             ROOT_END_LBA=$("$SGDISK" -i "$ROOT_PART" "$EVIDENCE_DISK" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
             if [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
-                if qemu-img convert --image-opts -S 4k -O raw \
-                    "driver=raw,file.driver=file,file.filename=$EVIDENCE_DISK,offset=$((ROOT_LBA * 512)),size=$(( (ROOT_END_LBA - ROOT_LBA + 1) * 512 ))" \
-                    "$EVIDENCE_ROOT" >/dev/null 2>&1; then
+                if ncz_extract_part "$EVIDENCE_DISK" "$ROOT_LBA" "$ROOT_END_LBA" "$EVIDENCE_ROOT"; then
                     _neg_osrel="$WORK/.neg-osrel"; rm -f "$_neg_osrel"
                     _neg_installed="$WORK/.neg-installed"; rm -f "$_neg_installed"
                     _neg_varls="$WORK/.neg-varls"; rm -f "$_neg_varls"
@@ -935,13 +1040,21 @@ if qemu-img convert -S 4k -O raw "$DISK" "$EVIDENCE_DISK"; then
     if [ "$GATE_FS" != ext4 ]; then
         echo "  root is $GATE_FS: target logs and the installed-target verifier need ext4 (debugfs); checked from the ESP, the GPT and the boot"
     elif [ -n "$ROOT_LBA" ] && [ -n "$ROOT_END_LBA" ]; then
-        ROOT_BYTES=$(((ROOT_END_LBA - ROOT_LBA + 1) * 512))
-        if qemu-img convert --image-opts -S 4k -O raw \
-            "driver=raw,file.driver=file,file.filename=$EVIDENCE_DISK,offset=$((ROOT_LBA * 512)),size=$ROOT_BYTES" \
-            "$EVIDENCE_ROOT"; then
+        if ncz_extract_part "$EVIDENCE_DISK" "$ROOT_LBA" "$ROOT_END_LBA" "$EVIDENCE_ROOT"; then
             "$DEBUGFS" -R "dump /var/log/cix-installer-late.log $EVIDENCE/cix-installer-late.log" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             "$DEBUGFS" -R "rdump /var/log/cix-install $EVIDENCE" \
+                "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+            # The guest's [FETCH] transcript (ncz-fetch-payload.sh writes it
+            # beside the fetched payload; late.sh preserves it into
+            # /var/log/cix-install before the staging root is removed).
+            # 2026-11-09: progress [FETCH] lines no longer reach the serial
+            # console (they overprint the installer dialog), so this transcript
+            # is the gate's fetch evidence. The rdump above already carries the
+            # preserved copy; these dumps cover both locations explicitly.
+            "$DEBUGFS" -R "dump /var/log/cix-install/ncz-fetch-transcript.log $EVIDENCE/ncz-fetch-transcript.log" \
+                "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
+            "$DEBUGFS" -R "dump /ncz-online/ncz-payload/.ncz-fetch-transcript.log $EVIDENCE/ncz-fetch-transcript.log" \
                 "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
             # arm64 ONLY: before we throw away the raw root image, assert that
             # the installed target actually carries the Sky1/Cix/NPU userspace
@@ -1123,8 +1236,11 @@ grep -E "post-install hooks finished|finalizing apt sources|forcing clean reboot
   || fail "install did not reach the finish stage -- qemu rc=${irc:-?} (rc=124 means the ${INSTALL_TIMEOUT}s timeout expired; any other rc means the run was terminated early, which is NOT a timeout) -- see $ILOG"
 echo "  install reached the finish stage with no ship-critical hook failure"
 # MAGNETAR(server): the payload came off the network; prove the fetcher
-# fetched it and verified the sha256 BEFORE use (its own [FETCH] lines on the
-# serial console, which ncz-fetch-payload.sh tees to the serial device).
+# fetched it and verified the sha256 BEFORE use. Evidence: the guest's own
+# [FETCH] transcript beside the fetched payload (preserved above); the serial
+# console only carries the loud terminal lines now (2026-11-09 -- progress
+# chatter overprints the installer dialog), so $ILOG is the fallback when the
+# transcript could not be extracted.
 if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # The fetcher logs per artifact ("[FETCH] base.squashfs verified sha256=...",
     # "[FETCH] ncz-assets-<arch>.tar.gz verified sha256=...") and a final
@@ -1132,11 +1248,18 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # install (the debootstrap stub), so on a fresh gate install both
     # artifacts must have been downloaded: a "skip ...: already present"
     # line means they came from the medium or a stale root, not this server.
+    if [ -s "$EVIDENCE/cix-install/ncz-fetch-transcript.log" ]; then
+        _fetch_xcript="$EVIDENCE/cix-install/ncz-fetch-transcript.log"
+    elif [ -s "$EVIDENCE/ncz-fetch-transcript.log" ]; then
+        _fetch_xcript="$EVIDENCE/ncz-fetch-transcript.log"
+    else
+        _fetch_xcript="$ILOG"
+    fi
     for _fa in base.squashfs "$_srv_name" "$_srv_pool_name"; do
-        ncz_norm_log "$ILOG" | grep -aF "[FETCH] $_fa verified sha256=" >/dev/null \
-            || fail "server gate: the serial log has no '[FETCH] $_fa verified sha256=' line -- $_fa was not fetched from the gate's server and verified (it may have come from the medium or a stale staging root)"
+        ncz_norm_log "$_fetch_xcript" | grep -aF "[FETCH] $_fa verified sha256=" >/dev/null \
+            || fail "server gate: no '[FETCH] $_fa verified sha256=' line in the guest's fetch transcript ($_fetch_xcript) -- $_fa was not fetched from the pinned source and verified (it may have come from the medium or a stale staging root)"
     done
-    ncz_norm_log "$ILOG" | grep -a 'all manifest artifacts fetched and verified' >/dev/null \
+    ncz_norm_log "$_fetch_xcript" | grep -a 'all manifest artifacts fetched and verified' >/dev/null \
         || fail "server gate: the fetcher never reported 'all manifest artifacts fetched and verified'"
     echo "  server gate: payload fetched from ${SRV_URL_BASE} and sha256-verified by the guest before use"
     # The headless server contract on the installed root (debugfs reads,
@@ -1149,29 +1272,11 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
     # surface; ssh is the only remote access the variant ships.
     _ssh_want="$WORK/.ssh-want"
     # The normal path deleted EVIDENCE_ROOT already; the server assertions
-    # need it, so convert the root partition ourselves (rootless, same way
-    # the negative run does).
-    # Always re-extract: a failed earlier run in the same work dir leaves its
-    # root behind, and reading that would judge the wrong install.
+    # need it, so carve the root partition ourselves (rootless, same way
+    # the negative run does; ncz_carve_root always re-extracts).
     _SRV_ROOT="$WORK/.server-root.raw"
-    rm -f "$_SRV_ROOT"
-    if [ -s "$DISK" ]; then
-        _SRV_EVD="$WORK/.server-evidence.raw"
-        if qemu-img convert -S 4k -O raw "$DISK" "$_SRV_EVD" >/dev/null 2>&1; then
-            _SRV_PART=$(ncz_last_partnum "$_SRV_EVD" || true)
-            if [ -n "$_SRV_PART" ] && [ "$_SRV_PART" -ge 1 ] 2>/dev/null; then
-                _SRV_LBA=$("$SGDISK" -i "$_SRV_PART" "$_SRV_EVD" | sed -n 's/^First sector:[[:space:]]*\([0-9]\+\).*/\1/p')
-                _SRV_END=$("$SGDISK" -i "$_SRV_PART" "$_SRV_EVD" | sed -n 's/^Last sector:[[:space:]]*\([0-9]\+\).*/\1/p')
-                if [ -n "$_SRV_LBA" ] && [ -n "$_SRV_END" ]; then
-                    qemu-img convert --image-opts -S 4k -O raw \
-                        "driver=raw,file.driver=file,file.filename=$_SRV_EVD,offset=$((_SRV_LBA * 512)),size=$(( (_SRV_END - _SRV_LBA + 1) * 512 ))" \
-                        "$_SRV_ROOT" >/dev/null 2>&1 || true
-                fi
-            fi
-            rm -f "$_SRV_EVD"
-        fi
-    fi
-    [ -s "$_SRV_ROOT" ] || fail "server gate: could not extract the installed root partition from $DISK (qemu-img/sgdisk failed), so the installed-root assertions cannot run"
+    ncz_carve_root "$DISK" "$_SRV_ROOT" \
+        || fail "server gate: could not extract the installed root partition from $DISK (qemu-img/sgdisk failed), so the installed-root assertions cannot run"
     EVIDENCE_ROOT="$_SRV_ROOT"
     "$DEBUGFS" -R "ls -p /etc/systemd/system/multi-user.target.wants" "$EVIDENCE_ROOT" > "$_ssh_want" 2>&1 || true
     if grep  'ssh.service' "$_ssh_want" >/dev/null; then
@@ -1225,6 +1330,20 @@ if [ "$NCZ_GATE_SERVER" = 1 ] && [ -s "$EVIDENCE/installed-refind.conf" ]; then
 fi
 # MAGNETAR(server): the installed system names its edition (ncz_gate_server_brand above).
 if { [ "$NCZ_GATE_SERVER" = 1 ] || [ "$NCZ_GATE_SERVER_MEDIUM" = 1 ]; } && [ "$NCZ_GATE_SERVER_OFFLINE" != 1 ]; then
+    # The shared evidence path consumes its raw root after the verifier
+    # (above) and the fetch block re-carves only for the online sets; a
+    # SELF-CONTAINED server-medium run (NCZ_GATE_SERVER=0,
+    # NCZ_GATE_SERVER_MEDIUM=1) reached this block with no root image at all,
+    # and every debugfs read silently returned nothing -- os-release/issue
+    # then read "not extracted" although the install was fine (measured
+    # 2026-11-09, arm64 server-medium). Carve it here; the desktop-leak block
+    # below cleans $_SRV_ROOT up as before.
+    if [ ! -s "$EVIDENCE_ROOT" ]; then
+        _SRV_ROOT="$WORK/.server-root.raw"
+        ncz_carve_root "$DISK" "$_SRV_ROOT" \
+            || fail "server gate: could not extract the installed root partition from $DISK, so the edition assertions cannot run"
+        EVIDENCE_ROOT="$_SRV_ROOT"
+    fi
     "$DEBUGFS" -R "dump /etc/os-release $EVIDENCE/installed-os-release" "$EVIDENCE_ROOT" >/dev/null 2>&1 || true
     # Debian-family systems make /etc/os-release a symlink to ../usr/lib/os-release,
     # and a debugfs dump of a symlink produces nothing - the server gate then
