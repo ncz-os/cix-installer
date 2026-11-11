@@ -81,9 +81,17 @@ esac
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run
 # ONLY machine-specific hooks at install (fstab/rescue/bootloader/diag).
-NCZ_BAKED=0
-[ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
-[ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+# NCZ_BAKED: an explicitly set env value (0/1) wins over marker detection —
+# fixture hermeticity, the same class of seam as NCZ_COMP_FILE below. Without
+# it, a test harness running the real run-all.sh against synthetic hooks on a
+# baked-marked build host silently inherits NCZ_BAKED=1 and the baked filter
+# drops every fixture hook (measured: build/test-platform-lint.sh run-all cases
+# ran only the always-run specials). Marker detection runs only when unset.
+if [ -z "${NCZ_BAKED+set}" ]; then
+    NCZ_BAKED=0
+    [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
+    [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+fi
 # r184: the CIX proprietary userland + NPU-userspace hooks were NEVER running on
 # a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
@@ -288,6 +296,16 @@ if [ -z "$PLATFORM" ]; then
     esac
 fi
 HOOKS_LIST="${NCZ_HOOKS_LIST:-}"
+# An explicit NCZ_HOOKS_LIST is an operator override. Only a bare filename
+# (no path separators) is resolved inside $HOOK_DIR (the legacy convention).
+# A path containing '/' — absolute or relative — is used verbatim and is never
+# silently rewritten, so an operator-intended path is not mis-interpreted.
+case "$HOOKS_LIST" in
+    */*) : ;;   # path: leave exactly as supplied
+    *)   if [ -n "$HOOKS_LIST" ] && [ ! -e "$HOOKS_LIST" ] && [ -e "$HOOK_DIR/$HOOKS_LIST" ]; then
+             HOOKS_LIST="$HOOK_DIR/$HOOKS_LIST"
+         fi ;;
+esac
 if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
     if   [ -f "$HOOK_DIR/hooks.list.$PLATFORM" ]; then HOOKS_LIST="$HOOK_DIR/hooks.list.$PLATFORM"
     elif [ -f "$HOOK_DIR/hooks.list" ];            then HOOKS_LIST="$HOOK_DIR/hooks.list"
@@ -295,6 +313,10 @@ if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
 fi
 [ "$HOOKS_LIST" = none ] && HOOKS_LIST=""
 _PLAT_SKIPPED=""
+# A valid list must be an ordinary, readable file with at least one non-comment,
+# non-blank hook entry. If it is missing, unreadable, a directory, or empty, fall
+# back to legacy (run every hook) — never run zero hooks, and never treat a
+# directory named like the list as a list.
 if [ -n "$HOOKS_LIST" ] && { [ ! -f "$HOOKS_LIST" ] || [ ! -r "$HOOKS_LIST" ] || ! grep -qvE '^[[:space:]]*(#|$)' "$HOOKS_LIST"; }; then
     echo "[cix-installer] WARNING: hooks list $HOOKS_LIST is not a readable, non-empty file; running every hook (legacy behavior)"
     HOOKS_LIST=""
@@ -467,11 +489,16 @@ _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
 # explicitly opting OUT of a toggle. The five skip regexes must be remembered
 # here exactly as written in the toggle block above.
 _SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}"
+# A hook dropped by the platform hooks.list (already logged as PLATFORM-SKIP
+# above) is NOT an orphan — it was deliberately excluded for this platform.
+# _PLAT_SKIP_RE is populated from the hooks.list skip set when a list is active
+# and empty otherwise, so the exclusion below is a no-op in legacy mode.
+_PLAT_SKIP_ALL_RE="^(70-bootloader|99-diagnostics)\.sh$"
+[ -n "${_PLAT_SKIP_RE:-}" ] && _PLAT_SKIP_ALL_RE="$_PLAT_SKIP_ALL_RE|$_PLAT_SKIP_RE"
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
-           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
-           | grep -vE "$_SKIP_ALL_RE" \
-           | { if [ -n "${_PLAT_SKIP_RE:-}" ]; then grep -vE "$_PLAT_SKIP_RE"; else cat; fi; } || true)
+           | grep -vE "$_PLAT_SKIP_ALL_RE" \
+           | grep -vE "$_SKIP_ALL_RE" || true)
 if [ -n "$_orphans" ]; then
     echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
     printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'
