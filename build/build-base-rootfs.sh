@@ -112,6 +112,9 @@ case "$HOST_ARCH:$ARCH" in
     x86_64:arm64)
         echo "[base-rootfs] cross-arch $HOST_ARCH -> $ARCH via qemu-user-static/binfmt (verified 2026-09-14, see header)"
         ;;
+    aarch64:amd64)
+        echo "[base-rootfs] cross-arch $HOST_ARCH -> $ARCH via qemu-user-static/binfmt (aarch64->amd64 enabled 2026-11-11, ULTRA: Fedora qemu-user-static binfmt has flags:F so the interpreter is kernel-held for containers; dash-named symlink qemu-x86-64-static -> qemu-x86_64-static provided)"
+        ;;
     *)
         echo "ERROR: unsupported host/target arch combination: $HOST_ARCH -> $ARCH" >&2
         exit 1
