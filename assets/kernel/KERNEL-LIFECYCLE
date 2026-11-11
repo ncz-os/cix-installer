@@ -39,11 +39,12 @@ CURRENT_KVER_arm64=7.4.0-rc2-sky1-ncz
 CURRENT_PKG_arm64=7.4.0-rc2-sky1-ncz+r299
 
 # Retired KVERs, comma-separated: never pinned again, on any arch.
-# 7.3.3-t2-ncz retired at the amd64 7.4 line switch and 7.3.3-sky1-ncz at the
+# 7.3.3-t2-ncz retirement REVERSED by the 2026-11-11 registry repair (current again);
+# 7.4.0-rc2-t2-ncz retired (parked dev-only). 7.3.3-sky1-ncz retired at the
 # arm64 one (candidate pin bumps; the rescue entry on installed hosts keeps the
 # same kernel + accelerator blacklist per ONE-KERNEL, so nothing pins a retired
 # KVER).
-RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.3-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz,7.3.3-sky1-ncz
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.4.0-rc2-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz,7.3.3-sky1-ncz
 
 # --- repin 2026-11-11 (operator 20:10Z: images stay 7.3.x, nothing 7.4 ships) ---
 # amd64 pool build: 7.3.3-t2-ncz+r297 (registry build id) == pool dir

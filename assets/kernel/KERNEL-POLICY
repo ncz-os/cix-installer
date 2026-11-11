@@ -34,8 +34,8 @@ DEFAULT_BASE=7.3,7.4
 # -rcN while this is 0, and also fails if this is 1 but the pinned version is
 # no longer an -rcN (a stale allowance). The 7.4-rc2 line switch (operator
 # 2026-11-09 22:20Z) keeps an -rcN default in play until 7.4 final:
-RC_DEFAULT_ALLOWED=1
-RC_DEFAULT_EXPIRY_NOTE=replace-by-7.4.0-final
+RC_DEFAULT_ALLOWED=0
+RC_DEFAULT_EXPIRY_NOTE=default is 7.3.3-t2-ncz final since the 2026-11-11 repin; rcN default no longer allowed
 
 # RESCUE = the SAME pinned kernel as DEFAULT, not a separate series and not an
 # older kernel. Its whole difference is the accelerator drivers blacklisted on
