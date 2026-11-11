@@ -81,9 +81,17 @@ esac
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run
 # ONLY machine-specific hooks at install (fstab/rescue/bootloader/diag).
-NCZ_BAKED=0
-[ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
-[ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+# NCZ_BAKED: an explicitly set env value (0/1) wins over marker detection —
+# fixture hermeticity, the same class of seam as NCZ_COMP_FILE below. Without
+# it, a test harness running the real run-all.sh against synthetic hooks on a
+# baked-marked build host silently inherits NCZ_BAKED=1 and the baked filter
+# drops every fixture hook (measured: build/test-platform-lint.sh run-all cases
+# ran only the always-run specials). Marker detection runs only when unset.
+if [ -z "${NCZ_BAKED+set}" ]; then
+    NCZ_BAKED=0
+    [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
+    [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+fi
 # r184: the CIX proprietary userland + NPU-userspace hooks were NEVER running on
 # a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
