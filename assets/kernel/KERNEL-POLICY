@@ -78,7 +78,7 @@ EDGE_ENABLED=0
 
 # Retired kernels (<kver>+<rev>, '*' = every revision): generated from the kernel-ci
 # promotion registry; a retired kernel can never be pinned again.
-RETIRED_KERNELS_AMD64=7.3.0-t2-ncz+*,7.3.1-t2-ncz+r295,7.3.3-t2-ncz+r297
+RETIRED_KERNELS_AMD64=7.3.0-t2-ncz+*,7.3.1-t2-ncz+r295,7.3.3-t2-ncz+r297-reinstate1,7.4.0-rc2-t2-ncz+3
 
 # Retired kernels (<kver>+<rev>, '*' = every revision): generated from the kernel-ci
 # promotion registry; a retired kernel can never be pinned again.
