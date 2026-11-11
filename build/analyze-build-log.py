@@ -190,24 +190,24 @@ def analyze_file(path, model_url, model, chunk_lines, timeout=120.0):
         try:
             answer = call_model(model_url, model, render(part), timeout)
         except MalformedResponse as exc:
-            errors.append({"file": path.name, "index": index, "error": str(exc)})
+            errors.append({"file": str(path), "index": index, "error": str(exc)})
             continue
         except TimeoutError as exc:
             # Explicit for readability (TimeoutError is an OSError, so the
             # transport clause below also covers it): a request timeout is a
             # recorded chunk error and is NEVER retried.
             errors.append(
-                {"file": path.name, "index": index, "error": f"transport: {exc}"}
+                {"file": str(path), "index": index, "error": f"transport: {exc}"}
             )
             continue
         except (urllib.error.URLError, OSError, ValueError) as exc:
             errors.append(
-                {"file": path.name, "index": index, "error": f"transport: {exc}"}
+                {"file": str(path), "index": index, "error": f"transport: {exc}"}
             )
             continue
         chunks.append(
             {
-                "file": path.name,
+                "file": str(path),
                 "index": index,
                 "original_lines": [part[0][0], part[-1][0]] if part else [],
                 **answer,
@@ -319,7 +319,7 @@ def main(argv=None):
         )
         chunks.extend(file_chunks)
         errors.extend(file_errors)
-        items_by_file[path.name] = file_items
+        items_by_file[str(path)] = file_items
 
     report = {
         "source": str(args.log_or_dir),
