@@ -18,8 +18,12 @@
 # The exact pinned version lives in the per-arch sidecars/manifests, not here:
 #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
 #   amd64: assets/kernel/amd64-stable/KVER
-# amd64 is 7.4.0-rc2-t2-ncz (7.4.0-rc2-2, CANDIDATE: KVM-gated 2026-11-09,
-# hardware boot pending). arm64 is 7.4.0-rc2-sky1-ncz (r299, CANDIDATE:
+# amd64 is 7.3.3-t2-ncz (pool 7.3.3-t2-ncz+r297; repinned 2026-11-11 per
+# operator 20:10Z - images stay 7.3.x, nothing 7.4 ships. The 7.4.0-rc2-t2-ncz
+# experiment is parked dev-only, registry-retired). arm64 pin application
+# (kernel-manifest.json/mainline.release -> r299-7.3.3-sky1-ncz-20261111) is
+# STAGED but deliberately NOT APPLIED (order: land branches without applying
+# the arm64 pin; operator flips at go). Current arm64 CANDIDATE (pre-flip):
 # KVM-gated 2026-11-10, hardware boot pending).
 # Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
 # assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.

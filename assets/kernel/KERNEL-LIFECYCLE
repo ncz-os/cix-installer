@@ -27,8 +27,8 @@ MIN_VERSION=7.3.3
 # one-shot boots, 05:03Z). Registry t2-amd64 current = 7.4.0-rc2-t2-ncz+3
 # (promoted 2026-11-10; 7.3.3-t2-ncz+r297 retired). Pool dir in
 # amd64-stable-manifest.json.
-CURRENT_KVER_amd64=7.4.0-rc2-t2-ncz
-CURRENT_PKG_amd64=7.4.0-rc2-3
+CURRENT_KVER_amd64=7.3.3-t2-ncz
+CURRENT_PKG_amd64=7.3.3-r297
 
 # arm64: Sky1 7.4.0-rc2-sky1-ncz r299 (ULTRA non-git export build 2026-11-10,
 # v7.4-rc2 7475ea8b, linux-cix kernel-dev/sky1-7.4-rc2-r3 f6950f68, 32 patches,
@@ -44,3 +44,11 @@ CURRENT_PKG_arm64=7.4.0-rc2-sky1-ncz+r299
 # same kernel + accelerator blacklist per ONE-KERNEL, so nothing pins a retired
 # KVER).
 RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.3-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz,7.3.3-sky1-ncz
+
+# --- repin 2026-11-11 (operator 20:10Z: images stay 7.3.x, nothing 7.4 ships) ---
+# amd64 pool build: 7.3.3-t2-ncz+r297 (registry build id) == pool dir
+# kernel-staging/amd64-stable-7.3.3-t2-ncz-20261107. NAMING MAP: r297 = package
+# revision (deb version 7.3.3-r297); 20261107 = staging date. SAME BUILD.
+# Registry t2-amd64 current = 7.3.3-t2-ncz+r297 (repaired 2026-11-11T22:12Z,
+# backup registry.json.bak-repair-20261111T2212Z; rc2 entry 7.4.0-rc2-t2-ncz+3
+# retired, MEDUSA+4-host hw verification 2026-11-11).
