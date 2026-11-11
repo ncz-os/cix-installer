@@ -75,8 +75,12 @@ on_disk = {os.path.basename(f)[:-3]
 # _PLAT_SKIP_RE from it). Either way it is reachable, so it is NOT an orphan.
 referenced_elsewhere = set(re.findall(r'([0-9]{2}-[a-z0-9_-]+)\.sh', src))
 # Also match hook names referenced without the .sh suffix (e.g. inside
-# REQUIRED_HOOKS regex alternations or grep -E patterns).
-referenced_elsewhere |= set(re.findall(r'([0-9]{2}-[a-z0-9_-]+)', src))
+# REQUIRED_HOOKS regex alternations or grep -E patterns). The lookbehind
+# keeps the bare form from matching digit-runs embedded in longer tokens
+# (e.g. the "26-11-08" inside a 2026-11-08 date): a real hook reference is
+# delimited by an alternation/anchor character or the line boundary.
+referenced_elsewhere |= set(
+    re.findall(r'(?<![0-9a-z_-])([0-9]{2}-[a-z0-9_-]+)', src))
 
 # run-all.sh strips the leading "^(...)$" anchors; do the same so entries are
 # compared as bare hook names.
