@@ -153,7 +153,13 @@ mkra() {
 }
 runra() {  # dir arch [extra env...]
     local d="$1" a="$2"; shift 2
-    env NCZ_HOOK_DIR="$d" NCZ_LOGDIR="$d/log" NCZ_TTY=/dev/null NCZ_DISABLE_APT_SHIM=1 NCZ_TARGET_ARCH="$a" "$@" \
+    # NCZ_BAKED=0: fixture hermeticity. The real run-all.sh auto-detects baked
+    # mode from host marker files (/usr/local/lib/cix-installer/BAKED,
+    # /etc/ncz-baked); on a baked-marked build host that leak dropped every
+    # fixture hook from the plan (only the always-run specials executed).
+    # run-all.sh honors an explicitly set NCZ_BAKED over marker detection
+    # (same seam class as NCZ_COMP_FILE). Assertions below are unchanged.
+    env NCZ_HOOK_DIR="$d" NCZ_LOGDIR="$d/log" NCZ_TTY=/dev/null NCZ_DISABLE_APT_SHIM=1 NCZ_TARGET_ARCH="$a" NCZ_BAKED=0 "$@" \
         bash "$RUNALL" 2>&1
 }
 ran() { printf '%s\n' "$1" | grep -o 'RAN-[0-9a-z-]*' | sort -u | tr '\n' ' '; }
