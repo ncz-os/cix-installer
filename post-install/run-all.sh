@@ -288,6 +288,12 @@ if [ -z "$PLATFORM" ]; then
     esac
 fi
 HOOKS_LIST="${NCZ_HOOKS_LIST:-}"
+# An explicit NCZ_HOOKS_LIST is an operator override. When it is a real path
+# (absolute or relative-to-the-cwd) use it verbatim; otherwise treat it as the
+# name of a file inside $HOOK_DIR (the legacy convention).
+if [ -n "$HOOKS_LIST" ] && [ ! -e "$HOOKS_LIST" ] && [ -e "$HOOK_DIR/$HOOKS_LIST" ]; then
+    HOOKS_LIST="$HOOK_DIR/$HOOKS_LIST"
+fi
 if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
     if   [ -f "$HOOK_DIR/hooks.list.$PLATFORM" ]; then HOOKS_LIST="$HOOK_DIR/hooks.list.$PLATFORM"
     elif [ -f "$HOOK_DIR/hooks.list" ];            then HOOKS_LIST="$HOOK_DIR/hooks.list"
@@ -295,6 +301,10 @@ if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
 fi
 [ "$HOOKS_LIST" = none ] && HOOKS_LIST=""
 _PLAT_SKIPPED=""
+# A valid list must be an ordinary, readable file with at least one non-comment,
+# non-blank hook entry. If it is missing, unreadable, a directory, or empty, fall
+# back to legacy (run every hook) — never run zero hooks, and never treat a
+# directory named like the list as a list.
 if [ -n "$HOOKS_LIST" ] && { [ ! -f "$HOOKS_LIST" ] || [ ! -r "$HOOKS_LIST" ] || ! grep -qvE '^[[:space:]]*(#|$)' "$HOOKS_LIST"; }; then
     echo "[cix-installer] WARNING: hooks list $HOOKS_LIST is not a readable, non-empty file; running every hook (legacy behavior)"
     HOOKS_LIST=""
@@ -467,6 +477,10 @@ _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
 # explicitly opting OUT of a toggle. The five skip regexes must be remembered
 # here exactly as written in the toggle block above.
 _SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}"
+# A hook dropped by the platform hooks.list (already logged as PLATFORM-SKIP
+# above) is NOT an orphan — it was deliberately excluded for this platform.
+# _PLAT_SKIP_RE is empty when no hooks.list is in effect, in which case every
+# on-disk hook is a candidate and none are platform-skipped.
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
            | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
