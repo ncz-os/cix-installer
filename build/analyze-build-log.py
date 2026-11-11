@@ -219,15 +219,20 @@ def analyze_file(path, model_url, model, chunk_lines, timeout=120.0):
 ABORT_RE = re.compile(r"build aborted|FAILED rc=")
 
 
-def merge(chunks, errors, lines=None):
+def merge(chunks, errors, lines_by_file=None):
     """Merge chunk answers with terminal-failure semantics.
 
     The chunk that CONTAINS the build-abort marker decides the class and the
     first error line (builds die at their abort); when no marker is found the
-    LAST non-ok chunk wins (end-of-log is where builds die). All causes and
-    evidence are preserved. Justification: the A1 accuracy measurement
-    (2026-11-11) showed first-non-ok-wins let a benign apt W: warning in an
-    early chunk hijack the merged verdict away from the terminal failure.
+    LAST non-ok chunk wins (end-of-log is where builds die). Abort markers are
+    matched PER FILE (line numbers restart per file), so with a directory
+    input one file's abort can never crown another file's chunk. The first
+    error line follows the winning chunk, or the earliest any chunk reported
+    when the winner itself reports none. All causes and evidence are preserved.
+    Justification: the A1 accuracy measurement (2026-11-11) showed
+    first-non-ok-wins let a benign apt W: warning in an early chunk hijack the
+    merged verdict away from the terminal failure; the per-file key came from
+    the zoder review (muse, 2026-11-11, high) of the first fix.
     """
     causes = []
     evidence = []
@@ -238,17 +243,23 @@ def merge(chunks, errors, lines=None):
         for line in rec["evidence"]:
             if line not in evidence:
                 evidence.append(line)
-    abort_no = None
-    for no, text in lines or []:
-        if ABORT_RE.search(text):
-            abort_no = no
     winner = None
-    if abort_no is not None:
+    for fname, items in (lines_by_file or {}).items():
+        abort_no = None
+        for no, text in items:
+            if ABORT_RE.search(text):
+                abort_no = no
+        if abort_no is None:
+            continue
         for rec in non_ok:
+            if rec.get("file") != fname:
+                continue
             lo, hi = rec.get("original_lines") or (None, None)
             if lo is not None and lo <= abort_no <= hi:
                 winner = rec
                 break
+        if winner is not None:
+            break
     if winner is None and non_ok:
         winner = non_ok[-1]
     if winner is not None:
@@ -301,14 +312,14 @@ def main(argv=None):
     if args.chunk_lines < 1:
         parser.error("--chunk-lines must be >= 1")
 
-    chunks, errors, all_items = [], [], []
+    chunks, errors, items_by_file = [], [], {}
     for path in gather_inputs(args.log_or_dir):
         file_chunks, file_errors, file_items = analyze_file(
             path, args.model_url, args.model, args.chunk_lines, args.timeout
         )
         chunks.extend(file_chunks)
         errors.extend(file_errors)
-        all_items.extend(file_items)
+        items_by_file[path.name] = file_items
 
     report = {
         "source": str(args.log_or_dir),
@@ -317,7 +328,7 @@ def main(argv=None):
         "chunk_lines": args.chunk_lines,
         "chunks": chunks,
         "chunk_errors": errors,
-        **merge(chunks, errors, all_items),
+        **merge(chunks, errors, items_by_file),
     }
     text = json.dumps(report, indent=2) + "\n"
     if args.out:

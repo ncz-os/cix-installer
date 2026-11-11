@@ -27,6 +27,10 @@
 #       C1 symptom vocabulary ('an input has an unreviewed origin'). Justified
 #       by the same A1 measurement; a regression dropping the clauses must fail
 #       CI (prompt content is part of the spec).
+#   (i) abort matching is per-file for directory inputs: the abort line of one
+#       file must never match another file's chunk. Justification for the new
+#       case: zoder review (muse, 2026-11-11, high) found merge() matched abort
+#       line numbers across files (all_items carries no file key).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -107,6 +111,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "first_error_line": None,
                         "cause": "chunk %d" % count,
                         "evidence": [],
+                    }
+                )
+        elif MODE == "twofiles":
+            # request 1 = file a (warning, no abort), request 2 = file b (abort)
+            if count == 1:
+                content = json.dumps(
+                    {
+                        "failure_class": "C6",
+                        "first_error_line": 1,
+                        "cause": "stub warning file",
+                        "evidence": [1],
+                    }
+                )
+            else:
+                content = json.dumps(
+                    {
+                        "failure_class": "C3",
+                        "first_error_line": 2,
+                        "cause": "stub abort file",
+                        "evidence": [2],
                     }
                 )
         else:
@@ -261,4 +285,22 @@ grep -q "an input has an unreviewed origin" "$ANALYZER" \
     || fail "(h) taxonomy lost the C1 symptom vocabulary"
 echo "PASS (h): prompt carries benign-warning + C1 symptom clauses"
 
-echo "analyze-build-log tests: 8 passed, 0 failed"
+# --- (i) abort matching is per-file for directory inputs --------------------
+# Justification for the new case: zoder review (muse, 2026-11-11) found that
+# merge() matched abort line numbers across FILES (all_items has no file key),
+# so with a directory input the wrong file's chunk could win the merge. Both
+# fixture files have 2 lines and one chunk each; the abort lives in b.out
+# while a.out only has a warning - the winner must be b's C3 chunk.
+mkdir -p "$TMP/twofiles"
+printf 'W: unsandboxed download\nfetch ok\n' >"$TMP/twofiles/a.out"
+printf 'ERROR [provenance-inputs] FAILED\nERROR build aborted at stage (rc=1)\n' >"$TMP/twofiles/b.out"
+start_stub twofiles
+run_analyzer "$TMP/twofiles" "$TMP/report-i.json" 100
+stop_stub
+check "$TMP/report-i.json" 'r["failure_class"] == "C3"' \
+    || fail "(i) merged class is not b.out's abort chunk's (cross-file abort match)"
+check "$TMP/report-i.json" 'r["first_error_line"] == 2' \
+    || fail "(i) first_error_line is not b.out's"
+echo "PASS (i): abort matching is per-file for directory inputs"
+
+echo "analyze-build-log tests: 9 passed, 0 failed"
