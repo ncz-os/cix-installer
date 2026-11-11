@@ -85,7 +85,7 @@ done
 # its modules-cixmini.tgz is not the right reference here.
 # Any in-tree module will do: all of them are compiled against the same
 # autoconf.h, so all carry the same struct module.
-REF_KO="$(find "$KDIR/build/drivers" -type f -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)"
+REF_KO="$(set +o pipefail; find "$KDIR/build/drivers" -type f -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)"
 [ -n "$REF_KO" ] || die "no in-tree .ko under $KDIR/build/drivers (struct module reference)"
 python3 "$ROOT/build/verify-overlay-modversions.py" --root "$ROOT" \
     --symvers "$KDIR/build/Module.symvers" --kver "$KVER" --ref-ko "$REF_KO" \
