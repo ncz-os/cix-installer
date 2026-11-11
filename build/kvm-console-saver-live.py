@@ -389,8 +389,8 @@ def main():
         m = re.search(r"(tty\S+)", out)
         baseline = m.group(1) if m else "tty1"
         say("baseline VT: %s" % baseline)
-        shell(ex, "echo %s | sudo -S sed -i 's/^idle_seconds=.*/idle_seconds=%d/; "
-                  "s/^enabled=.*/enabled=1/' /etc/ncz/console-saver.conf"
+        shell(ex, "echo %s | sudo -S sed -i 's/^idle_seconds *= *.*/idle_seconds=%d/; "
+                  "s/^enabled *= *.*/enabled=1/' /etc/ncz/console-saver.conf"
                   % (PASS, args.idle))
         out = shell(ex, "grep ^idle_seconds /etc/ncz/console-saver.conf")
         if ("idle_seconds=%d" % args.idle) in out:
