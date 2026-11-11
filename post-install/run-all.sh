@@ -43,7 +43,14 @@ CRITICAL_HOOK_FAILURES=""
 # networking, and a populated rescue partition. They still run in the
 # fail-tolerant phase so the bootloader/diagnostics always execute, but a
 # failure is propagated to d-i after those recovery affordances are written.
-CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
+# 61-ncz-console-saver is REQUIRED on the server variant (see its own FATAL
+# on missing assets and docs/platform-inventory.tsv), but it is NOT an
+# optional hook: it lives in REQUIRED_HOOKS. It is listed here only for
+# semantic completeness -- the grep on an optional-hook name never sees it --
+# and is never dispatched through lib/bounded-run.sh. Do not move it back
+# into MACHINE_HOOKS_RE (build/check-hook-registration.sh enforces single
+# registration).
+CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|61-ncz-console-saver)\.sh$'
 # 2026-09-28 arm64 ship-critical expansion: on arm64, a failure of
 # 12-sky1-firmware (no VPU codecs / DSP fw / Mali CSF) or 25-cix-proprietary
 # (no GPU userland, no NPU DKMS) is just as un-shippable as a missing greeter.
@@ -189,7 +196,21 @@ fi
 # no 61-chromium-icon.log exists. build/test-run-all-baked-allowlist.sh now runs
 # this file in baked mode against every hook on both hooks.list files and fails
 # on any ORPHAN, so the next omission fails `make` instead of shipping.
-MACHINE_HOOKS_RE="^(10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|19-sinty-nm|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-apple-vbt-spoof|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-greeter|55-t2-firmware|56-icon-theme|56-t2-dkms|57-qotd|58-screensaver-shader|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|61-ncz-console-saver|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|66-ncz-lite-profile|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health)\.sh$"
+MACHINE_HOOKS_RE="^(10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|19-sinty-nm|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-apple-vbt-spoof|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-greeter|55-t2-firmware|56-icon-theme|56-t2-dkms|57-qotd|58-screensaver-shader|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|66-ncz-lite-profile|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health)\.sh$"
+# 61-ncz-console-saver (Magnetar server console saver, B3 04:40Z order) is
+# deliberately NOT in the optional MACHINE_HOOKS_RE list above: its contract
+# is server-variant MANDATORY (docs/platform-inventory.tsv; the hook's own
+# FATAL on missing assets is the enforcement), so it runs through the
+# REQUIRED_HOOKS / ship-critical path below, not through lib/bounded-run.sh.
+# The baked filter trims REQUIRED_HOOKS to the kernel hooks, but this hook
+# must survive that trim too: on a baked server image it is the mandatory
+# console-saver install, and the same v11 failure mode applies (trimmed from
+# REQUIRED, excluded from OPT_HOOKS, left in NO list, never runs).
+# Desktop behaviour is preserved by the hook's own BUILD_VARIANT guard
+# (it exits 0 immediately on desktop; assets are not staged on desktop
+# media), so adding it to REQUIRED_HOOKS does not affect desktop installs.
+# build/test-console-saver-wiring.sh pins this classification;
+# build/check-hook-registration.sh requires it to live in exactly one list.
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -228,7 +249,7 @@ fi
 # every numbered script in the directory.
 PHASE0_HOOKS=$(ls 0[0-9]-*.sh 2>/dev/null | sort || true)
 REQUIRED_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
-    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
+    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|61-ncz-console-saver)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
     # 12-sky1-firmware and 33-network MUST SURVIVE THE BAKED FILTER.
     #
@@ -249,7 +270,7 @@ if [ "$NCZ_BAKED" = 1 ]; then
     # network config. Both are genuinely per-install work and must run under
     # --mode full like any other machine hook.
     REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
-        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot)\.sh$' || true)
+        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|61-ncz-console-saver)\.sh$' || true)
 fi
 # 12-sky1-firmware and 33-network are NOT excluded here any more.
 #

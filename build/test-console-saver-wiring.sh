@@ -29,6 +29,7 @@ expect() { # label want_rc want_grep cmd...
 HOOK="$ROOT/post-install/61-ncz-console-saver.sh"
 ASSETS="$ROOT/assets/console-saver"
 WUI="$ROOT/build/iso/write-usb-image.py"
+RA="$ROOT/post-install/run-all.sh"
 
 # --- 1. inventory + hooks lists --------------------------------------------
 grep -qP '^assets/console-saver/\t' "$ROOT/docs/platform-inventory.tsv" \
@@ -132,6 +133,46 @@ R5="$T/r-partial"; mkroot "$R5" server assets-present
 rm "$R5/cdrom/ncz-payload/assets/console-saver/ncz-bh-console"
 expect "hook: partial assets on server is FATAL" 1 "FATAL" \
     env NCZ_CS_ROOT="$R5" NCZ_CS_SKIP_ENABLE=1 bash "$HOOK"
+
+# --- 6. run-all.sh dispatch classification (TASK NEEDS-8) -------------------
+# The hook's own contract is MANDATORY on the server variant (docs/
+# platform-inventory.tsv: mandatory server-variant install, missing assets =
+# exit 1; the hook's own FATAL is the enforcement). run-all.sh must therefore
+# keep it OUT of the fail-tolerant optional dispatch (MACHINE_HOOKS_RE,
+# lib/bounded-run.sh, failure logged + continue) and instead run it through
+# the ship-critical path, exactly like 72-rescue-partition / 55-greeter.
+# Desktop behaviour is preserved by the hook's own BUILD_VARIANT guard: on a
+# desktop install the variant is desktop, the required hook exits 0
+# immediately, and the install is untouched.
+#
+# check-hook-registration.sh requires the hook to live in exactly one of the
+# two execution lists; putting it in BOTH lists is ambiguous and can
+# double-run, so it must not stay in MACHINE_HOOKS_RE while it is also made
+# required.
+
+# run-all.sh keeps the execution lists as inline alternation regex lists; the
+# REQUIRED_HOOKS assignments span two lines (command substitution + grep), so
+# grep -A1 reaches the alternation line. The name is matched as a delimited
+# alternation member, whatever delimits it (pipes, parens, quotes or the
+# line boundary): a PCRE negative lookaround on both sides matches the name
+# at any alternation position, not only between two pipes.
+grep -qP '(?<![0-9a-z_-])61-ncz-console-saver(?![0-9a-z_-])' <(grep '^MACHINE_HOOKS_RE=' "$RA") \
+    && bad "run-all: 61-ncz-console-saver is in MACHINE_HOOKS_RE (optional/bounded dispatch)" \
+    || ok "run-all: 61-ncz-console-saver absent from MACHINE_HOOKS_RE"
+grep -qE '^REQUIRED_HOOKS' "$RA" && \
+    grep -q '61-ncz-console-saver' <(grep -A1 '^REQUIRED_HOOKS' "$RA") \
+    && ok "run-all: 61-ncz-console-saver added to the REQUIRED_HOOKS list" \
+    || bad "run-all: 61-ncz-console-saver not in the REQUIRED_HOOKS list"
+# Scope the baked check to the NCZ_BAKED=1 block's own assignment: grepping
+# every REQUIRED_HOOKS block concatenated would pass on the non-baked list
+# alone even if the baked trim dropped the hook (muse review finding).
+grep -q '61-ncz-console-saver' \
+    <(sed -n '/^if \[ "$NCZ_BAKED" = 1 \]; then/,/^fi$/p' "$RA" | grep -A1 'REQUIRED_HOOKS=') \
+    && ok "run-all: 61-ncz-console-saver kept required under NCZ_BAKED=1" \
+    || bad "run-all: 61-ncz-console-saver dropped from the baked REQUIRED_HOOKS list"
+grep -qE "CRITICAL_OPTIONAL_HOOKS_RE='.*61-ncz-console-saver.*'" "$RA" \
+    && ok "run-all: 61-ncz-console-saver is in CRITICAL_OPTIONAL_HOOKS_RE (ship-critical)" \
+    || bad "run-all: 61-ncz-console-saver missing from CRITICAL_OPTIONAL_HOOKS_RE"
 
 echo
 echo "PASS=$pass FAIL=$fail"
