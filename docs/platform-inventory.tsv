@@ -89,6 +89,7 @@ assets/update-manager/	common	-	update manager
 assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
 build/analyze-build-log.py	common	-	build-log failure classifier (chunked, OpenAI-style chat model, strict JSON per chunk)
+build/check-sky1-scmi-boot-gate.sh	sky1	-	kernel-side SCMI boot gate: journal must show SCMI activation + clk-sky1-acpi Mapped, zero 'mailbox not free' (ORCHESTRATOR 2026-11-11 16:00Z)
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
 build/boot-timeline.py	common	-	boot log timeline analysis
 build/boot-speed-scan.py	common	-	static detector for boot-blocking systemd oneshots (boot-speed item F)
@@ -584,6 +585,7 @@ build/check-installed-apt-config.sh	common	-	audit of an apt config tree or root
 build/lib/deb-version-gate.sh	common	-	version discipline: refuses a rebuilt .deb that reuses an already-published version with different content (apt 1.0 -> 1.0)
 build/build-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy package that delivers the apt separation pins to already-installed systems
 build/test-analyze-build-log.sh	common	-	unit tests for analyze-build-log.py (stdlib stub model server; spec cases a-d)
+build/test-sky1-scmi-boot-gate.sh	sky1	-	tests for check-sky1-scmi-boot-gate.sh (both-directions: rc1-shaped pass, rc2-shaped + missing-pattern fails)
 build/test-apt-separation.sh	common	-	real apt resolution against throwaway Debian/NCZ/T2 repos, old behaviour vs new, plus the single-source writer and ncz-apt-source helper
 build/test-ncz-repo-policy.sh	common	-	behavioural tests for the repo-content gate, installed-config audit, version gate, publisher policy and update classification
 build/test-reprepro-publish-pool-arch.sh	common	-	end-to-end tests of the apt publisher against a mocked reprepro and registry: uploads exactly the piped deb (arm64 next to an older all build) and fails unless the index serves it
