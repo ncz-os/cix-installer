@@ -937,7 +937,7 @@ ncz_add_only() {
     fi
     case "$kver" in
         *-amd64|7.1.*|7.1-*)
-            echo "ERROR: --add refuses Debian-archive kernel '$kver' (NCZ 7.3 policy)" >&2
+            echo "ERROR: --add refuses Debian-archive kernel '$kver' (NCZ 7.4 policy)" >&2
             return 1 ;;
         7.3.0-rc7*)
             echo "ERROR: --add refuses retired NCZ kernel '$kver' (line moved to 7.4)" >&2
