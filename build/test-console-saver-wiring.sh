@@ -150,16 +150,20 @@ expect "hook: partial assets on server is FATAL" 1 "FATAL" \
 # double-run, so it must not stay in MACHINE_HOOKS_RE while it is also made
 # required.
 
-grep -qE '\|61-ncz-console-saver\|' "$RA" \
-    && bad "run-all: 61-ncz-console-saver is still in MACHINE_HOOKS_RE (optional/bounded dispatch)" \
+# run-all.sh keeps the execution lists as inline alternation regex lists; the
+# REQUIRED_HOOKS assignments span two lines (command substitution + grep), so
+# grep -A1 reaches the alternation line.
+grep -qE '\|61-ncz-console-saver\|' <(grep '^MACHINE_HOOKS_RE=' "$RA") \
+    && bad "run-all: 61-ncz-console-saver is in MACHINE_HOOKS_RE (optional/bounded dispatch)" \
     || ok "run-all: 61-ncz-console-saver absent from MACHINE_HOOKS_RE"
-grep -qE '\|61-ncz-console-saver\|' <(grep -E '^[[:space:]]*REQUIRED_HOOKS=\$\(ls' "$RA") \
-    && ok "run-all: 61-ncz-console-saver added to the non-baked REQUIRED_HOOKS list" \
-    || bad "run-all: 61-ncz-console-saver not in the non-baked REQUIRED_HOOKS list"
-grep -qE '\|61-ncz-console-saver\|' <(grep -E '^[[:space:]]*REQUIRED_HOOKS=\$\(printf.*BAKED' "$RA") \
+grep -qE '^REQUIRED_HOOKS' "$RA" && \
+    grep -q '61-ncz-console-saver' <(grep -A1 '^REQUIRED_HOOKS' "$RA") \
+    && ok "run-all: 61-ncz-console-saver added to the REQUIRED_HOOKS list" \
+    || bad "run-all: 61-ncz-console-saver not in the REQUIRED_HOOKS list"
+grep -q '61-ncz-console-saver' <(grep -A1 -E '^[[:space:]]*REQUIRED_HOOKS' "$RA") \
     && ok "run-all: 61-ncz-console-saver kept required under NCZ_BAKED=1" \
     || bad "run-all: 61-ncz-console-saver dropped from the baked REQUIRED_HOOKS list"
-grep -qE '\|61-ncz-console-saver\|' <(grep -E "^CRITICAL_OPTIONAL_HOOKS_RE=" "$RA") \
+grep -qE "CRITICAL_OPTIONAL_HOOKS_RE='.*61-ncz-console-saver.*'" "$RA" \
     && ok "run-all: 61-ncz-console-saver is in CRITICAL_OPTIONAL_HOOKS_RE (ship-critical)" \
     || bad "run-all: 61-ncz-console-saver missing from CRITICAL_OPTIONAL_HOOKS_RE"
 

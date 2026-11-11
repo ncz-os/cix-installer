@@ -74,6 +74,9 @@ on_disk = {os.path.basename(f)[:-3]
 # be selected per-architecture from an external $HOOKS_LIST (run-all.sh builds
 # _PLAT_SKIP_RE from it). Either way it is reachable, so it is NOT an orphan.
 referenced_elsewhere = set(re.findall(r'([0-9]{2}-[a-z0-9_-]+)\.sh', src))
+# Also match hook names referenced without the .sh suffix (e.g. inside
+# REQUIRED_HOOKS regex alternations or grep -E patterns).
+referenced_elsewhere |= set(re.findall(r'([0-9]{2}-[a-z0-9_-]+)', src))
 
 # run-all.sh strips the leading "^(...)$" anchors; do the same so entries are
 # compared as bare hook names.
