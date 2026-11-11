@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -31,9 +32,16 @@ DEFAULT_CHUNK_LINES = 200
 CLASSES = ("C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "ok")
 
 TAXONOMY = (
-    "C1 pin/ledger drift on re-pin; C2 per-host input drift; "
-    "C3 late provenance (stage 80 finds input defects); C4 tests with hard-coded pins; "
-    "C5 stale intermediate artifacts; C6 env/permission debris; "
+    "C1 pin/ledger drift on re-pin (symptoms: FAIL [sid-exceptions] rows such as "
+    "GRADUATED udebs, 'ledger row pinned to snapshot ... != current pin', "
+    "'an input has an unreviewed origin' reported by the provenance-inputs stage); "
+    "C2 per-host input drift; "
+    "C3 late provenance (stage 80 provenance-gate finds input defects, e.g. udebs "
+    "present in the pinned snapshot index but missing from sid-exceptions manifests); "
+    "C4 tests with hard-coded pins; "
+    "C5 stale intermediate artifacts; "
+    "C6 env/permission debris that blocks the build (ownership or permission errors "
+    "that need chown/chmod to clear - never benign warnings); "
     "C7 operator-procedure mistakes; C8 network/mirror flakiness; C9 resource limits; "
     "ok no failure observed in this chunk"
 )
@@ -44,6 +52,9 @@ SYSTEM_PROMPT = (
     '{"failure_class": "C1".."C9" or "ok", "first_error_line": integer or null, '
     '"cause": one sentence, "evidence": [integers]}. '
     "Line numbers in the text are ORIGINAL file line numbers; cite those. "
+    "Warning-only lines (apt 'W:' notices such as unsandboxed downloads) are "
+    "never failures on their own: classify the chunk ok unless a real ERROR or "
+    "abort is present. "
     "Failure taxonomy: " + TAXONOMY
 )
 
@@ -172,7 +183,7 @@ def call_model(url, model, chunk_text, timeout=120.0):
 
 
 def analyze_file(path, model_url, model, chunk_lines, timeout=120.0):
-    """Return (chunks, errors) records for one log file."""
+    """Return (chunks, errors, deduped items) for one log file."""
     items = dedup_doubled(load_lines(path))
     chunks, errors = [], []
     for index, part in enumerate(chunked(items, chunk_lines)):
@@ -202,27 +213,57 @@ def analyze_file(path, model_url, model, chunk_lines, timeout=120.0):
                 **answer,
             }
         )
-    return chunks, errors
+    return chunks, errors, items
 
 
-def merge(chunks, errors):
-    """Merge chunk answers: first non-ok class wins, earliest error line, all evidence."""
-    failure_class = "ok"
+ABORT_RE = re.compile(r"build aborted|FAILED rc=")
+
+
+def merge(chunks, errors, lines=None):
+    """Merge chunk answers with terminal-failure semantics.
+
+    The chunk that CONTAINS the build-abort marker decides the class and the
+    first error line (builds die at their abort); when no marker is found the
+    LAST non-ok chunk wins (end-of-log is where builds die). All causes and
+    evidence are preserved. Justification: the A1 accuracy measurement
+    (2026-11-11) showed first-non-ok-wins let a benign apt W: warning in an
+    early chunk hijack the merged verdict away from the terminal failure.
+    """
     causes = []
     evidence = []
-    first_error_line = None
+    non_ok = [rec for rec in chunks if rec["failure_class"] != "ok"]
+    for rec in non_ok:
+        causes.append(rec["cause"])
     for rec in chunks:
-        if rec["failure_class"] != "ok" and failure_class == "ok":
-            failure_class = rec["failure_class"]
-        if rec["failure_class"] != "ok":
-            causes.append(rec["cause"])
-        if rec["first_error_line"] is not None:
-            cand = rec["first_error_line"]
-            if first_error_line is None or cand < first_error_line:
-                first_error_line = cand
         for line in rec["evidence"]:
             if line not in evidence:
                 evidence.append(line)
+    abort_no = None
+    for no, text in lines or []:
+        if ABORT_RE.search(text):
+            abort_no = no
+    winner = None
+    if abort_no is not None:
+        for rec in non_ok:
+            lo, hi = rec.get("original_lines") or (None, None)
+            if lo is not None and lo <= abort_no <= hi:
+                winner = rec
+                break
+    if winner is None and non_ok:
+        winner = non_ok[-1]
+    if winner is not None:
+        failure_class = winner["failure_class"]
+        first_error_line = winner["first_error_line"]
+        if first_error_line is None:
+            cands = [
+                rec["first_error_line"]
+                for rec in non_ok
+                if rec["first_error_line"] is not None
+            ]
+            first_error_line = min(cands) if cands else None
+    else:
+        failure_class = "ok"
+        first_error_line = None
     if errors and failure_class == "ok":
         failure_class = "unknown"
     return {
@@ -260,13 +301,14 @@ def main(argv=None):
     if args.chunk_lines < 1:
         parser.error("--chunk-lines must be >= 1")
 
-    chunks, errors = [], []
+    chunks, errors, all_items = [], [], []
     for path in gather_inputs(args.log_or_dir):
-        file_chunks, file_errors = analyze_file(
+        file_chunks, file_errors, file_items = analyze_file(
             path, args.model_url, args.model, args.chunk_lines, args.timeout
         )
         chunks.extend(file_chunks)
         errors.extend(file_errors)
+        all_items.extend(file_items)
 
     report = {
         "source": str(args.log_or_dir),
@@ -275,7 +317,7 @@ def main(argv=None):
         "chunk_lines": args.chunk_lines,
         "chunks": chunks,
         "chunk_errors": errors,
-        **merge(chunks, errors),
+        **merge(chunks, errors, all_items),
     }
     text = json.dumps(report, indent=2) + "\n"
     if args.out:

@@ -16,6 +16,17 @@
 #       verdict becfef02 (high) - collapse-any-run silently deleted genuine
 #       repeated lines (runs of 3+ exist in the 2026-10-29 evidence logs);
 #       red-proven against the old dedup, green with pair-consumption.
+#   (g) terminal merge: the chunk covering the build-abort marker decides the
+#       merged class and first_error_line (fallback: last non-ok), never the
+#       first non-ok chunk. Justification for the new case: the A1 accuracy
+#       measurement (2026-11-11) showed first-non-ok-wins let a benign apt W:
+#       warning (early chunk, class C6) hijack the merged verdict away from the
+#       terminal failure (which correctly cited the ERROR abort lines).
+#   (h) the SYSTEM_PROMPT carries the classification-contract clauses: apt W:
+#       warnings are never failures on their own, and the taxonomy carries the
+#       C1 symptom vocabulary ('an input has an unreviewed origin'). Justified
+#       by the same A1 measurement; a regression dropping the clauses must fail
+#       CI (prompt content is part of the spec).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -69,6 +80,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "evidence": [3],
                 }
             )
+        elif MODE == "mixed":
+            # request 1 = early warning chunk, request 4 = terminal abort chunk
+            if count == 1:
+                content = json.dumps(
+                    {
+                        "failure_class": "C6",
+                        "first_error_line": 2,
+                        "cause": "stub early warning",
+                        "evidence": [2],
+                    }
+                )
+            elif count == 4:
+                content = json.dumps(
+                    {
+                        "failure_class": "C3",
+                        "first_error_line": 8,
+                        "cause": "stub terminal abort",
+                        "evidence": [8],
+                    }
+                )
+            else:
+                content = json.dumps(
+                    {
+                        "failure_class": "ok",
+                        "first_error_line": None,
+                        "cause": "chunk %d" % count,
+                        "evidence": [],
+                    }
+                )
         else:
             content = json.dumps(
                 {
@@ -199,4 +239,26 @@ grep -q '^2|x$' "$TMP/lastbody" \
     && fail "(f) tee twin (original 2) not collapsed"
 echo "PASS (f): only tee-pairs collapse (3-run keeps originals 1 and 3)"
 
-echo "analyze-build-log tests: 6 passed, 0 failed"
+# --- (g) terminal merge: the abort chunk decides, not the first non-ok ------
+# 8 distinct lines, chunk-lines 2 -> chunks [1-2][3-4][5-6][7-8]; stub "mixed"
+# answers C6 (warning) for chunk 0 and C3 (abort) for chunk 3.
+printf 'start\nW: unsandboxed download\nfetch ok a\nfetch ok b\nfetch ok c\nfetch ok d\nERROR [provenance-inputs] FAILED\nERROR build aborted at stage (rc=1)\n' >"$TMP/log-g.out"
+start_stub mixed
+run_analyzer "$TMP/log-g.out" "$TMP/report-g.json" 2
+stop_stub
+check "$TMP/report-g.json" 'r["failure_class"] == "C3"' \
+    || fail "(g) merged class is not the abort chunk's (terminal-failure semantics broken)"
+check "$TMP/report-g.json" 'r["first_error_line"] == 8' \
+    || fail "(g) first_error_line is not the abort chunk's"
+check "$TMP/report-g.json" 'sorted(r["evidence"]) == [2, 8]' \
+    || fail "(g) evidence not preserved across chunks"
+echo "PASS (g): terminal/abort chunk decides the merged class"
+
+# --- (h) prompt carries the classification-contract clauses -----------------
+grep -q "never failures on their own" "$ANALYZER" \
+    || fail "(h) SYSTEM_PROMPT lost the benign-warning clause"
+grep -q "an input has an unreviewed origin" "$ANALYZER" \
+    || fail "(h) taxonomy lost the C1 symptom vocabulary"
+echo "PASS (h): prompt carries benign-warning + C1 symptom clauses"
+
+echo "analyze-build-log tests: 8 passed, 0 failed"
