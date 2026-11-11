@@ -83,7 +83,7 @@ gate_set_disk() {
         *)       echo "ext4 0" ;;
     esac
 }
-GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs server server-medium server-offline-negative"
+GATE_ALL_SETS="full norescue norescue-mgmt nodesktop minimal stalefs server server-offline-negative server-medium"
 GATE_DEFAULT_SETS="norescue minimal stalefs"
 # NCZ-GATE-SETS-END
 

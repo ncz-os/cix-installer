@@ -77,4 +77,17 @@ export BOOTDIR=/tmp/b7
 mkboot $BOOTDIR 6.1.0-13-amd64
 check "amd64: no 7.3 -> no default" ""
 
+echo "=== 7.4 line switch (operator 2026-11-09 22:20Z): 7.4 is default-class ==="
+export BOOTDIR=/tmp/b8
+mkboot $BOOTDIR 7.4.0-rc2-t2-ncz
+check "amd64: a lone 7.4 kernel classifies as default" 7.4.0-rc2-t2-ncz
+
+export BOOTDIR=/tmp/b9
+mkboot $BOOTDIR 7.3.3-t2-ncz 7.4.0-rc2-t2-ncz
+check "amd64: newest of the 7.3/7.4 line wins (mixed window)" 7.4.0-rc2-t2-ncz
+
+export BOOTDIR=/tmp/b10
+mkboot $BOOTDIR 7.2.9-2-t2-ncz 7.4.0-rc2-t2-ncz-rescue
+check "amd64: 7.2.x still refused; a 7.4 rescue alone gives no default" ""
+
 echo; echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

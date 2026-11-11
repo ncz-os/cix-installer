@@ -43,7 +43,14 @@ CRITICAL_HOOK_FAILURES=""
 # networking, and a populated rescue partition. They still run in the
 # fail-tolerant phase so the bootloader/diagnostics always execute, but a
 # failure is propagated to d-i after those recovery affordances are written.
-CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
+# 61-ncz-console-saver is REQUIRED on the server variant (see its own FATAL
+# on missing assets and docs/platform-inventory.tsv), but it is NOT an
+# optional hook: it lives in REQUIRED_HOOKS. It is listed here only for
+# semantic completeness -- the grep on an optional-hook name never sees it --
+# and is never dispatched through lib/bounded-run.sh. Do not move it back
+# into MACHINE_HOOKS_RE (build/check-hook-registration.sh enforces single
+# registration).
+CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|61-ncz-console-saver)\.sh$'
 # 2026-09-28 arm64 ship-critical expansion: on arm64, a failure of
 # 12-sky1-firmware (no VPU codecs / DSP fw / Mali CSF) or 25-cix-proprietary
 # (no GPU userland, no NPU DKMS) is just as un-shippable as a missing greeter.
@@ -81,9 +88,17 @@ esac
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run
 # ONLY machine-specific hooks at install (fstab/rescue/bootloader/diag).
-NCZ_BAKED=0
-[ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
-[ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+# NCZ_BAKED: an explicitly set env value (0/1) wins over marker detection —
+# fixture hermeticity, the same class of seam as NCZ_COMP_FILE below. Without
+# it, a test harness running the real run-all.sh against synthetic hooks on a
+# baked-marked build host silently inherits NCZ_BAKED=1 and the baked filter
+# drops every fixture hook (measured: build/test-platform-lint.sh run-all cases
+# ran only the always-run specials). Marker detection runs only when unset.
+if [ -z "${NCZ_BAKED+set}" ]; then
+    NCZ_BAKED=0
+    [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
+    [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+fi
 # r184: the CIX proprietary userland + NPU-userspace hooks were NEVER running on
 # a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
@@ -182,6 +197,20 @@ NCZ_BAKED=0
 # this file in baked mode against every hook on both hooks.list files and fails
 # on any ORPHAN, so the next omission fails `make` instead of shipping.
 MACHINE_HOOKS_RE="^(10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|19-sinty-nm|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-apple-vbt-spoof|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-greeter|55-t2-firmware|56-icon-theme|56-t2-dkms|57-qotd|58-screensaver-shader|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|66-ncz-lite-profile|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health)\.sh$"
+# 61-ncz-console-saver (Magnetar server console saver, B3 04:40Z order) is
+# deliberately NOT in the optional MACHINE_HOOKS_RE list above: its contract
+# is server-variant MANDATORY (docs/platform-inventory.tsv; the hook's own
+# FATAL on missing assets is the enforcement), so it runs through the
+# REQUIRED_HOOKS / ship-critical path below, not through lib/bounded-run.sh.
+# The baked filter trims REQUIRED_HOOKS to the kernel hooks, but this hook
+# must survive that trim too: on a baked server image it is the mandatory
+# console-saver install, and the same v11 failure mode applies (trimmed from
+# REQUIRED, excluded from OPT_HOOKS, left in NO list, never runs).
+# Desktop behaviour is preserved by the hook's own BUILD_VARIANT guard
+# (it exits 0 immediately on desktop; assets are not staged on desktop
+# media), so adding it to REQUIRED_HOOKS does not affect desktop installs.
+# build/test-console-saver-wiring.sh pins this classification;
+# build/check-hook-registration.sh requires it to live in exactly one list.
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -220,7 +249,7 @@ fi
 # every numbered script in the directory.
 PHASE0_HOOKS=$(ls 0[0-9]-*.sh 2>/dev/null | sort || true)
 REQUIRED_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
-    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
+    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|61-ncz-console-saver)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
     # 12-sky1-firmware and 33-network MUST SURVIVE THE BAKED FILTER.
     #
@@ -241,7 +270,7 @@ if [ "$NCZ_BAKED" = 1 ]; then
     # network config. Both are genuinely per-install work and must run under
     # --mode full like any other machine hook.
     REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
-        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot)\.sh$' || true)
+        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|61-ncz-console-saver)\.sh$' || true)
 fi
 # 12-sky1-firmware and 33-network are NOT excluded here any more.
 #
@@ -288,6 +317,16 @@ if [ -z "$PLATFORM" ]; then
     esac
 fi
 HOOKS_LIST="${NCZ_HOOKS_LIST:-}"
+# An explicit NCZ_HOOKS_LIST is an operator override. Only a bare filename
+# (no path separators) is resolved inside $HOOK_DIR (the legacy convention).
+# A path containing '/' — absolute or relative — is used verbatim and is never
+# silently rewritten, so an operator-intended path is not mis-interpreted.
+case "$HOOKS_LIST" in
+    */*) : ;;   # path: leave exactly as supplied
+    *)   if [ -n "$HOOKS_LIST" ] && [ ! -e "$HOOKS_LIST" ] && [ -e "$HOOK_DIR/$HOOKS_LIST" ]; then
+             HOOKS_LIST="$HOOK_DIR/$HOOKS_LIST"
+         fi ;;
+esac
 if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
     if   [ -f "$HOOK_DIR/hooks.list.$PLATFORM" ]; then HOOKS_LIST="$HOOK_DIR/hooks.list.$PLATFORM"
     elif [ -f "$HOOK_DIR/hooks.list" ];            then HOOKS_LIST="$HOOK_DIR/hooks.list"
@@ -295,6 +334,10 @@ if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
 fi
 [ "$HOOKS_LIST" = none ] && HOOKS_LIST=""
 _PLAT_SKIPPED=""
+# A valid list must be an ordinary, readable file with at least one non-comment,
+# non-blank hook entry. If it is missing, unreadable, a directory, or empty, fall
+# back to legacy (run every hook) — never run zero hooks, and never treat a
+# directory named like the list as a list.
 if [ -n "$HOOKS_LIST" ] && { [ ! -f "$HOOKS_LIST" ] || [ ! -r "$HOOKS_LIST" ] || ! grep -qvE '^[[:space:]]*(#|$)' "$HOOKS_LIST"; }; then
     echo "[cix-installer] WARNING: hooks list $HOOKS_LIST is not a readable, non-empty file; running every hook (legacy behavior)"
     HOOKS_LIST=""
@@ -340,9 +383,17 @@ fi
 # (not regex-derived) so the relationship between a toggle and its hooks is
 # readable in one place. Lines that map a hook to a toggle that no chooser
 # currently writes are inert (no skipping).
-COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
-[ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
-[ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+# NCZ_COMP_FILE overrides the record location (fixture hermeticity: without it,
+# build/test-run-all-baked-allowlist.sh silently inherited the build host's
+# COMPONENTS record and the component-skip filters dropped hooks the fixture
+# expected to run).
+if [ -n "${NCZ_COMP_FILE:-}" ]; then
+    COMP_FILE="$NCZ_COMP_FILE"
+else
+    COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
+    [ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
+    [ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+fi
 _CDESKTO=1; _CBRW=1; _CMGMT=1; _CRESC=1; _CWP=1
 if [ -r "$COMP_FILE" ]; then
     _ck=$(tr -d ' \t\r\n' < "$COMP_FILE" 2>/dev/null || true)
@@ -459,11 +510,16 @@ _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
 # explicitly opting OUT of a toggle. The five skip regexes must be remembered
 # here exactly as written in the toggle block above.
 _SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}"
+# A hook dropped by the platform hooks.list (already logged as PLATFORM-SKIP
+# above) is NOT an orphan — it was deliberately excluded for this platform.
+# _PLAT_SKIP_RE is populated from the hooks.list skip set when a list is active
+# and empty otherwise, so the exclusion below is a no-op in legacy mode.
+_PLAT_SKIP_ALL_RE="^(70-bootloader|99-diagnostics)\.sh$"
+[ -n "${_PLAT_SKIP_RE:-}" ] && _PLAT_SKIP_ALL_RE="$_PLAT_SKIP_ALL_RE|$_PLAT_SKIP_RE"
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
-           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
-           | grep -vE "$_SKIP_ALL_RE" \
-           | { if [ -n "${_PLAT_SKIP_RE:-}" ]; then grep -vE "$_PLAT_SKIP_RE"; else cat; fi; } || true)
+           | grep -vE "$_PLAT_SKIP_ALL_RE" \
+           | grep -vE "$_SKIP_ALL_RE" || true)
 if [ -n "$_orphans" ]; then
     echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
     printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'

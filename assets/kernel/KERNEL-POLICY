@@ -2,26 +2,40 @@
 # Read by build/verify-kernel-default-policy.sh. KEY=value, no spaces.
 # Human text and rationale: docs/ONE-KERNEL.md
 #
-# ONE kernel: 7.3, the SAME pinned build on every architecture. It is the
+# ONE kernel, the SAME pinned build on every architecture. It is the
 # DEFAULT boot kernel, the installer boot kernel, and the kernel the RESCUE
 # entry boots. 7.2.x (including 7.2.9) is retired everywhere: no default, no
 # rescue, no edge, no installer. There is no EDGE channel any more.
 #
+# KERNEL LINE SWITCH (operator 2026-11-09 22:20Z: "move away from 7.3 and go
+# directly to 7.4, on both architectures"): the line is now 7.4.x (7.4-rc2
+# now, track each rc to 7.4 final). DEFAULT_BASE lists the accepted bases
+# while the switch is in flight (amd64 moved, arm64 moves with its staged
+# 7.4 build); the 7.3 entries drop out when the switch completes. The
+# registry default line flips to 7.4 only after each arch's 7.4 build passes
+# its KVM gate and the human-supervised hardware boot (NEEDS 6).
+#
 # The exact pinned version lives in the per-arch sidecars/manifests, not here:
 #   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
 #   amd64: assets/kernel/amd64-stable/KVER
-# Since 2026-11-07 (rc4) amd64 is 7.3.3-t2-ncz (7.3.3-r297, boot-tested on MEDUSA).
-# arm64 is 7.3.3-sky1-ncz (r298, boot-tested on O6N), the same 7.3.3 as amd64.
+# amd64 is 7.3.3-t2-ncz (pool 7.3.3-t2-ncz+r297; repinned 2026-11-11 per
+# operator 20:10Z - images stay 7.3.x, nothing 7.4 ships. The 7.4.0-rc2-t2-ncz
+# experiment is parked dev-only, registry-retired). arm64 pin application
+# (kernel-manifest.json/mainline.release -> r299-7.3.3-sky1-ncz-20261111) is
+# STAGED but deliberately NOT APPLIED (order: land branches without applying
+# the arm64 pin; operator flips at go). Current arm64 CANDIDATE (pre-flip):
+# KVM-gated 2026-11-10, hardware boot pending).
 # Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
 # assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.
-DEFAULT_BASE=7.3
+DEFAULT_BASE=7.3,7.4
 
-# An -rcN default is permitted ONLY while the pinned 7.3 version is still an
-# -rcN and RC_DEFAULT_ALLOWED=1. The verifier fails if a 7.3 default is an
+# An -rcN default is permitted ONLY while the pinned line version is still an
+# -rcN and RC_DEFAULT_ALLOWED=1. The verifier fails if a default is an
 # -rcN while this is 0, and also fails if this is 1 but the pinned version is
-# no longer an -rcN (a stale allowance). Clear it when 7.3.0 final lands:
-# RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
+# no longer an -rcN (a stale allowance). The 7.4-rc2 line switch (operator
+# 2026-11-09 22:20Z) keeps an -rcN default in play until 7.4 final:
 RC_DEFAULT_ALLOWED=0
+RC_DEFAULT_EXPIRY_NOTE=default is 7.3.3-t2-ncz final since the 2026-11-11 repin; rcN default no longer allowed
 
 # RESCUE = the SAME pinned kernel as DEFAULT, not a separate series and not an
 # older kernel. Its whole difference is the accelerator drivers blacklisted on
@@ -61,3 +75,11 @@ EDGE_ENABLED=0
 # CLEARED. Re-add a MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to
 # decline a genuinely newer non-shipping build, with explicit operator
 # direction.
+
+# Retired kernels (<kver>+<rev>, '*' = every revision): generated from the kernel-ci
+# promotion registry; a retired kernel can never be pinned again.
+RETIRED_KERNELS_AMD64=7.3.0-t2-ncz+*,7.3.1-t2-ncz+r295,7.3.3-t2-ncz+r297-reinstate1,7.4.0-rc2-t2-ncz+3
+
+# Retired kernels (<kver>+<rev>, '*' = every revision): generated from the kernel-ci
+# promotion registry; a retired kernel can never be pinned again.
+RETIRED_KERNELS_ARM64=7.3.0-sky1-ncz+r293,7.3.3-sky1-ncz+r298

@@ -489,14 +489,15 @@ rebuild_host_tools() {
 
 install_kernel_headers "$KVER_NEXT" mainline || true
 
-# Unified 7.3 policy (2026-10-05): only the 7.3 series may ship.
+# Kernel line policy (2026-10-05 unified 7.3; line switch to 7.4 by
+# operator 2026-11-09 22:20Z): only the 7.3/7.4 lines may ship.
 # A 7.2.x sidecar is refused here so the install fails closed rather than
 # silently booting a retired kernel. (The build-time verifier is the primary
 # gate; this is defence in depth on the target.)
 case "$KVER_NEXT" in
-    7.3.*|7.3-*) ;;
+    7.3.*|7.3-*|7.4.*|7.4-*) ;;
     *)
-        echo "ERROR: KVER_NEXT='$KVER_NEXT' is not the unified 7.3 series (policy 2026-10-05)." >&2
+        echo "ERROR: KVER_NEXT='$KVER_NEXT' is not the unified 7.3/7.4 kernel line (2026-11-09 line switch)." >&2
         echo "       Refusing to install a retired kernel." >&2
         exit 1 ;;
 esac

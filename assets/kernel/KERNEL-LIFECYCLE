@@ -20,17 +20,36 @@ LIFECYCLE_SOURCE=seed-rc4-20261107
 # Lowest upstream kernel version any default may pin.
 MIN_VERSION=7.3.3
 
-# amd64: T2 7.3.3-r297 (TYPHON build 2026-11-07), boot-tested on MEDUSA
-# 2026-11-07 (vmlinuz sha256 f0709e47...). Pool dir in amd64-stable-manifest.json.
+# amd64: T2 7.4.0-rc2-3 (forky rebuild 2026-11-10 of the 7.4.0-rc2-2 source;
+# -2 was an Ubuntu-host build and is never promoted, 03:05Z order A), on the
+# 7.4 kernel line (operator 2026-11-09 22:20Z). KVM boot gate PASS 2026-11-10
+# (TYPHON k743-kvm-gate); HARDWARE PASS 2026-11-10 (DELL .70 + MEDUSA .38
+# one-shot boots, 05:03Z). Registry t2-amd64 current = 7.4.0-rc2-t2-ncz+3
+# (promoted 2026-11-10; 7.3.3-t2-ncz+r297 retired). Pool dir in
+# amd64-stable-manifest.json.
 CURRENT_KVER_amd64=7.3.3-t2-ncz
 CURRENT_PKG_amd64=7.3.3-r297
 
-# arm64: Sky1 7.3.3-sky1-ncz r298 (ULTRA build 2026-11-07, v7.3.3 d50d994bffa3,
-# meta-cix kb/sky1-7.3.3-r298-20261107), boot-tested on O6N 2026-11-08 (Image
-# sha256 f47b74e2..., vmlinux build id 19c5ddd7...). Pool dir
-# kernel-staging/r298-7.3.3-sky1-ncz-20261107 (assets/kernel/mainline.release).
-CURRENT_KVER_arm64=7.3.3-sky1-ncz
-CURRENT_PKG_arm64=7.3.3-sky1-ncz+r298
+# arm64: Sky1 7.4.0-rc2-sky1-ncz r299 (ULTRA non-git export build 2026-11-10,
+# v7.4-rc2 7475ea8b, linux-cix kernel-dev/sky1-7.4-rc2-r3 f6950f68, 32 patches,
+# localversion-ncz -sky1-ncz). CANDIDATE: KVM boot gate PASS (r299 staging),
+# hardware boot PENDING (NEEDS 6) per the 2026-11-09 22:20Z order. Pool dir
+# kernel-staging/r299-7.4.0-rc2-sky1-ncz-20261109 (assets/kernel/mainline.release).
+CURRENT_KVER_arm64=7.4.0-rc2-sky1-ncz
+CURRENT_PKG_arm64=7.4.0-rc2-sky1-ncz+r299
 
 # Retired KVERs, comma-separated: never pinned again, on any arch.
-RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz
+# 7.3.3-t2-ncz retirement REVERSED by the 2026-11-11 registry repair (current again);
+# 7.4.0-rc2-t2-ncz retired (parked dev-only). 7.3.3-sky1-ncz retired at the
+# arm64 one (candidate pin bumps; the rescue entry on installed hosts keeps the
+# same kernel + accelerator blacklist per ONE-KERNEL, so nothing pins a retired
+# KVER).
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.4.0-rc2-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz,7.3.3-sky1-ncz
+
+# --- repin 2026-11-11 (operator 20:10Z: images stay 7.3.x, nothing 7.4 ships) ---
+# amd64 pool build: 7.3.3-t2-ncz+r297 (registry build id) == pool dir
+# kernel-staging/amd64-stable-7.3.3-t2-ncz-20261107. NAMING MAP: r297 = package
+# revision (deb version 7.3.3-r297); 20261107 = staging date. SAME BUILD.
+# Registry t2-amd64 current = 7.3.3-t2-ncz+r297 (repaired 2026-11-11T22:12Z,
+# backup registry.json.bak-repair-20261111T2212Z; rc2 entry 7.4.0-rc2-t2-ncz+3
+# retired, MEDUSA+4-host hw verification 2026-11-11).

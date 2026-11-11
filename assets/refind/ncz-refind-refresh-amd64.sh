@@ -178,19 +178,26 @@ if [ -z "${KVER_STABLE:-}" ] && [ "$NCZ_VERB" != promote ]; then
 fi
 
 # Kernel-purity rule 2026-10-04 (Cygnus 26.10), updated
-# 2026-10-05: the default rEFInd entry must load our NCZ 7.3 kernel, never a
-# Debian-archive kernel. An -rcN is permitted as the default while the unified
-# policy allows it (RC_DEFAULT_ALLOWED=1; 7.3.0 final removes it), so only the
-# Debian shapes are refused here. Versioned Debian kernels end in -amd64 and
-# the forky line is 7.1.x; the /etc/kernel/postinst.d classifier already
-# filters /boot, but this generator can be invoked with an explicit KVER, so
-# fail closed here too. The build-time gate build/verify-kernel-default-policy.sh
-# enforces the 7.3 series and the rc-allowance rules.
-case "${KVER_STABLE:-}" in
-    *-amd64|7.1.*|7.1-*)
-        echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
-        echo "       the default MUST be the NCZ 7.3 T2 kernel (unified 7.3 policy)." >&2
-        echo "       Refusing to write an rEFInd menu that would boot Debian as the default." >&2
+# 2026-11-11: the line has moved to 7.4 (KVER pin 7.4.0-rc2-t2-ncz,
+# KERNEL-LIFECYCLE CURRENT_KVER_amd64=7.4.0-rc2, RETIRED_KERNELS_AMD64
+# lists 7.3.0-t2-ncz). The default rEFInd entry must load our NCZ 7.4 T2
+# kernel, never a Debian-archive kernel and never the retired 7.3.0-rc7 T2
+# build. An -rcN is still permitted as the default while the unified policy
+# allows it (RC_DEFAULT_ALLOWED=1), so only the Debian shapes plus the
+# retired 7.3.0-rc7 line are refused here. The build-time gate
+# build/verify-kernel-default-policy.sh enforces the 7.4 series and the
+# rc-allowance rules.
+# The subject is the bare `$KVER_STABLE`, exactly like the arm64 sibling's
+# `case "$KVER_NEXT" in` guard: the preceding `-z` preflight already refused an
+# empty KVER, so no default expansion is needed here, and the extracted guard
+# (build/test-kernel-purity-guards.sh runs this case block verbatim against
+# sample KVERs) must see the same shape on both architectures.
+case "$KVER_STABLE" in
+    *-amd64|7.1.*|7.1-*|7.3.0-rc7*)
+        echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x)" >&2
+        echo "       or the retired 7.3.0-rc7 T2 build (line moved to 7.4);" >&2
+        echo "       the default MUST be the NCZ 7.4 T2 kernel." >&2
+        echo "       Refusing to write an rEFInd menu that would boot a non-default kernel." >&2
         exit 1
         ;;
 esac
@@ -930,7 +937,10 @@ ncz_add_only() {
     fi
     case "$kver" in
         *-amd64|7.1.*|7.1-*)
-            echo "ERROR: --add refuses Debian-archive kernel '$kver' (NCZ 7.3 policy)" >&2
+            echo "ERROR: --add refuses Debian-archive kernel '$kver' (NCZ 7.4 policy)" >&2
+            return 1 ;;
+        7.3.0-rc7*)
+            echo "ERROR: --add refuses retired NCZ kernel '$kver' (line moved to 7.4)" >&2
             return 1 ;;
     esac
     if ! esp_is_vfat; then

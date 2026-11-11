@@ -135,6 +135,39 @@ def xorriso_extract(iso: str, member: str, out: str) -> bool:
     return r.returncode == 0 and os.path.isfile(out)
 
 
+INITRD_BASENAME_RE = re.compile(r"^initrd(?:\.(?:gz|xz|zst|lz|img))?$")
+
+
+def iso_initrd_members(iso: str) -> list:
+    """The initrd members the substrate ISO carries.
+
+    A Debian netinst ships several (e.g. /install.amd/initrd.gz,
+    /install.amd/gtk/initrd.gz, /install.amd/xen/initrd.gz) and the provenance
+    gate scans EVERY one of them; classify must cover the same set or an
+    initrd-carried udeb (rootskel-gtk et al.) silently escapes the ledger and
+    the build dies at provenance-predict.  Members are discovered by NAME from
+    the ISO listing (a pool udeb named initrd-*.udeb is not an initrd).
+    """
+    try:
+        p = subprocess.run(
+            ["xorriso", "-indev", iso, "-find", "/", "-name", "*initrd*"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return []
+    out = []
+    for line in p.stdout.splitlines():
+        line = line.strip()
+        m = re.match(r"^'(.*)'$", line)
+        member = m.group(1) if m else line
+        if not member.startswith("/"):
+            continue
+        if INITRD_BASENAME_RE.match(member.rsplit("/", 1)[-1]):
+            out.append(member)
+    return sorted(set(out))
+
+
 def fetch(url: str, dest: str) -> bool:
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     if os.path.isfile(dest) and os.path.getsize(dest) > 0:
@@ -208,6 +241,17 @@ def initrd_identities(initrd: str, scratch: str) -> list:
     sid d-i packages with no reviewed row.
     """
     dest = os.path.join(scratch, "substrate_initrd_status")
+    try:
+        with open(initrd, "rb") as fh:
+            h = hashlib.sha256()
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        # Keyed by CONTENT: the ISO carries several initrds (install.amd/,
+        # gtk/, xen/) with the same basename, and a path-keyed cache would
+        # silently serve one initrd's status for another.
+        dest = f"{dest}_{h.hexdigest()[:16]}"
+    except OSError:
+        return []
     if not (os.path.isfile(dest) and os.path.getsize(dest) > 0):
         try:
             with open(dest, "wb") as o:
@@ -287,10 +331,13 @@ def main() -> int:
     ap.add_argument("--iso", required=True)
     ap.add_argument(
         "--initrd",
-        default="",
-        help="the substrate's d-i initrd.gz; its dpkg status adds "
+        action="append",
+        default=[],
+        help="an EXTRA d-i initrd.gz (repeatable); its dpkg status adds "
         "identities the ISO's /dists indexes omit (classified "
-        "against the same pinned snapshot + sid d-i index)",
+        "against the same pinned snapshot + sid d-i index).  The initrds "
+        "carried INSIDE the ISO are always discovered and scanned "
+        "automatically (the gate scans every one of them)",
     )
     ap.add_argument("--snapshot", required=True)
     ap.add_argument("--scratch", required=True)
@@ -365,21 +412,34 @@ def main() -> int:
     if not sub:
         die("no substrate identities extracted from the iso")
 
-    if a.initrd:
-        if not os.path.isfile(a.initrd):
-            die(f"initrd not found: {a.initrd}")
+    initrds = []
+    for member in iso_initrd_members(a.iso):
+        out = os.path.join(
+            a.scratch, "iso_initrd_" + re.sub(r"[^A-Za-z0-9._-]", "_", member.lstrip("/"))
+        )
+        if not (os.path.isfile(out) and os.path.getsize(out) > 0):
+            if not xorriso_extract(a.iso, member, out):
+                die(f"could not extract initrd member {member} from the ISO")
+        initrds.append((member, out))
+    for p in a.initrd:
+        if not os.path.isfile(p):
+            die(f"initrd not found: {p}")
+        initrds.append((p, p))
+    if initrds:
         merged = 0
-        for nm, vr in initrd_identities(a.initrd, a.scratch):
-            for (sn, sv, sa), rec in siddi.items():
-                if sn == nm and sv == vr and (sn, sv, sa) not in sub:
-                    sub[(sn, sv, sa)] = {
-                        "filename": rec.get("filename", ""),
-                        "sha256": rec.get("sha256", ""),
-                        "size": rec.get("size", ""),
-                        "index": "initrd",
-                    }
-                    merged += 1
-        print(f"initrd: merged {merged} substrate d-i identity(ies) from {a.initrd}")
+        for tag, path in initrds:
+            for nm, vr in initrd_identities(path, a.scratch):
+                for (sn, sv, sa), rec in siddi.items():
+                    if sn == nm and sv == vr and (sn, sv, sa) not in sub:
+                        sub[(sn, sv, sa)] = {
+                            "filename": rec.get("filename", ""),
+                            "sha256": rec.get("sha256", ""),
+                            "size": rec.get("size", ""),
+                            "index": "initrd",
+                        }
+                        merged += 1
+        print(f"initrd: merged {merged} substrate d-i identity(ies) from "
+              f"{len(initrds)} initrd(s): " + ", ".join(t for t, _ in initrds))
 
     rows = []
     unauth = []

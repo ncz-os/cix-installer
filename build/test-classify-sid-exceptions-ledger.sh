@@ -46,7 +46,7 @@ expect_rc() {  # label want-rc cmd...
     if [ "$rc" = "$want" ]; then ok "$label (rc=$rc)"; else bad "$label: rc=$want wanted, got $rc" "$LAST"; fi
 }
 
-for t in python3 xorriso sha256sum; do
+for t in python3 xorriso sha256sum cpio gzip; do
     command -v "$t" >/dev/null 2>&1 || { echo "SKIP: required test tool not available: $t" >&2; exit 0; }
 done
 [ -f "$CLASSIFY" ] || { echo "FAIL: $CLASSIFY is missing" >&2; exit 1; }
@@ -243,6 +243,34 @@ out="$(run_classify "$F" "$LE" --accept-new-exceptions 2>&1)"; rc=$?
 grep -qP '^nano-udeb\t9\.3-1\tamd64' "$LE" \
     && ok "the accepted row is written when --accept-new-exceptions is given" \
     || bad "the accepted row is missing" "$(cat "$LE")"
+
+echo "== initrd-carried udebs from the ISO's own initrd.gz are classified =="
+# The real netinst carries install.amd/{,gtk/,xen/}initrd.gz whose udpkg status
+# lists udebs the ISO's /dists indexes omit (rootskel-gtk et al.); the gate
+# scans EVERY initrd it finds in the ISO.  This fixture plants
+# install.amd/initrd.gz carrying an ARCH-LESS dpkg-status stanza for a
+# sid-d-i-only identity and expects a row WITHOUT --initrd (auto-discovery).
+F2="$T/fx2"; mk_fixture "$F2"
+sid_pkg="$F2/scratch/${SNAP}_sid_main_debian-installer_binary-amd64_Packages"
+{ stanza rootskel-gtk 14.0.2 amd64 "$SHA_B"; } >> "$sid_pkg"
+gzip -c "$sid_pkg" > "$sid_pkg.gz"
+xz -c "$sid_pkg" > "$sid_pkg.xz"
+mkdir -p "$F2/ird/var/lib/dpkg" "$F2/tree/install.amd"
+printf 'Package: rootskel-gtk\nVersion: 14.0.2\nStatus: install ok installed\nDescription: fixture\n\n' \
+    > "$F2/ird/var/lib/dpkg/status"
+( cd "$F2/ird" && find . -type f | cpio -o --format=newc 2>/dev/null | gzip ) \
+    > "$F2/tree/install.amd/initrd.gz"
+xorriso -as mkisofs -quiet -o "$F2/fixture.iso" "$F2/tree" >/dev/null 2>&1 \
+    || { echo "FAIL: could not rebuild the fixture ISO with the initrd" >&2; exit 1; }
+LE2="$T/ledger-initrd.tsv"; mk_ledger "$LE2" 1.22.6 9.3-1
+out="$(run_classify "$F2" "$LE2" --accept-new-exceptions 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "the initrd run is accepted (rc=0)" \
+    || bad "the initrd run failed" "$out"
+grep -qP '^rootskel-gtk\t14\.0\.2\tamd64' "$LE2" \
+    && ok "the initrd-carried udeb gets a row via ISO initrd auto-discovery" \
+    || bad "the initrd-carried udeb got no row" "$(cat "$LE2")"
+printf '%s\n' "$out" | grep 'initrd: merged' >/dev/null \
+    && ok "the initrd merge is reported" || bad "no initrd merge line" "$out"
 
 echo "-- results --"
 printf '  %d passed, %d failed\n' "$PASS" "$FAIL"
