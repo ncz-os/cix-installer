@@ -14,7 +14,7 @@ meaning model-cited evidence line numbers always refer to original numbering.
 
 Usage:
     analyze-build-log.py <log-or-dir> [--model-url URL] [--model NAME]
-                         [--chunk-lines N] [--out report.json]
+                         [--chunk-lines N] [--timeout SEC] [--out report.json]
 """
 
 import argparse
@@ -110,7 +110,7 @@ def validate_answer(obj):
     }
 
 
-def post_once(url, model, chunk_text):
+def post_once(url, model, chunk_text, timeout=120.0):
     """One logical request. Falls back to no response_format on a 400 mentioning it."""
     body = {
         "model": model,
@@ -131,7 +131,7 @@ def post_once(url, model, chunk_text):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode(errors="replace")
         try:
             return json.loads(raw)
@@ -159,24 +159,32 @@ def post_once(url, model, chunk_text):
     return validate_answer(answer)
 
 
-def call_model(url, model, chunk_text):
+def call_model(url, model, chunk_text, timeout=120.0):
     """Ask the model; exactly ONE retry on malformed JSON, then raise."""
     try:
-        return post_once(url, model, chunk_text)
+        return post_once(url, model, chunk_text, timeout)
     except MalformedResponse:
         pass
-    return post_once(url, model, chunk_text)
+    return post_once(url, model, chunk_text, timeout)
 
 
-def analyze_file(path, model_url, model, chunk_lines):
+def analyze_file(path, model_url, model, chunk_lines, timeout=120.0):
     """Return (chunks, errors) records for one log file."""
     items = dedup_doubled(load_lines(path))
     chunks, errors = [], []
     for index, part in enumerate(chunked(items, chunk_lines)):
         try:
-            answer = call_model(model_url, model, render(part))
+            answer = call_model(model_url, model, render(part), timeout)
         except MalformedResponse as exc:
             errors.append({"file": path.name, "index": index, "error": str(exc)})
+            continue
+        except TimeoutError as exc:
+            # Explicit for readability (TimeoutError is an OSError, so the
+            # transport clause below also covers it): a request timeout is a
+            # recorded chunk error and is NEVER retried.
+            errors.append(
+                {"file": path.name, "index": index, "error": f"transport: {exc}"}
+            )
             continue
         except (urllib.error.URLError, OSError, ValueError) as exc:
             errors.append(
@@ -237,6 +245,12 @@ def main(argv=None):
     parser.add_argument("--model-url", default=DEFAULT_MODEL_URL)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--chunk-lines", type=int, default=DEFAULT_CHUNK_LINES)
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=120.0,
+        help="per-request timeout in seconds (CPU-served models need more)",
+    )
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
 
@@ -246,7 +260,7 @@ def main(argv=None):
     chunks, errors = [], []
     for path in gather_inputs(args.log_or_dir):
         file_chunks, file_errors = analyze_file(
-            path, args.model_url, args.model, args.chunk_lines
+            path, args.model_url, args.model, args.chunk_lines, args.timeout
         )
         chunks.extend(file_chunks)
         errors.extend(file_errors)

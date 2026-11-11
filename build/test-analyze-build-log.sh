@@ -6,6 +6,11 @@
 #   (b) malformed JSON from the stub triggers exactly one retry then a recorded chunk error
 #   (c) the doubled-line dedup preserves original line numbering
 #   (d) a red fixture where the stub returns class C3 and the merged report carries it
+#   (e) --timeout is honored: a transport timeout is a recorded chunk error and
+#       is NOT retried (the ONE retry is for malformed JSON only). Justification
+#       for the new case: CPU-served models prefill 9-14k-token chunks in
+#       minutes (measured 2026-11-11 on the 8095 sidecar), so the hard-coded
+#       120s cut every chunk off; the CLI now takes --timeout.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -26,6 +31,7 @@ import http.server
 import json
 import os
 import sys
+import time
 
 STATE_DIR = os.environ["STUB_DIR"]
 MODE = os.environ["STUB_MODE"]
@@ -45,6 +51,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             fh.write(user_text)
         with open(os.path.join(STATE_DIR, "count"), "w") as fh:
             fh.write(str(count))
+        if MODE == "slow":
+            time.sleep(3)
         if MODE == "garbage":
             content = "this is not strict JSON"
         elif MODE == "c3":
@@ -100,10 +108,10 @@ stop_stub() {
     STUB_PID=""
 }
 
-run_analyzer() { # $1 = input, $2 = out json, $3 = chunk-lines
+run_analyzer() { # $1 = input, $2 = out json, $3 = chunk-lines, $4 = timeout (optional)
     python3 "$ANALYZER" "$1" \
         --model-url "http://127.0.0.1:$PORT/v1/chat/completions" \
-        --chunk-lines "$3" --out "$2"
+        --chunk-lines "$3" --timeout "${4:-120}" --out "$2"
 }
 
 check() { # $1 = report json, $2 = python expression over report variable `r`
@@ -161,4 +169,15 @@ check "$TMP/report-c.json" 'r["failure_class"] == "C3" and r["chunks"][0]["failu
     || fail "(d) merged report does not carry C3"
 echo "PASS (d): red fixture C3 carried into the merged report"
 
-echo "analyze-build-log tests: 4 passed, 0 failed"
+# --- (e) --timeout honored: transport timeout -> chunk error, NO retry ------
+printf 'one line\n' >"$TMP/log-e.out"
+start_stub slow
+run_analyzer "$TMP/log-e.out" "$TMP/report-e.json" 100 1
+stop_stub
+[ "$(cat "$TMP/count")" = "1" ] \
+    || fail "(e) expected exactly 1 request on timeout (no transport retry), got $(cat "$TMP/count")"
+check "$TMP/report-e.json" 'len(r["chunk_errors"]) == 1 and "timed out" in r["chunk_errors"][0]["error"]' \
+    || fail "(e) timeout not recorded as a chunk error"
+echo "PASS (e): --timeout honored (transport timeout recorded, not retried)"
+
+echo "analyze-build-log tests: 5 passed, 0 failed"
