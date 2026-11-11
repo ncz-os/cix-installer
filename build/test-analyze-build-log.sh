@@ -11,6 +11,11 @@
 #       for the new case: CPU-served models prefill 9-14k-token chunks in
 #       minutes (measured 2026-11-11 on the 8095 sidecar), so the hard-coded
 #       120s cut every chunk off; the CLI now takes --timeout.
+#   (f) only tee-pairs collapse: a run of 3 identical lines keeps TWO
+#       (originals 1 and 3), not one. Justification for the new case: review
+#       verdict becfef02 (high) - collapse-any-run silently deleted genuine
+#       repeated lines (runs of 3+ exist in the 2026-10-29 evidence logs);
+#       red-proven against the old dedup, green with pair-consumption.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -180,4 +185,18 @@ check "$TMP/report-e.json" 'len(r["chunk_errors"]) == 1 and "timed out" in r["ch
     || fail "(e) timeout not recorded as a chunk error"
 echo "PASS (e): --timeout honored (transport timeout recorded, not retried)"
 
-echo "analyze-build-log tests: 5 passed, 0 failed"
+# --- (f) only tee-pairs collapse: 3-run keeps originals 1 and 3 --------------
+# originals 1,2,3 = x (a 3-run: two tee pairs plus an unpaired twin), 4 = y
+printf 'x\nx\nx\ny\n' >"$TMP/log-f.out"
+start_stub ok
+run_analyzer "$TMP/log-f.out" "$TMP/report-f.json" 100
+stop_stub
+grep -q '^1|x$' "$TMP/lastbody" \
+    || fail "(f) first occurrence of x lost"
+grep -q '^3|x$' "$TMP/lastbody" \
+    || fail "(f) second occurrence of x (original 3) lost - collapse is not pair-wise"
+grep -q '^2|x$' "$TMP/lastbody" \
+    && fail "(f) tee twin (original 2) not collapsed"
+echo "PASS (f): only tee-pairs collapse (3-run keeps originals 1 and 3)"
+
+echo "analyze-build-log tests: 6 passed, 0 failed"

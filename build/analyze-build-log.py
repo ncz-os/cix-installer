@@ -61,16 +61,19 @@ def load_lines(path):
 
 
 def dedup_doubled(items):
-    """Collapse runs of consecutive identical lines to their FIRST occurrence.
+    """Collapse only the tee-bug pairs of consecutive identical lines.
 
-    The tee bug duplicates every line exactly once, so runs are pairs; keeping
-    the first occurrence preserves the ORIGINAL file line number in the map.
+    The tee bug duplicates every line exactly once, so a run of 2k identical
+    raw lines is k logical lines (a run of 2k+1 leaves one unpaired twin):
+    consume at most TWO equal items per step, keeping the first of each pair.
+    Genuine repetitions (runs longer than 2) therefore survive, and the kept
+    item always carries the ORIGINAL file line number of its first occurrence.
     """
     out = []
-    for item in items:
-        if out and out[-1][1] == item[1]:
-            continue
-        out.append(item)
+    i = 0
+    while i < len(items):
+        out.append(items[i])
+        i += 2 if i + 1 < len(items) and items[i + 1][1] == items[i][1] else 1
     return out
 
 
