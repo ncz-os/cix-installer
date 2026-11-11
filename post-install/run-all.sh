@@ -288,12 +288,16 @@ if [ -z "$PLATFORM" ]; then
     esac
 fi
 HOOKS_LIST="${NCZ_HOOKS_LIST:-}"
-# An explicit NCZ_HOOKS_LIST is an operator override. When it is a real path
-# (absolute or relative-to-the-cwd) use it verbatim; otherwise treat it as the
-# name of a file inside $HOOK_DIR (the legacy convention).
-if [ -n "$HOOKS_LIST" ] && [ ! -e "$HOOKS_LIST" ] && [ -e "$HOOK_DIR/$HOOKS_LIST" ]; then
-    HOOKS_LIST="$HOOK_DIR/$HOOKS_LIST"
-fi
+# An explicit NCZ_HOOKS_LIST is an operator override. Only a bare filename
+# (no path separators) is resolved inside $HOOK_DIR (the legacy convention).
+# A path containing '/' — absolute or relative — is used verbatim and is never
+# silently rewritten, so an operator-intended path is not mis-interpreted.
+case "$HOOKS_LIST" in
+    */*) : ;;   # path: leave exactly as supplied
+    *)   if [ -n "$HOOKS_LIST" ] && [ ! -e "$HOOKS_LIST" ] && [ -e "$HOOK_DIR/$HOOKS_LIST" ]; then
+             HOOKS_LIST="$HOOK_DIR/$HOOKS_LIST"
+         fi ;;
+esac
 if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
     if   [ -f "$HOOK_DIR/hooks.list.$PLATFORM" ]; then HOOKS_LIST="$HOOK_DIR/hooks.list.$PLATFORM"
     elif [ -f "$HOOK_DIR/hooks.list" ];            then HOOKS_LIST="$HOOK_DIR/hooks.list"
@@ -479,13 +483,14 @@ _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
 _SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}"
 # A hook dropped by the platform hooks.list (already logged as PLATFORM-SKIP
 # above) is NOT an orphan — it was deliberately excluded for this platform.
-# _PLAT_SKIP_RE is empty when no hooks.list is in effect, in which case every
-# on-disk hook is a candidate and none are platform-skipped.
+# _PLAT_SKIP_RE is populated from the hooks.list skip set when a list is active
+# and empty otherwise, so the exclusion below is a no-op in legacy mode.
+_PLAT_SKIP_ALL_RE="^(70-bootloader|99-diagnostics)\.sh$"
+[ -n "${_PLAT_SKIP_RE:-}" ] && _PLAT_SKIP_ALL_RE="$_PLAT_SKIP_ALL_RE|$_PLAT_SKIP_RE"
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
-           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
-           | grep -vE "$_SKIP_ALL_RE" \
-           | { if [ -n "${_PLAT_SKIP_RE:-}" ]; then grep -vE "$_PLAT_SKIP_RE"; else cat; fi; } || true)
+           | grep -vE "$_PLAT_SKIP_ALL_RE" \
+           | grep -vE "$_SKIP_ALL_RE" || true)
 if [ -n "$_orphans" ]; then
     echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
     printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'
