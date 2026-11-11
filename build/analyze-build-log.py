@@ -178,6 +178,14 @@ def analyze_file(path, model_url, model, chunk_lines, timeout=120.0):
         except MalformedResponse as exc:
             errors.append({"file": path.name, "index": index, "error": str(exc)})
             continue
+        except TimeoutError as exc:
+            # Explicit for readability (TimeoutError is an OSError, so the
+            # transport clause below also covers it): a request timeout is a
+            # recorded chunk error and is NEVER retried.
+            errors.append(
+                {"file": path.name, "index": index, "error": f"transport: {exc}"}
+            )
+            continue
         except (urllib.error.URLError, OSError, ValueError) as exc:
             errors.append(
                 {"file": path.name, "index": index, "error": f"transport: {exc}"}
