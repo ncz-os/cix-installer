@@ -152,8 +152,10 @@ expect "hook: partial assets on server is FATAL" 1 "FATAL" \
 
 # run-all.sh keeps the execution lists as inline alternation regex lists; the
 # REQUIRED_HOOKS assignments span two lines (command substitution + grep), so
-# grep -A1 reaches the alternation line.
-grep -qE '\|61-ncz-console-saver\|' <(grep '^MACHINE_HOOKS_RE=' "$RA") \
+# grep -A1 reaches the alternation line. The name is matched as a delimited
+# alternation member (^ | ( ... | ) $) so the check holds wherever in the
+# alternation it sits, not only between two pipes.
+grep -qE '(^|[|(])61-ncz-console-saver([|)]|$)' <(grep '^MACHINE_HOOKS_RE=' "$RA") \
     && bad "run-all: 61-ncz-console-saver is in MACHINE_HOOKS_RE (optional/bounded dispatch)" \
     || ok "run-all: 61-ncz-console-saver absent from MACHINE_HOOKS_RE"
 grep -qE '^REQUIRED_HOOKS' "$RA" && \
