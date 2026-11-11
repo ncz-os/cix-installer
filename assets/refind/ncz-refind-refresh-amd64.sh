@@ -186,7 +186,12 @@ fi
 # filters /boot, but this generator can be invoked with an explicit KVER, so
 # fail closed here too. The build-time gate build/verify-kernel-default-policy.sh
 # enforces the 7.3 series and the rc-allowance rules.
-case "${KVER_STABLE:-}" in
+# The subject is the bare `$KVER_STABLE`, exactly like the arm64 sibling's
+# `case "$KVER_NEXT" in` guard: the preceding `-z` preflight already refused an
+# empty KVER, so no default expansion is needed here, and the extracted guard
+# (build/test-kernel-purity-guards.sh runs this case block verbatim against
+# sample KVERs) must see the same shape on both architectures.
+case "$KVER_STABLE" in
     *-amd64|7.1.*|7.1-*)
         echo "ERROR: KVER_STABLE='$KVER_STABLE' names a Debian-archive kernel (amd64/7.1.x);" >&2
         echo "       the default MUST be the NCZ 7.3 T2 kernel (unified 7.3 policy)." >&2
