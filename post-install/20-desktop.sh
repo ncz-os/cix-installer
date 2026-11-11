@@ -1486,6 +1486,10 @@ echo "[20] Singularity Desktop installed: /opt/singularity + greetd/native singu
 # desktop whose greeter immediately died on missing libseat.so.1. Validate the
 # actual binaries that own the boot-to-login path so this class of defect fails
 # the installer instead of becoming a metal-only surprise.
+# Refresh the loader cache first: the singularity deb's postinst ldconfig can
+# still be a deferred trigger when this hook runs, which made ldd report
+# libsingularity*.so.0 "not found" against a stale cache (2026-11-11).
+ldconfig 2>/dev/null || true
 _missing_runtime=0
 for _bin in /opt/singularity/bin/labwc \
             /opt/singularity/bin/singularity-greeter \
@@ -1495,7 +1499,11 @@ for _bin in /opt/singularity/bin/labwc \
         _missing_runtime=1
         continue
     }
-    _missing=$(ldd "$_bin" 2>&1 | awk '/not found/ { print }')
+    # set +o pipefail: ldd exits 1 when libraries are missing -- under
+    # pipefail the substitution's status then kills this hook under set -e
+    # BEFORE the report below, reproducing the silent-death class fixed in
+    # stage-accel-overlays.sh (f721b5a8).
+    _missing=$(set +o pipefail; ldd "$_bin" 2>&1 | awk '/not found/ { print }')
     if [ -n "$_missing" ]; then
         echo "[20] ERROR: unresolved runtime libraries for $_bin:" >&2
         printf '%s\n' "$_missing" | sed 's/^/[20]   /' >&2
