@@ -1,76 +1,48 @@
 {
-  "schema": 1,
-  "channel": "default",
-  "arch": "amd64",
-  "kver": "7.4.0-rc2-t2-ncz",
-  "package_revision": "7.4.0-rc2-3",
-  "build_rev": "7.4.0-rc2-t2-ncz+3",
-  "staged_utc": "2026-11-10",
-  "channel_pointer": "assets/kernel/amd64-stable",
-  "staging_pool_relative": "kernel-staging/amd64-t2-rc2-3-20261110/7.4.0-rc2-t2-ncz",
-  "staging_pool_note": "Path is relative to the shared kernel-staging export of the project artifact store; the mount root differs per build host.",
-  "build_evidence": "/mnt/argonas/datapool/yocto-shared/kernel-staging/amd64-t2-rc2-3-20261110/7.4.0-rc2-t2-ncz (SHA256SUMS, PROVENANCE-7.4.0-rc2-t2-ncz, BUILD-IDS.txt, KVM-GATE.txt); hardware one-shot evidence hw-dell-20261110/ + hw-medusa-20261110/ (RESULT.txt, dmesg, lsmod, baselines) in the same dir; KVM boot gate evidence TYPHON ~/Projects/k743-kvm-gate/gate-out.log (NCZ-KVM-GATE: BOOT_OK, clean)",
-  "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3/7.4 unified line per the operator 2026-11-09 22:20Z decision; no EDGE channel) + assets/kernel/KERNEL-LIFECYCLE (MIN_VERSION 7.3.3)",
-  "note": "amd64 kernel on the 7.4 line (operator 2026-11-09 22:20Z: kernel line = 7.4.x on both architectures). Package revision 7.4.0-rc2-3 = the SAME source as -2 (v7.4-rc2 7475ea8b58616b33c04afb976cf0fbaad9dd63fb) rebuilt inside localhost/ncz-kernel-build:forky per the 03:05Z order A because the -2 build ran on an Ubuntu host (Ubuntu gcc 15.2); this build reads build_host_distro=Debian forky, CONFIG_CC_VERSION_TEXT gcc (Debian 16.2.0-3) 16.2.0 (staging gate commits c9a4f808 + 8d5564c5 refuse anything else). linux-t2-ncz kernel-dev/amd64-7.4-rc2-r3 8d5564c59f86087dde57b679f50b95340f23be9f. KVM boot gate PASS 2026-11-10; HARDWARE BOOT PASS 2026-11-10 (DELL .70 + MEDUSA .38 one-shot boots, orchestrator-verified, hosts back on the 7.3.3 default with one-shot entries removed). MEDUSA human checks (audio, Touch Bar, keyboard/trackpad, panel) still owed by the operator. Observations for review carried from -2 (config unchanged, vermagic re-verified identical): module vermagic is '7.4.0-rc2-t2-ncz SMP preempt mod_unload' (no modversions), unlike 7.3.3-t2-ncz's 'mod_unload modversions'; xz module compression (CONFIG_MODULE_COMPRESS_XZ) is operator-accepted 2026-11-10. Not bit-reproducible (per-build module signing key).",
-  "source": {
-    "base_tag": "v7.4-rc2",
-    "base_commit": "7475ea8b58616b33c04afb976cf0fbaad9dd63fb",
-    "t2_repo": "linux-t2-ncz",
-    "t2_branch": "kernel-dev/amd64-7.4-rc2-r3",
-    "t2_repo_commit": "8d5564c59f86087dde57b679f50b95340f23be9f",
-    "t2_cyclops_patch": "patches/2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch",
-    "t2_cyclops_patch_note": "carried in the 7.4-rc2 series (staged PROVENANCE names 2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple)",
-    "kernel_ref": "v7.4-rc2 (7475ea8b5861)",
-    "provenance_file": "PROVENANCE-7.4.0-rc2-t2-ncz in the staging pool (kernel_ref v7.4-rc2, source_commit 7475ea8b, config_template debian, build_host_distro Debian forky, skipped_patches <none>)"
+ "schema": 1,
+ "channel": "default",
+ "arch": "amd64",
+ "kver": "7.3.3-t2-ncz",
+ "package_revision": "7.3.3-r297",
+ "build_rev": "7.3.3-t2-ncz+r297",
+ "staged_utc": "2026-11-11",
+ "channel_pointer": "assets/kernel/amd64-stable",
+ "staging_pool_relative": "kernel-staging/amd64-stable-7.3.3-t2-ncz-20261107",
+ "staging_pool_note": "Path is relative to the shared kernel-staging export of the project artifact store; the mount root differs per build host.",
+ "build_evidence": "/mnt/argonas/datapool/yocto-shared/kernel-staging/amd64-stable-7.3.3-t2-ncz-20261107 (SHA256SUMS, PROVENANCE-7.3.3-t2-ncz, PROVENANCE-ADDENDUM-7.3.3-t2-ncz, BUILD-IDS.txt). KVM boot gate PASS + MEDUSA hardware boot PASS 2026-11-07 (TYPHON build, promoted kernel-ci/registry.json 2026-11-07 20:58Z). Fresh hardware verification 2026-11-11 on all four amd64 test hosts (MEDUSA, DELL, PEGASUS, CHIMERA) on 7.3.3: GPUs/Wi-Fi/BT/audio/T2 stack OK (orchestrator-reported; one operator-accepted W^X boot WARNING on ITS CPUs).",
+ "policy": "assets/kernel/KERNEL-POLICY + assets/kernel/KERNEL-LIFECYCLE (MIN_VERSION 7.3.3); operator 2026-11-11 20:10Z: image line stays 7.3.x, nothing 7.4 in images (7.4-rc2 parked dev-only) - this supersedes the 2026-11-09 22:20Z 7.4-line note for IMAGE content; kernel-ci/registry.json current = 7.3.3-t2-ncz+r297.",
+ "note": "amd64 kernel repin 7.4.0-rc2-t2-ncz+3 -> 7.3.3-t2-ncz+r297 (branch hv/ncz-lt-kernel-repin-733-20261111 c4ad9872; operator 2026-11-11 20:10Z). r297 pool build 2026-11-07 on TYPHON (Debian forky, config_template ubuntu), linux-t2-ncz stack 0bed8354d3c9 (per PROVENANCE-ADDENDUM), v7.3.3 base d50d994bffa3. Manifest hand-authored per repo practice (no generator; consumers: stage-amd64-kernel.sh, check-kernel-lifecycle.py, preflight-freshness-gate.sh, gen-components-registry.py).",
+ "source": {
+  "base_tag": "v7.3.3",
+  "base_commit": "d50d994bffa3c7c6db2d8bc4c5f0c55e3f46b0cd",
+  "t2_repo": "linux-t2-ncz",
+  "t2_branch": "(see PROVENANCE-ADDENDUM-7.3.3-t2-ncz)",
+  "t2_repo_commit": "0bed8354d3c9",
+  "t2_cyclops_patch": "patches/2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch",
+  "t2_cyclops_patch_note": "carried in the 7.3.3-t2 series",
+  "kernel_ref": "v7.3.3 (d50d994bffa3)",
+  "provenance_file": "PROVENANCE-7.3.3-t2-ncz in the staging pool (kernel_ref v7.3.3, source_commit d50d994bffa3, config_template ubuntu, build_host_distro Debian forky, skipped_patches <none>)"
+ },
+ "artifacts": {
+  "linux-image-7.3.3-t2-ncz_7.3.3-r297_amd64.deb": {
+   "sha256": "acd8182dad75de5e3429960c6201ce0cb5146d07d6d268fb233becff894ab48a",
+   "size": 109857644
   },
-  "artifacts": {
-    "linux-image-7.4.0-rc2-t2-ncz_7.4.0-rc2-3_amd64.deb": {
-      "sha256": "951b51752bd9af4ec9ca0b7d08e11c12f51d20b5185d10b0d94969e49d7cbe6d",
-      "size": 121932160
-    },
-    "linux-headers-7.4.0-rc2-t2-ncz_7.4.0-rc2-3_amd64.deb": {
-      "sha256": "7814da6705dbed040c091acfb87db8aa4f96736815b1916b0c8424bfb56f6535",
-      "size": 10960492
-    },
-    "kernel_config_7.4.0-rc2-t2-ncz": {
-      "sha256": "2b48a91a8685ef196a4f2691c5d38d2c08582a46f0e02771a99a29859c906b99",
-      "size": 302708
-    },
-    "PROVENANCE-7.4.0-rc2-t2-ncz": {
-      "sha256": "290991f2bd655b5fae263a99f188349c4dd193bd31e23c10ca2e4fc7c944704c",
-      "size": 3248
-    },
-    "BUILD-IDS.txt": {
-      "sha256": "424f944de078a6c51b22e4fb175a795142fe5b9aa63be0272402b969e952dbc1",
-      "size": null
-    }
+  "linux-headers-7.3.3-t2-ncz_7.3.3-r297_amd64.deb": {
+   "sha256": "1fff1b802ef110a4231fef83af3b88e3d19ca1e93d869b92f581f727a0389980",
+   "size": 10292416
   },
-  "identity": {
-    "image_deb_package": "linux-image-7.4.0-rc2-t2-ncz",
-    "image_deb_version": "7.4.0-rc2-3",
-    "headers_deb_package": "linux-headers-7.4.0-rc2-t2-ncz",
-    "headers_deb_version": "7.4.0-rc2-3",
-    "kernel_release": "7.4.0-rc2-t2-ncz",
-    "module_vermagic": "7.4.0-rc2-t2-ncz SMP preempt mod_unload",
-    "vmlinux_build_id": "596a7e10877389811ca3f7dcc61d15f3a0dea9f0",
-    "vmlinux_build_id_note": "BUILD-IDS.txt in the r3 staging evidence (vmlinuz embeds the vmlinux id).",
-    "vmlinuz_sha256": "513c799a928e14e8da259c2fa911f8c455e4d69c587057a5eb6d1400aa487f72",
-    "module_count": 4218,
-    "module_compression": "xz (4218 .ko.xz in the linux-image deb)",
-    "config_reference": "kernel_config_7.4.0-rc2-t2-ncz in the staging pool (sha256 above)."
+  "kernel_config_7.3.3-t2-ncz": {
+   "sha256": "ca3d073e6903de2d4e32305016c7dae1ecba69e330958a9873b594ec7853c7ba",
+   "size": 309266
   },
-  "gates": {
-    "static_gate": "T2 patch series on v7.4-rc2 per the K2/K3 port (linux-t2-ncz kernel-dev/amd64-7.4-rc2-r3 8d5564c5; r3 adds the Debian-forky refusal guard c9a4f808 + staging gate 8d5564c5, red-then-green fixtures verified); port verdicts 28 CLEAN + 4 REFRESHED + driver API-drift fixes, 0 MANUAL, skipped_patches <none> per staged PROVENANCE",
-    "initramfs_check": "covered by the KVM gate boot of the built initrd (k743-kvm-gate)",
-    "kvm_gate": "PASS 2026-11-10: TYPHON k743-kvm-gate/kvm-gate-r3.sh, marker initramfs, NCZ-KVM-GATE: BOOT_OK clean (gate-out.log), KVM-GATE.txt staged next to the debs",
-    "hardware_gate": "PASS 2026-11-10: DELL .70 + MEDUSA .38 one-shot BootNext boots of 7.4.0-rc2-3 (forky), orchestrator-verified; evidence hw-dell-20261110/ + hw-medusa-20261110/ with RESULT.txt; both hosts back on the 7.3.3 default, one-shot entries removed, drains lifted; MEDUSA human checks still owed by the operator (05:03Z)"
+  "PROVENANCE-7.3.3-t2-ncz": {
+   "sha256": "11461107573f8f740eff46ff6eea7a8a5f5d9b577266eb0333c056d5c91faaf5",
+   "size": 3436
   },
-  "hardware_note": "Hardware-validated 2026-11-10 (05:03Z orchestrator: PASS). Ready as the kernel for the amd64 7.4 image matrix (desktop + Magnetar server) per the 05:03Z GO.",
-  "registry": {
-    "registry_build": "7.4.0-rc2-t2-ncz+3",
-    "registry_tree": "t2-amd64",
-    "promoted_at": "PENDING (kernel-promote for +3; registry is hash-chained, not hand-edited)",
-    "boot_test_host": "TYPHON (KVM gate) + DELL .70 + MEDUSA .38 (hardware one-shot)",
-    "staged_dir": "/mnt/argonas/datapool/yocto-shared/kernel-staging/amd64-t2-rc2-3-20261110/7.4.0-rc2-t2-ncz"
+  "BUILD-IDS.txt": {
+   "sha256": "64e1de4204bd56d8150aca7d74c021c2b64613b394dcf730048adf62851b879c",
+   "size": 2105
   }
+ }
 }
