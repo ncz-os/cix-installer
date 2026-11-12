@@ -192,19 +192,21 @@ def fix_options(m):
     # answered before it draws (2026-11-12 ui-check2: 0 answer rules fired,
     # full auto walk, "the component dialog was never reached/answered").
     extra = params.split() + (a.extra_opts.split() if a.extra_opts else [])
-    if a.serial_console:
-        # the UART must be LAST: /dev/console is the last console= and d-i's debconf frontend follows it
-        opts = [o for o in opts if not o.startswith("console=")]
-        extra = [o for o in extra if not o.startswith("console=")] + ["console=tty0", "console=ttyS0,115200"]
-    else:
-        # The baked Install entry carries console=tty0 console=ttyS0,115200
-        # (ttyS0 LAST = d-i's frontend follows the UART), so a monitor capture
-        # must drop the ttyS0 tokens or nothing draws on the framebuffer and
-        # kvm-installer-ui-check.sh's fb entry check fires. Aim the frontend at
-        # whatever surface this run captures.
-        opts = [o for o in opts if not (o.startswith("console=") and "ttyS" in o)]
-        extra = [o for o in extra if not (o.startswith("console=") and "ttyS" in o)]
     merged = opts + extra
+    # Console handling runs AFTER merge (same reason the preset strip does:
+    # --extra-opts must not re-introduce what the flags remove). Aim the d-i
+    # frontend at whatever surface this run captures: --serial-console keeps
+    # the UART last (it wins /dev/console); the default monitor capture drops
+    # every serial-console token -- the baked Install entry carries
+    # console=tty0 console=ttyS0,115200 with ttyS0 last, and with the UART
+    # winning the framebuffer shows nothing and the fb entry check fires.
+    # The device regex covers the fleet's serial consoles (x86 ttyS, ARM
+    # AMBA / Samsung / i.MX, virtio hvc, USB); console=tty0 always stays.
+    _SERIAL_CON = re.compile(r"^console=(ttyS\d+|ttyAMA\d+|hvc\d+|ttySAC\d+|ttymxc\d+|ttyUSB\d+)")
+    if a.serial_console:
+        merged = [o for o in merged if not o.startswith("console=")] + ["console=tty0", "console=ttyS0,115200"]
+    else:
+        merged = [o for o in merged if not _SERIAL_CON.match(o)]
     # Strip AFTER merge so --extra-opts cannot re-introduce a preset (review
     # finding 2).  Bare tokens match too (finding 1: ncz_unattended with no
     # '='), and the passwd/ namespace is nuked wholesale -- --interactive
