@@ -61,6 +61,19 @@ BOM_PKGS="$HERE_VT/../manifests/firmware-$ARCH.pkgs"
 # marker; never on the absence of an error string.
 dfs() { "$DEBUGFS" -R "$1" "$EVIDENCE_ROOT" 2>&1; }
 exists() { dfs "stat $1" | grep >/dev/null '^Inode:'; }
+# An unclean capture (guest never unmounted -- e.g. late.sh "refusing clean
+# reboot") leaves metadata_csum inconsistent and plain debugfs refuses the
+# whole image ("Filesystem not open"); every exists()/fetch() then reads as
+# 'missing' and the verdict is fabricated (option-matrix minimal set,
+# 2026-11-12: ~53 phantom misses on an image whose records were all present).
+# Fail LOUDLY and distinctly instead of inventing per-file misses.
+if ! exists /; then
+    echo "GATE FAIL: evidence image $EVIDENCE_ROOT is unreadable by debugfs ($DEBUGFS)" >&2
+    echo "             (unclean capture or filesystem corruption -- e.g. inode-bitmap" >&2
+    echo "             checksum mismatch). Per-file results would be fabricated." >&2
+    echo "             Run e2fsck on a COPY and re-verify; keep the original as evidence." >&2
+    exit 2
+fi
 # dump <path-in-image> <local-file>; success only if a non-empty file landed.
 fetch() {
     rm -f "$2"
