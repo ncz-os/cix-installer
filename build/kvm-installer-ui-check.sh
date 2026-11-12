@@ -260,7 +260,11 @@ if [ "$ARCH" = amd64 ]; then
     # the kernel and the initrd load (5-9 s depending on the host); that state may last up to 20 s. Every later blank
     # is a vanished UI unless it is a redraw shorter than --max-blank-secs. This now guards a real claim: d-i draws
     # on the UART, and the monitor must still show the same UI.
-    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --boot-blank-max-secs $((20 * TCG_SCALE)) 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+    # --max-blank-secs 12 (x TCG_SCALE on tcg, same constant as the serial path above): the 2026-11-12 gate's fb
+    # capture measured 8-13 s redraw gaps between dialog frames under tcg (vs 3-8 s redraws on kvm) and one 93 s
+    # kernel+initrd-load gap sampled as a second blank state right after the bootloader frame; without the scaling
+    # the default of 8 s flags all of them as a vanished UI (the serial leg of the same run passed at 144 s).
+    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --max-blank-secs $((12 * TCG_SCALE)) --boot-blank-max-secs $((20 * TCG_SCALE)) 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
     # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
     ndist=$(awk '{print $2}' "$FBW/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
