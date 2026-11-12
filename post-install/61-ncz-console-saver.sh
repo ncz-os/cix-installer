@@ -18,10 +18,16 @@
 # B3 decision, ncz-screensavers 5ae8a71f). The unit's ExecStart matches the
 # install path below (build/test-console-saver-wiring.sh pins the contract).
 #
-# Mandatory on server/headless: no staged assets = exit 1 (hook 59's
-# silent-skip bug is not repeated). Idempotent: an existing
-# /etc/ncz/console-saver.conf is never overwritten (operator config wins);
-# binaries and the unit are re-copied. Desktop never installs anything.
+# Mandatory on a server MEDIUM (late.sh: MEDIUM_VARIANT=server): no staged
+# assets = exit 1 (hook 59's silent-skip bug is not repeated). A desktop
+# medium installed as a console/base target writes BUILD_VARIANT=server
+# (late.sh, desktop component off) but stages no payload -- write-usb-image.py
+# stage_console_saver is server-variant-guarded, "the desktop image is
+# untouched" (04:40Z) -- so on a non-server medium a missing payload is
+# expected and the hook skips cleanly (option-matrix minimal set, 2026-11-12).
+# Idempotent: an existing /etc/ncz/console-saver.conf is never overwritten
+# (operator config wins); binaries and the unit are re-copied. Desktop never
+# installs anything.
 #
 # Enabling is server-only ("enabled by default on the server variant only",
 # 04:40Z item 2); headless installs but leaves the unit disabled. The unit
@@ -52,6 +58,19 @@ case "$VARIANT" in
         ;;
 esac
 
+# Mandatory-on-missing is a property of the MEDIUM, not of BUILD_VARIANT:
+# only a Magnetar server medium (late.sh: MEDIUM_VARIANT=server) stages
+# assets/console-saver (write-usb-image.py stage_console_saver is
+# server-variant-guarded). A desktop medium installed as a console/base
+# target writes BUILD_VARIANT=server (desktop component off) and stages no
+# payload -- FATALing there aborted the whole required phase, skipped the
+# bootloader and left the install unbootable (option-matrix minimal set,
+# 2026-11-12).
+MEDIUM=""
+if [ -r "$ROOT/usr/local/lib/cix-installer/MEDIUM_VARIANT" ]; then
+    MEDIUM=$(tr -d ' \t\r\n' < "$ROOT/usr/local/lib/cix-installer/MEDIUM_VARIANT")
+fi
+
 # Where the payload path put the assets (same convention as 66-lite/50-update):
 # the medium first, then the installer's union-synced copy.
 ASSETS=""
@@ -62,16 +81,24 @@ for _r in "$ROOT/cdrom/ncz-payload" "$ROOT/usr/local/lib/cix-installer"; do
     fi
 done
 if [ -z "$ASSETS" ]; then
-    echo "[61-ncz-console-saver] FATAL: assets/console-saver/ncz-console-saver not found under" \
-         "/cdrom/ncz-payload or /usr/local/lib/cix-installer -- the server console saver is" \
-         "mandatory on $VARIANT (04:40Z order); refusing to continue" >&2
-    exit 1
+    if [ "$MEDIUM" = server ]; then
+        echo "[61-ncz-console-saver] FATAL: assets/console-saver/ncz-console-saver not found under" \
+             "/cdrom/ncz-payload or /usr/local/lib/cix-installer -- the server console saver is" \
+             "mandatory on a server medium (04:40Z order); refusing to continue" >&2
+        exit 1
+    fi
+    echo "[61-ncz-console-saver] no console-saver payload staged on a non-server medium (BUILD_VARIANT=$VARIANT); skipping (desktop image untouched)"
+    exit 0
 fi
 
 for f in ncz-console-saver ncz-bh-console ncz-console-saver.service console-saver.conf; do
     if [ ! -f "$ASSETS/$f" ]; then
-        echo "[61-ncz-console-saver] FATAL: $ASSETS/$f missing from the staged payload" >&2
-        exit 1
+        if [ "$MEDIUM" = server ]; then
+            echo "[61-ncz-console-saver] FATAL: $ASSETS/$f missing from the staged payload" >&2
+            exit 1
+        fi
+        echo "[61-ncz-console-saver] $ASSETS/$f missing on a non-server medium; skipping"
+        exit 0
     fi
 done
 

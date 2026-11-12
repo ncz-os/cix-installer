@@ -5,9 +5,9 @@
 #   * write-usb-image.py stages it on the medium, server-guarded, and keeps
 #     it OUT of SERVER_ONLINE_ASSET_DIRS (the bundle would delete it from the
 #     medium; the published payload predates the saver)
-#   * post-install/61-ncz-console-saver.sh is mandatory on server/headless,
-#     skips desktop, never overwrites operator config, and installs the unit
-#     whose ExecStart matches the install path
+#   * post-install/61-ncz-console-saver.sh is mandatory on a server MEDIUM
+#     (MEDIUM_VARIANT=server), skips desktop, never overwrites operator config,
+#     and installs the unit whose ExecStart matches the install path
 #   * the hook is listed for both platforms (generated hooks lists)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -78,9 +78,12 @@ grep -q 'SERVER_ONLINE_ASSET_DIRS = ("rescue", "firmware", "kernel", "branding")
     || bad "wui: SERVER_ONLINE_ASSET_DIRS changed without a payload republish (see stage_console_saver docstring)"
 
 # --- 5. hook behaviour in a fake root --------------------------------------
-mkroot() { # $1 root, $2 variant, $3 assets-present|assets-missing
+mkroot() { # $1 root, $2 variant, $3 assets-present|assets-missing, $4 medium (server|none)
     mkdir -p "$1/usr/local/lib/cix-installer" "$1/cdrom/ncz-payload"
     printf '%s\n' "$2" > "$1/usr/local/lib/cix-installer/BUILD_VARIANT"
+    if [ "${4:-none}" = server ]; then
+        printf 'server\n' > "$1/usr/local/lib/cix-installer/MEDIUM_VARIANT"
+    fi
     if [ "$3" = assets-present ]; then
         mkdir -p "$1/cdrom/ncz-payload/assets/console-saver"
         cp "$ASSETS/ncz-console-saver.service" "$ASSETS/console-saver.conf" \
@@ -92,7 +95,7 @@ mkroot() { # $1 root, $2 variant, $3 assets-present|assets-missing
     fi
 }
 
-R1="$T/r-server"; mkroot "$R1" server assets-present
+R1="$T/r-server"; mkroot "$R1" server assets-present server
 expect "hook: server installs the payload" 0 "installed without enabling" \
     env NCZ_CS_ROOT="$R1" NCZ_CS_SKIP_ENABLE=1 bash "$HOOK"
 grep -q "systemctl enable ncz-console-saver.service" "$HOOK" \
@@ -125,14 +128,35 @@ expect "hook: headless installs without enabling" 0 "installed without enabling"
 [ -x "$R3/usr/local/bin/ncz-console-saver" ] \
     && ok "hook: headless binaries installed" || bad "hook: headless binaries missing"
 
-R4="$T/r-missing"; mkroot "$R4" server assets-missing
-expect "hook: missing assets on server is FATAL" 1 "FATAL" \
+R4="$T/r-missing"; mkroot "$R4" server assets-missing server
+expect "hook: missing assets on a server medium is FATAL" 1 "FATAL" \
     env NCZ_CS_ROOT="$R4" NCZ_CS_SKIP_ENABLE=1 bash "$HOOK"
 
-R5="$T/r-partial"; mkroot "$R5" server assets-present
+R5="$T/r-partial"; mkroot "$R5" server assets-present server
 rm "$R5/cdrom/ncz-payload/assets/console-saver/ncz-bh-console"
-expect "hook: partial assets on server is FATAL" 1 "FATAL" \
+expect "hook: partial assets on a server medium is FATAL" 1 "FATAL" \
     env NCZ_CS_ROOT="$R5" NCZ_CS_SKIP_ENABLE=1 bash "$HOOK"
+
+# A desktop medium installed as a console/base target (late.sh writes
+# BUILD_VARIANT=server when the desktop component is off) stages NO saver
+# payload (write-usb-image.py stage_console_saver is server-variant-guarded).
+# Missing assets there are EXPECTED: the hook must skip cleanly, not abort the
+# required phase (option-matrix minimal set, 2026-11-12).
+R6="$T/r-console-nomedium"; mkroot "$R6" server assets-missing
+expect "hook: desktop-medium console install without payload skips" 0 "skipping" \
+    env NCZ_CS_ROOT="$R6" NCZ_CS_SKIP_ENABLE=1 bash "$HOOK"
+[ ! -e "$R6/usr/local/bin/ncz-console-saver" ] \
+    && ok "hook: desktop-medium console install installs nothing" \
+    || bad "hook: desktop-medium console install installed files"
+
+# ... but if the payload happens to be staged on a non-server medium, install
+# it opportunistically (still without enabling).
+R7="$T/r-console-staged"; mkroot "$R7" server assets-present
+expect "hook: desktop-medium console install with staged payload installs" 0 "installed without enabling" \
+    env NCZ_CS_ROOT="$R7" NCZ_CS_SKIP_ENABLE=1 bash "$HOOK"
+[ -x "$R7/usr/local/bin/ncz-console-saver" ] \
+    && ok "hook: opportunistic install produced the binary" \
+    || bad "hook: opportunistic install produced no binary"
 
 # --- 6. run-all.sh dispatch classification (TASK NEEDS-8) -------------------
 # The hook's own contract is MANDATORY on the server variant (docs/
@@ -143,7 +167,10 @@ expect "hook: partial assets on server is FATAL" 1 "FATAL" \
 # the ship-critical path, exactly like 72-rescue-partition / 55-greeter.
 # Desktop behaviour is preserved by the hook's own BUILD_VARIANT guard: on a
 # desktop install the variant is desktop, the required hook exits 0
-# immediately, and the install is untouched.
+# immediately, and the install is untouched. A desktop-medium console/base
+# install (BUILD_VARIANT=server, no MEDIUM_VARIANT) is likewise safe: the
+# hook's MEDIUM_VARIANT scope makes it exit 0 instead of FATALing on the
+# by-design-absent payload.
 #
 # check-hook-registration.sh requires the hook to live in exactly one of the
 # two execution lists; putting it in BOTH lists is ambiguous and can
