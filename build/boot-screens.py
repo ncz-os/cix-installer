@@ -190,17 +190,27 @@ def fix_options(m):
     # appends; the baked copies must be stripped too or every question is
     # answered before it draws (2026-11-12 ui-check2: 0 answer rules fired,
     # full auto walk, "the component dialog was never reached/answered").
-    if a.interactive:
-        opts = [o for o in opts
-                if not o.startswith(("passwd/", "ncz_unattended=", "ncz_components="))]
-    if a.ask_disk:
-        opts = [o for o in opts if not o.startswith(("ncz_disk=", "ncz_fs="))]
     extra = params.split() + (a.extra_opts.split() if a.extra_opts else [])
     if a.serial_console:
         # the UART must be LAST: /dev/console is the last console= and d-i's debconf frontend follows it
         opts = [o for o in opts if not o.startswith("console=")]
         extra = [o for o in extra if not o.startswith("console=")] + ["console=tty0", "console=ttyS0,115200"]
-    return m.group(1) + " ".join(opts + extra) + m.group(3)
+    merged = opts + extra
+    # Strip AFTER merge so --extra-opts cannot re-introduce a preset (review
+    # finding 2).  Bare tokens match too (finding 1: ncz_unattended with no
+    # '='), and the passwd/ namespace is nuked wholesale -- --interactive
+    # means no baked account may pre-answer d-i's user-setup questions.
+    def _is_flow_preset(o):
+        if o.startswith("passwd/"):
+            return True
+        return any(o == k or o.startswith(k + "=") for k in ("ncz_unattended", "ncz_components"))
+    def _is_disk_preset(o):
+        return any(o == k or o.startswith(k + "=") for k in ("ncz_disk", "ncz_fs"))
+    if a.interactive:
+        merged = [o for o in merged if not _is_flow_preset(o)]
+    if a.ask_disk:
+        merged = [o for o in merged if not _is_disk_preset(o)]
+    return m.group(1) + " ".join(merged) + m.group(3)
 body = re.sub(r'(options\s+")([^"]*)(")', fix_options, body, count=1)
 open(cfg, "w").write(head + marker + body + tail)
 subprocess.check_call(["mcopy", "-o", "-i", f"{img}@@{off}", cfg, "::/EFI/BOOT/refind.conf"])
