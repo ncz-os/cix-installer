@@ -184,6 +184,17 @@ end = rest.index("\n}")
 body, tail = rest[:end], rest[end:]
 def fix_options(m):
     opts = m.group(2).split()
+    # The image's baked Install entry carries the unattended presets
+    # (passwd/*, ncz_unattended, ncz_components, ncz_disk, ncz_fs) on its
+    # options line. --interactive/--ask-disk only guard what THIS harness
+    # appends; the baked copies must be stripped too or every question is
+    # answered before it draws (2026-11-12 ui-check2: 0 answer rules fired,
+    # full auto walk, "the component dialog was never reached/answered").
+    if a.interactive:
+        opts = [o for o in opts
+                if not o.startswith(("passwd/", "ncz_unattended=", "ncz_components="))]
+    if a.ask_disk:
+        opts = [o for o in opts if not o.startswith(("ncz_disk=", "ncz_fs="))]
     extra = params.split() + (a.extra_opts.split() if a.extra_opts else [])
     if a.serial_console:
         # the UART must be LAST: /dev/console is the last console= and d-i's debconf frontend follows it
