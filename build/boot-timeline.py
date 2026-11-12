@@ -15,6 +15,24 @@ largest silent gaps (no serial output), with the text preceding each.
 """
 import argparse, os, re, shutil, subprocess, sys, threading, time
 
+def _accel_cpu():
+    """kvm only when the host is x86_64 AND /dev/kvm answers KVM_GET_API_VERSION
+    (a node can exist while the module is dead); else tcg+max (mirrors
+    kvm-install-gate-gpt.sh intent -- arm64 hosts must never pass -accel kvm)."""
+    import os, fcntl, struct
+    if os.uname().machine == "x86_64":
+        try:
+            fd = os.open("/dev/kvm", os.O_RDWR)
+            # KVM_GET_API_VERSION = _IO(KVMIO, 0x00) = 0xAE00 on x86
+            if fcntl.ioctl(fd, 0xAE00) == 12:
+                os.close(fd)
+                return "kvm", "host"
+            os.close(fd)
+        except OSError:
+            pass
+    return "tcg", "max"
+
+
 def _ovmf(*names):
     """Return the first existing firmware volume, else raise with candidates."""
     import os
@@ -180,13 +198,3 @@ gaps.sort(reverse=True)
 print("largest silent gaps on the serial console (>=4 s):")
 for g, t1, tail in gaps[:12]:
     print(f"  {g:6.1f}s  starting at {t1:6.1f}s  after: ...{tail}")
-
-def _accel_cpu():
-    """kvm only when the host arch matches the x86_64 guest and /dev/kvm is
-    usable; else tcg (mirrors kvm-install-gate-gpt.sh -- arm64 hosts must not
-    pass -accel kvm: qemu rejects it outright)."""
-    import os
-    host = os.uname().machine
-    if host == "x86_64" and os.access("/dev/kvm", os.R_OK | os.W_OK):
-        return "kvm", "host"
-    return "tcg", "qemu64"

@@ -25,6 +25,24 @@ security-framed, multi-console hardware the shipped entry already carries a UART
 """
 import argparse, os, re, shutil, socket, subprocess, sys, tempfile, time
 
+def _accel_cpu():
+    """kvm only when the host is x86_64 AND /dev/kvm answers KVM_GET_API_VERSION
+    (a node can exist while the module is dead); else tcg+max (mirrors
+    kvm-install-gate-gpt.sh intent -- arm64 hosts must never pass -accel kvm)."""
+    import os, fcntl, struct
+    if os.uname().machine == "x86_64":
+        try:
+            fd = os.open("/dev/kvm", os.O_RDWR)
+            # KVM_GET_API_VERSION = _IO(KVMIO, 0x00) = 0xAE00 on x86
+            if fcntl.ioctl(fd, 0xAE00) == 12:
+                os.close(fd)
+                return "kvm", "host"
+            os.close(fd)
+        except OSError:
+            pass
+    return "tcg", "max"
+
+
 def _ovmf(*names):
     """Return the first existing firmware volume, else raise with candidates."""
     import os
@@ -471,13 +489,3 @@ if shutil.which("convert"):
         if f.endswith(".ppm") and os.path.getsize(os.path.join(S, f)) > 0:
             subprocess.call(["magick", os.path.join(S, f), os.path.join(S, f[:-4] + ".png")])
 print(f"{n} screendumps in {S}")
-
-def _accel_cpu():
-    """kvm only when the host arch matches the x86_64 guest and /dev/kvm is
-    usable; else tcg (mirrors kvm-install-gate-gpt.sh -- arm64 hosts must not
-    pass -accel kvm: qemu rejects it outright)."""
-    import os
-    host = os.uname().machine
-    if host == "x86_64" and os.access("/dev/kvm", os.R_OK | os.W_OK):
-        return "kvm", "host"
-    return "tcg", "qemu64"
