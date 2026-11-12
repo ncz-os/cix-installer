@@ -22,6 +22,7 @@ if declare -F ncz_trap_chown_back >/dev/null 2>&1; then ncz_trap_chown_back "$WO
 PY="${NCZ_PYTE_PYTHON:-$HOME/pyte-venv/bin/python}"; [ -x "$PY" ] || PY=python3
 "$PY" -c 'import pyte' 2>/dev/null || { echo "UI CHECK FAIL: pyte is not installed for $PY (python3 -m venv ~/pyte-venv && ~/pyte-venv/bin/pip install pyte)" >&2; exit 1; }
 SECS="${NCZ_UI_CHECK_SECS:-200}"
+TCG_SCALE=1
 # Cross-arch tcg is ~10-50x slower than kvm: with the KVM-tuned 200 s window
 # the installer never reaches the component dialog (2026-11-12 05:1xZ run:
 # 8 states in 204 s, "the component dialog was never reached/answered").
@@ -42,6 +43,7 @@ if [ -z "${NCZ_UI_CHECK_SECS:-}" ]; then
         # full dialog walk to "Installing the base system" is ~2/3 of the
         # observed 47-min tcg install (~30 min) + margin -> 2400 s = 200 s x 12.
         SECS=$((SECS * 12))
+        TCG_SCALE=12
         echo "[kvm-gate] tcg capture budget: SECS=$SECS (host $_h, guest $_g)" >&2
     fi
 fi
@@ -208,13 +210,15 @@ else
 fi
 T_ANS="$(sed -n 's/^t=\([0-9]*\)s rule 0 .*/\1/p' "$WORK/answers.log" | head -1)"
 [ -n "$T_ANS" ] || { echo "UI CHECK FAIL: $_ncz_rule0_missing" >&2; exit 1; }
-# --max-blank-secs 12: after the erase confirmation the chooser's "erasing <disk>" progress bar is up for
+# --max-blank-secs 12 (x TCG_SCALE on tcg, like SECS: the 2026-11-12 ui-check3 TCG capture measured its
+# redraw blanks at 37 s where the KVM captures measure ~3-8 s): after the erase confirmation the chooser's
+# "erasing <disk>" progress bar is up for
 # under the 2 s a state needs to be captured, so the one blank state before it measures ~8 s on this
 # capture although the operator sees the progress bar (it is in serial0.log). A server medium has no component
 # dialog; its screens are judged from the HARDWARE SUMMARY note, the dialog just before where that one stood.
 _ncz_noblank="optional components"; [ "$VARIANT" = server ] && _ncz_noblank="What we found"
 "$PY" "$HERE/check-installer-screens.py" "$WORK/serial-screens" --start-at "$_ncz_noblank" \
-    --no-blank-after "$_ncz_noblank" --max-blank-secs 12 || rc=1
+    --no-blank-after "$_ncz_noblank" --max-blank-secs $((12 * TCG_SCALE)) || rc=1
 # The dialogs above are answered with Enter only (except the erase Yes), so the install must go ahead with the
 # DEFAULTS. The erase review screen restates what was chosen: every optional component (a select/multiselect whose
 # Choices-C holds labels instead of values loses the Default and returns labels, which parse as "none" -- the
@@ -256,7 +260,7 @@ if [ "$ARCH" = amd64 ]; then
     # the kernel and the initrd load (5-9 s depending on the host); that state may last up to 20 s. Every later blank
     # is a vanished UI unless it is a redraw shorter than --max-blank-secs. This now guards a real claim: d-i draws
     # on the UART, and the monitor must still show the same UI.
-    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --boot-blank-max-secs 20 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --boot-blank-max-secs $((20 * TCG_SCALE)) 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
     # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
     ndist=$(awk '{print $2}' "$FBW/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }
