@@ -283,7 +283,17 @@ fi
 [ -f "$CODE" ] && [ -f "$SRCVARS" ] || { echo "GATE FAIL: no UEFI firmware for $ARCH" >&2; exit 2; }
 ACCEL="tcg"; CPU="qemu64"
 [ "$ARCH" = arm64 ] && CPU="max"
-if [ -r /dev/kvm ]; then
+HOSTM="$(uname -m)"
+NEEDM=x86_64; [ "$ARCH" = arm64 ] && NEEDM=aarch64
+if [ "$HOSTM" != "$NEEDM" ]; then
+  # /dev/kvm on a foreign-arch host is real but WRONG for this guest
+  # (arm64 host + amd64 guest: qemu rejects -accel kvm outright).
+  # The gate still verifies install+boot correctness under TCG; a true
+  # KVM run needs a host of the guest's own architecture.
+  echo "[kvm-gate] host $HOSTM cannot KVM-run $ARCH guests -- using TCG" >&2
+  echo "           (install/boot correctness gate; run this gate on a" >&2
+  echo "           $NEEDM host for real KVM acceleration)" >&2
+elif [ -r /dev/kvm ]; then
   ACCEL="kvm"; CPU="host"
 elif [ -e /dev/kvm ]; then
   # /dev/kvm EXISTS but this user cannot read it. Falling through to TCG
