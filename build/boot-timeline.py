@@ -61,7 +61,11 @@ if a.arch == "arm64":
     qemu, machine, code, srcvars = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd"
     cpu, gpu = "host", ["-device", "virtio-gpu-pci"]
 else:
-    qemu, machine, code, srcvars = "qemu-system-x86_64", "q35", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd"
+    qemu, machine = "qemu-system-x86_64", "q35"
+    code = _ovmf("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd",
+                 "/usr/share/edk2/ovmf/OVMF_CODE.fd", "/usr/share/edk2/x64/OVMF_CODE.4m.fd")
+    srcvars = _ovmf("/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/OVMF/OVMF_VARS.fd",
+                    "/usr/share/edk2/ovmf/OVMF_VARS.fd", "/usr/share/edk2/x64/OVMF_VARS.4m.fd")
     cpu, gpu = "host", ["-vga", "std"]
 disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log")
 for f in (disk, vars_, s0):
@@ -80,6 +84,14 @@ cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", cpu, "-smp", str(a.smp), "-
 samples = []   # (t, size)
 stop = threading.Event()
 t0 = time.monotonic()
+
+def _ovmf(*names):
+    import os
+    for n in names:
+        if os.path.exists(n):
+            return n
+    return names[0]
+
 def watch():
     last = -1
     while not stop.is_set():

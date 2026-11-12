@@ -28,6 +28,14 @@ import argparse, os, re, shutil, socket, subprocess, sys, tempfile, time
 TEST_MAGIC = "ncz_ui_check=1"
 
 
+
+def _ovmf(*names):
+    import os
+    for n in names:
+        if os.path.exists(n):
+            return n
+    return names[0]
+
 def preseed_cmds(text):
     """Every `d-i <question> <type> <value>` line of a preseed, with backslash continuations joined."""
     out, buf = [], ""
@@ -201,7 +209,11 @@ if a.serial_console:
 if a.arch == "arm64":
     qemu, machine, code, srcvars, gpu = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd", ["-device", "ramfb", "-device", "usb-kbd"]
 else:
-    qemu, machine, code, srcvars, gpu = "qemu-system-x86_64", "q35", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", ["-vga", "std"]
+    qemu, machine, gpu = "qemu-system-x86_64", "q35", ["-vga", "std"]
+    code = _ovmf("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd",
+                 "/usr/share/edk2/ovmf/OVMF_CODE.fd", "/usr/share/edk2/x64/OVMF_CODE.4m.fd")
+    srcvars = _ovmf("/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/OVMF/OVMF_VARS.fd",
+                    "/usr/share/edk2/ovmf/OVMF_VARS.fd", "/usr/share/edk2/x64/OVMF_VARS.4m.fd")
 # A UNIX socket path is capped at ~108 bytes. The harness's own files stay in WORKDIR, but a deep WORKDIR (a mktemp
 # under a job workspace, say) would break the two qemu sockets -- so those get a short private directory instead.
 # tempfile.mkdtemp honours TMPDIR, and the image gate deliberately sets TMPDIR to the run dir (also deep: the arm64
