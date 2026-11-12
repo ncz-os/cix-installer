@@ -23,6 +23,7 @@ PY="${NCZ_PYTE_PYTHON:-$HOME/pyte-venv/bin/python}"; [ -x "$PY" ] || PY=python3
 "$PY" -c 'import pyte' 2>/dev/null || { echo "UI CHECK FAIL: pyte is not installed for $PY (python3 -m venv ~/pyte-venv && ~/pyte-venv/bin/pip install pyte)" >&2; exit 1; }
 SECS="${NCZ_UI_CHECK_SECS:-200}"
 TCG_SCALE=1
+FB_SCALE=1
 # Cross-arch tcg is ~10-50x slower than kvm: with the KVM-tuned 200 s window
 # the installer never reaches the component dialog (2026-11-12 05:1xZ run:
 # 8 states in 204 s, "the component dialog was never reached/answered").
@@ -44,6 +45,9 @@ if [ -z "${NCZ_UI_CHECK_SECS:-}" ]; then
         # observed 47-min tcg install (~30 min) + margin -> 2400 s = 200 s x 12.
         SECS=$((SECS * 12))
         TCG_SCALE=12
+        # FB redraw gaps measured 8-13 s under tcg vs 3-8 s on kvm (the uart path runs ~12x slower, the fb
+        # path only ~3-4x); scale the fb redraw bound separately, see the fb check below.
+        FB_SCALE=4
         echo "[kvm-gate] tcg capture budget: SECS=$SECS (host $_h, guest $_g)" >&2
     fi
 fi
@@ -257,14 +261,16 @@ if grep  "not in the candidate set" "$WORK"/serial-screens/*.txt 2>/dev/null >/d
 fi
 if [ "$ARCH" = amd64 ]; then
     # Still judged from the FIRST frame (the bootloader menu). The framebuffer is blank once, right after it, while
-    # the kernel and the initrd load (5-9 s depending on the host); that state may last up to 20 s. Every later blank
-    # is a vanished UI unless it is a redraw shorter than --max-blank-secs. This now guards a real claim: d-i draws
-    # on the UART, and the monitor must still show the same UI.
-    # --max-blank-secs 12 (x TCG_SCALE on tcg, same constant as the serial path above): the 2026-11-12 gate's fb
-    # capture measured 8-13 s redraw gaps between dialog frames under tcg (vs 3-8 s redraws on kvm) and one 93 s
-    # kernel+initrd-load gap sampled as a second blank state right after the bootloader frame; without the scaling
-    # the default of 8 s flags all of them as a vanished UI (the serial leg of the same run passed at 144 s).
-    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --max-blank-secs $((12 * TCG_SCALE)) --boot-blank-max-secs $((20 * TCG_SCALE)) 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
+    # the kernel and the initrd load (5-9 s depending on the host); that blank RUN may last up to 20 s (x TCG_SCALE)
+    # and slow hosts sample it as several states. Every later blank is a vanished UI unless it is a redraw shorter
+    # than --max-blank-secs. This now guards a real claim: d-i draws on the UART, and the monitor must still show
+    # the same UI.
+    # --max-blank-secs 8 (x FB_SCALE on tcg, not x TCG_SCALE -- review 2026-11-12: do not widen the redraw bound
+    # to cover the kernel-load gap, that is the boot-blank run's job): the 2026-11-12 gate's tcg fb capture
+    # measured 8-13 s redraw gaps between dialog frames (kvm redraws are 3-8 s), so 8 x 4 = 32 s keeps a ~2.5x
+    # margin over measured redraws while the defect this check exists for (a 14-25 s vanished UI) still fires:
+    # 32 s under tcg, 8 s on kvm.
+    "$PY" "$HERE/check-installer-screens.py" "$FBW/fb-states" --no-blank-after "framebuffer" --max-blank-secs $((8 * FB_SCALE)) --boot-blank-max-secs $((20 * TCG_SCALE)) 2>&1 | tee "$WORK/fb-check.out"; [ "${PIPESTATUS[0]}" = 0 ] || rc=1
     # proof the installer really progressed on the framebuffer (dialogs and progress bars): many distinct frames
     ndist=$(awk '{print $2}' "$FBW/fb-frames.txt" 2>/dev/null | sort -u | wc -l | tr -d ' ')
     [ "${ndist:-0}" -ge 8 ] || { echo "check-installer-screens: FAIL only ${ndist:-0} distinct framebuffer frames captured (dialogs and progress bars expected)" >&2; rc=1; }

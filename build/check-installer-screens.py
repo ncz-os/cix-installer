@@ -34,7 +34,7 @@ ap.add_argument("--start-at", default=None, help="ignore every state before the 
 ap.add_argument("--after-t", type=int, default=None, help="with --no-blank-after: only judge states at or after this many seconds since boot (the states carry a # t=N header)")
 ap.add_argument("--allow-first-blank", action="store_true", help="with --no-blank-after: the first blank state is the kernel boot and is not a defect")
 ap.add_argument("--max-blank-secs", type=int, default=8, help="a blank console shorter than this is a redraw between steps, not a vanished UI (default 8; the defect was 14-25 s)")
-ap.add_argument("--boot-blank-max-secs", type=int, default=0, help="with --no-blank-after: when the marker is in the FIRST captured state (the bootloader frame), the blank state right after it is the kernel and initrd load, not a vanished UI; allow it up to N seconds (default 0 = off). Every later blank is judged by --max-blank-secs")
+ap.add_argument("--boot-blank-max-secs", type=int, default=0, help="with --no-blank-after: the blank run right after the FIRST state carrying the marker (the bootloader frame) is the kernel and initrd load, not a vanished UI; allow that run up to N seconds in total (default 0 = off). Slow hosts sample one kernel-load blank as SEVERAL states (2026-11-12 tcg fb: 29-122 s as one state after a leading pre-boot blank), so this covers the whole run, not one state, and it is anchored on the marker state, not on files[0]. Every later blank is judged by --max-blank-secs")
 ap.add_argument("--no-blank-after", default=None, help="after the first state containing TEXT, no later state may be a blank console (only the screen tab bar): the UI must stay up until the install progress")
 ap.add_argument("--min-states", type=int, default=0, help="fail when fewer than N distinct console states were captured. The state COUNT itself is timing-dependent (arm64 r201 candidates: 35, 33, 32 with identical dialog sequences; the 2026-10-27 Preview4 candidate: 14, also complete), so this is only a floor that catches a truncated capture; the content assertions above are the real checks. Pick N from the dialog COUNT the harness is guaranteed to capture (one stable state per answered dialog, boot-screens.py pump()), not from a particular run's cadence")
 ap.add_argument("--require-prompt-sequence", nargs="+", default=[], help="assert every REGEX appears in the given order across the captured screens (operator's interactive sequence)")
@@ -84,17 +84,23 @@ for f in files:
         bad += 1
         print("check-installer-screens: FAIL %s: dialog without the branded header /%s/" % (f, a.require_header), file=sys.stderr)
 if a.no_blank_after:
+    def body_lines(t):
+        # a state is a blank console when only the screen tab bar is left; the shell/intaller tab markers are not UI
+        return [l for l in t.split("\n")[1:] if l.strip() and not re.match(r"^\[?\s*\(\d\*+\w+\)\s+2 shell", l.strip()) and "(1**installer)" not in l]
     started = False
-    start_idx = None
+    marker_idx = None   # the bootloader frame: the first state carrying the marker
     blank_seen = 0
+    boot_run = set()   # indices of the kernel+initrd-load blank run right after the bootloader frame
+    boot_run_done = False
     for f in files:
         txt = rd(os.path.join(a.dir, f))
         m_t = re.match(r"# t=(\d+)s", txt)
-        if a.no_blank_after in txt: started = True
+        if a.no_blank_after in txt:
+            if marker_idx is None: marker_idx = files.index(f)
+            started = True
         if a.after_t is not None and m_t and int(m_t.group(1)) >= a.after_t: started = True
         if not started: continue
-        if start_idx is None: start_idx = files.index(f)
-        body = [l for l in txt.split("\n")[1:] if l.strip() and not re.match(r"^\[?\s*\(\d\*+\w+\)\s+2 shell", l.strip()) and "(1**installer)" not in l]
+        body = body_lines(txt)
         if not body:
             # duration of this blank state = until the next state file
             ts = []
@@ -102,13 +108,27 @@ if a.no_blank_after:
                 mt = re.match(r"# t=(\d+)s", rd(os.path.join(a.dir, g), 20))
                 ts.append(int(mt.group(1)) if mt else 0)
             idx = files.index(f)
+            if idx in boot_run: continue
+            # The kernel and initrd load right after the bootloader frame is ONE physical blank that slow hosts
+            # sample as several states; the 2026-11-12 tcg fb capture has the bootloader frame at 0001-0003s,
+            # preceded by a leading pre-boot blank 0000-0001s that shifted the old files[0]/idx==1 anchor off the
+            # kernel-load blank 0002-0029s (29-122 s) entirely. Allow the first blank run after the bootloader
+            # frame up to --boot-blank-max-secs TOTAL, anchored on the first marker state. (Review 2026-11-12: do
+            # not widen --max-blank-secs to cover a boot-load gap -- that would mask real post-dialog vanishes;
+            # the redraw bound only governs redraws between steps.)
+            if a.boot_blank_max_secs and not boot_run_done and marker_idx is not None and idx > marker_idx:
+                boot_run_done = True
+                j = idx
+                while j < len(files) and not body_lines(rd(os.path.join(a.dir, files[j]))):
+                    j += 1
+                span = (ts[j] - ts[idx]) if j < len(files) else 10**6
+                if span <= a.boot_blank_max_secs:
+                    print("check-installer-screens: note %s: %d s blank after the bootloader frame (kernel and initrd load; limit %d s)" % (f, span, a.boot_blank_max_secs))
+                    for k in range(idx, j):
+                        boot_run.add(k)
+                    continue
             dur = (ts[idx + 1] - ts[idx]) if idx + 1 < len(files) else 10**6
             if dur < a.max_blank_secs: continue
-            # The kernel and initrd load right after the bootloader frame: only that one state, and only when judging
-            # started at the very first capture, is bounded by --boot-blank-max-secs instead.
-            if a.boot_blank_max_secs and start_idx == 0 and idx == 1 and dur <= a.boot_blank_max_secs:
-                print("check-installer-screens: note %s: %d s blank after the bootloader frame (kernel and initrd load; limit %d s)" % (f, dur, a.boot_blank_max_secs))
-                continue
             blank_seen += 1
             if a.allow_first_blank and blank_seen == 1: continue
             bad += 1
