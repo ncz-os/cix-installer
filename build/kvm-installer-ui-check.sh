@@ -27,9 +27,21 @@ SECS="${NCZ_UI_CHECK_SECS:-200}"
 # 8 states in 204 s, "the component dialog was never reached/answered").
 # Scale the capture budget when the host cannot serve this guest under kvm.
 if [ -z "${NCZ_UI_CHECK_SECS:-}" ]; then
-    _h="$(uname -m)"; _g=x86_64; [ "$ARCH" = arm64 ] && _g=aarch64
+    _h="$(uname -m)"
+    # ARCH is amd64/arm64 (Go-style) while uname -m is x86_64/aarch64; accept
+    # both spellings and never guess: an unknown ARCH must NOT silently scale
+    # a native-kvm run (review finding 1).
+    case "${ARCH:-}" in
+        amd64|x86_64)  _g=x86_64 ;;
+        arm64|aarch64) _g=aarch64 ;;
+        *) echo "[kvm-gate] WARN: ARCH='${ARCH:-}' unknown; not scaling capture budget" >&2; _g="$_h" ;;
+    esac
     if [ "$_h" != "$_g" ]; then
-        SECS=$((SECS * 12))   # 200 -> 2400 s (40 min): dialogs + base-system start under tcg
+        # Budget math (review finding 2): the 05:1xZ tcg evidence run produced
+        # one state per ~25 s and was still pre-component-dialog at 204 s; the
+        # full dialog walk to "Installing the base system" is ~2/3 of the
+        # observed 47-min tcg install (~30 min) + margin -> 2400 s = 200 s x 12.
+        SECS=$((SECS * 12))
         echo "[kvm-gate] tcg capture budget: SECS=$SECS (host $_h, guest $_g)" >&2
     fi
 fi
