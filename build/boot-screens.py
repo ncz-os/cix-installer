@@ -229,7 +229,8 @@ for f in (disk, vars_, s0, mon, ser):
     if os.path.exists(f): os.remove(f)
 subprocess.check_call(["qemu-img", "create", "-f", "qcow2", disk, "30G"], stdout=subprocess.DEVNULL)
 shutil.copy(srcvars, vars_)
-cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", "host", "-smp", str(a.smp), "-m", str(a.mem),
+_accel, _cpu = _accel_cpu()
+cmd = [qemu, "-M", machine, "-accel", _accel, "-cpu", _cpu, "-smp", str(a.smp), "-m", str(a.mem),
        "-drive", f"if=pflash,format=raw,unit=0,file={code},readonly=on",
        "-drive", f"if=pflash,format=raw,unit=1,file={vars_}",
        "-drive", f"file={disk},if=virtio,format=qcow2",
@@ -470,3 +471,13 @@ if shutil.which("convert"):
         if f.endswith(".ppm") and os.path.getsize(os.path.join(S, f)) > 0:
             subprocess.call(["magick", os.path.join(S, f), os.path.join(S, f[:-4] + ".png")])
 print(f"{n} screendumps in {S}")
+
+def _accel_cpu():
+    """kvm only when the host arch matches the x86_64 guest and /dev/kvm is
+    usable; else tcg (mirrors kvm-install-gate-gpt.sh -- arm64 hosts must not
+    pass -accel kvm: qemu rejects it outright)."""
+    import os
+    host = os.uname().machine
+    if host == "x86_64" and os.access("/dev/kvm", os.R_OK | os.W_OK):
+        return "kvm", "host"
+    return "tcg", "qemu64"
