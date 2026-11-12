@@ -163,7 +163,8 @@ text = open(cfg).read()
 params = ("ncz_diag_pw=parity-screen-test "
           "debian-installer/locale=en_US.UTF-8 keyboard-configuration/xkb-keymap=us clock-setup/ntp=false time/zone=UTC")
 # d-i's newt draws on the console it picked; --serial-console makes the UART win on amd64, which is the only way to
-# READ the dialog titles there (the installed image's amd64 entries carry console=tty0 only, by design).
+# READ the dialog titles there (the shipped Install entry bakes console=tty0 console=ttyS0,115200; the
+# non-serial path below strips the ttyS0 tokens so the monitor capture sees d-i).
 if a.serial_console:
     params += f" {TEST_MAGIC} console=ttyS0,115200"
 # --interactive walks the operator's path, so it must NOT preseed passwd/*: with them on the command line d-i's own
@@ -195,6 +196,14 @@ def fix_options(m):
         # the UART must be LAST: /dev/console is the last console= and d-i's debconf frontend follows it
         opts = [o for o in opts if not o.startswith("console=")]
         extra = [o for o in extra if not o.startswith("console=")] + ["console=tty0", "console=ttyS0,115200"]
+    else:
+        # The baked Install entry carries console=tty0 console=ttyS0,115200
+        # (ttyS0 LAST = d-i's frontend follows the UART), so a monitor capture
+        # must drop the ttyS0 tokens or nothing draws on the framebuffer and
+        # kvm-installer-ui-check.sh's fb entry check fires. Aim the frontend at
+        # whatever surface this run captures.
+        opts = [o for o in opts if not (o.startswith("console=") and "ttyS" in o)]
+        extra = [o for o in extra if not (o.startswith("console=") and "ttyS" in o)]
     merged = opts + extra
     # Strip AFTER merge so --extra-opts cannot re-introduce a preset (review
     # finding 2).  Bare tokens match too (finding 1: ncz_unattended with no
