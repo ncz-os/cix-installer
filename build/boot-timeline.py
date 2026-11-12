@@ -15,6 +15,16 @@ largest silent gaps (no serial output), with the text preceding each.
 """
 import argparse, os, re, shutil, subprocess, sys, threading, time
 
+def _ovmf(*names):
+    """Return the first existing firmware volume, else raise with candidates."""
+    import os
+    for n in names:
+        if os.path.exists(n):
+            return n
+    raise FileNotFoundError(
+        "OVMF/AAVMF firmware volume not found; tried: " + ", ".join(names))
+
+
 ap = argparse.ArgumentParser()
 ap.add_argument("image"); ap.add_argument("workdir")
 ap.add_argument("--max-secs", type=int, default=5400)
@@ -58,7 +68,9 @@ if not IS_ISO:
 
 
 if a.arch == "arm64":
-    qemu, machine, code, srcvars = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd"
+    qemu, machine, code, srcvars = "qemu-system-aarch64", "virt,gic-version=3", _ovmf("/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/edk2/aarch64/QEMU_EFI.fd",
+                    "/usr/share/edk2-aaarch64/QEMU_EFI.fd", "/usr/share/AAVMF/AAVMF_CODE.fd"), _ovmf("/usr/share/AAVMF/AAVMF_VARS.fd", "/usr/share/edk2/aarch64/QEMU_VARS.fd",
+                    "/usr/share/edk2-aaarch64/QEMU_VARS.fd", "/usr/share/AAVMF/AAVMF_VARS.fd")
     cpu, gpu = "host", ["-device", "virtio-gpu-pci"]
 else:
     qemu, machine = "qemu-system-x86_64", "q35"
@@ -84,13 +96,6 @@ cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", cpu, "-smp", str(a.smp), "-
 samples = []   # (t, size)
 stop = threading.Event()
 t0 = time.monotonic()
-
-def _ovmf(*names):
-    import os
-    for n in names:
-        if os.path.exists(n):
-            return n
-    return names[0]
 
 def watch():
     last = -1

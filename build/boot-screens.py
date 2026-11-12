@@ -25,16 +25,19 @@ security-framed, multi-console hardware the shipped entry already carries a UART
 """
 import argparse, os, re, shutil, socket, subprocess, sys, tempfile, time
 
-TEST_MAGIC = "ncz_ui_check=1"
-
-
-
 def _ovmf(*names):
+    """Return the first existing firmware volume, else raise with candidates."""
     import os
     for n in names:
         if os.path.exists(n):
             return n
-    return names[0]
+    raise FileNotFoundError(
+        "OVMF/AAVMF firmware volume not found; tried: " + ", ".join(names))
+
+
+TEST_MAGIC = "ncz_ui_check=1"
+
+
 
 def preseed_cmds(text):
     """Every `d-i <question> <type> <value>` line of a preseed, with backslash continuations joined."""
@@ -207,7 +210,9 @@ if a.serial_console:
         sys.exit("boot-screens.py: the test preseed hook did not reach the test copy's ESP")
 
 if a.arch == "arm64":
-    qemu, machine, code, srcvars, gpu = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd", ["-device", "ramfb", "-device", "usb-kbd"]
+    qemu, machine, code, srcvars, gpu = "qemu-system-aarch64", "virt,gic-version=3", _ovmf("/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/edk2/aarch64/QEMU_EFI.fd",
+                    "/usr/share/edk2-aaarch64/QEMU_EFI.fd", "/usr/share/AAVMF/AAVMF_CODE.fd"), _ovmf("/usr/share/AAVMF/AAVMF_VARS.fd", "/usr/share/edk2/aarch64/QEMU_VARS.fd",
+                    "/usr/share/edk2-aaarch64/QEMU_VARS.fd", "/usr/share/AAVMF/AAVMF_VARS.fd"), ["-device", "ramfb", "-device", "usb-kbd"]
 else:
     qemu, machine, gpu = "qemu-system-x86_64", "q35", ["-vga", "std"]
     code = _ovmf("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd",
