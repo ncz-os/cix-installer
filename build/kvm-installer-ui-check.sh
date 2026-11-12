@@ -22,6 +22,17 @@ if declare -F ncz_trap_chown_back >/dev/null 2>&1; then ncz_trap_chown_back "$WO
 PY="${NCZ_PYTE_PYTHON:-$HOME/pyte-venv/bin/python}"; [ -x "$PY" ] || PY=python3
 "$PY" -c 'import pyte' 2>/dev/null || { echo "UI CHECK FAIL: pyte is not installed for $PY (python3 -m venv ~/pyte-venv && ~/pyte-venv/bin/pip install pyte)" >&2; exit 1; }
 SECS="${NCZ_UI_CHECK_SECS:-200}"
+# Cross-arch tcg is ~10-50x slower than kvm: with the KVM-tuned 200 s window
+# the installer never reaches the component dialog (2026-11-12 05:1xZ run:
+# 8 states in 204 s, "the component dialog was never reached/answered").
+# Scale the capture budget when the host cannot serve this guest under kvm.
+if [ -z "${NCZ_UI_CHECK_SECS:-}" ]; then
+    _h="$(uname -m)"; _g=x86_64; [ "$ARCH" = arm64 ] && _g=aarch64
+    if [ "$_h" != "$_g" ]; then
+        SECS=$((SECS * 12))   # 200 -> 2400 s (40 min): dialogs + base-system start under tcg
+        echo "[kvm-gate] tcg capture budget: SECS=$SECS (host $_h, guest $_g)" >&2
+    fi
+fi
 # NCZ_UI_CHECK_VARIANT=server judges a Magnetar Server medium (the KVM gate's server set): no component dialog,
 # "Magnetar Server" in every dialog title, "Cygnus" nowhere on screen, and the review screen promises no desktop.
 VARIANT="${NCZ_UI_CHECK_VARIANT:-desktop}"
