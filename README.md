@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/branding/logo/ncz.png" alt="NCZ-OS" width="120">
+  <img src="assets/branding/logo/ncz-os-logo.png" alt="NCZ-OS: Agentic Operating System for AMD64/T2 and ARM64" width="320">
 </p>
 
 <p align="center">
