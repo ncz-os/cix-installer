@@ -25,6 +25,8 @@ mkbox() {
     printf '%s\n' "$product" > "$b/dmi/product_name"
     for m in t2smc t2gmux t2smp t2thunderbolt; do
         mkdir -p "$b/assets/$m/src"
+        # Synthetic PACKAGE_VERSION: this test exercises the hook mechanism,
+        # not real module versions (all four fixtures deliberately share 0.1).
         printf 'PACKAGE_NAME="%s"\nPACKAGE_VERSION="0.1"\n' "$m" > "$b/assets/$m/dkms.conf"
         echo "/* $m */" > "$b/assets/$m/src/$m.c"
     done
@@ -242,6 +244,29 @@ run_hook "$B" NCZ_T2_DKMS_EXTRA=t2thunderbolt
 [ ! -e "$B/modprobe.d/ncz-t2thunderbolt.conf" ] && ok "opt-in: t2thunderbolt blacklist removed" || bad "opt-in: t2thunderbolt blacklist still present"
 [ -e "$B/modprobe.d/ncz-t2smp.conf" ] && ok "opt-in: t2smp blacklist still present (separate from t2thunderbolt)" || bad "opt-in: t2smp blacklist went away"
 [ -e "$B/modprobe.d/ncz-t2-gmux.conf" ] && ok "opt-in: apple_gmux blacklist still present (T2 only)" || bad "opt-in: apple_gmux blacklist went away"
+
+# ===========================================================================
+# 16. KVM-gate force (operator ORDER #27(2), 2026-11-14): NCZ_T2_DKMS_FORCE=1
+#     runs the BUILD path on VM/non-T2 "hardware" so the gate can assert
+#     t2gmux.ko/t2smc.ko exist for the shipped kernel. Hardware POLICY is
+#     unchanged under the force: t2smp stays dropped, the t2thunderbolt
+#     blacklist still writes, and the apple_gmux blacklist (real-T2-only
+#     contract) is NOT written on VM hardware.
+# ===========================================================================
+B="$T/force"; mkbox "$B" "QEMU" "Standard PC (Q35 + ICH9, 2009)"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B" NCZ_T2_DKMS_FORCE=1
+for m in t2smc t2gmux; do
+    [ "$(built "$B" $m)" = 1 ] && ok "force: $m built on VM hardware" || bad "force: $m not built under NCZ_T2_DKMS_FORCE=1"
+done
+[ "$(built "$B" t2smp)" = 0 ] && ok "force: t2smp stays dropped under force" || bad "force: t2smp was built"
+[ "$(built "$B" t2thunderbolt)" = 0 ] && ok "force: t2thunderbolt not built under force" || bad "force: t2thunderbolt was built"
+grep -q '^blacklist t2thunderbolt' "$B/modprobe.d/ncz-t2thunderbolt.conf" 2>/dev/null && ok "force: t2thunderbolt blacklist written" || bad "force: t2thunderbolt blacklist missing"
+[ ! -e "$B/modprobe.d/ncz-t2-gmux.conf" ] && ok "force: apple_gmux blacklist NOT written on VM (real-T2-only contract holds)" || bad "force: apple_gmux blacklist leaked onto VM hardware"
+
+# 16b. Without the force a VM run stays inert (the escape hatch is opt-in).
+B="$T/force-off"; mkbox "$B" "QEMU" "Standard PC (Q35 + ICH9, 2009)"; set_kver_list "$B" "7.2.9-ncz-t2"
+run_hook "$B"
+[ ! -s "$B/dkms.calls" ] && ok "force-off: VM run without force stays inert" || bad "force-off: hook acted on VM without the force"
 
 echo "t2-dkms-hook tests: $pass passed, $fail failed"
 [ "$fail" = 0 ]

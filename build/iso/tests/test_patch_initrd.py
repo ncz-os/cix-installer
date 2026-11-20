@@ -1,6 +1,9 @@
 import gzip
 import importlib.util
+import os
+import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -179,6 +182,208 @@ class OneKernelPruneTest(unittest.TestCase):
                 fh.write(pruned + overlay)
             out = MODULE.verify_one_kernel_initrd(good, OUR_KVER)
             self.assertEqual(out["debian_kernel_paths"], 0)
+
+
+# The member set brltty-udeb 6.9.1 puts into the forky d-i initrd (both arches),
+# trimmed to one table per directory.
+BRAILLE_MEMBERS = [
+    ("etc/brltty", 0o040755, b""),
+    ("etc/brltty/Contraction", 0o040755, b""),
+    ("etc/brltty/Contraction/en.ctb", 0o100644, b"t"),
+    ("usr/bin/brltty", 0o100755, b"ELF"),
+    ("usr/lib/brltty", 0o040755, b""),
+    ("usr/lib/brltty/brltty.sh", 0o100755, b"stty cols 80 < /dev/tty1"),
+    ("usr/lib/debian-installer-startup.d/S37brltty", 0o100755,
+     b"if grep -q brltty /proc/cmdline; then /lib/brltty/brltty.sh -E; fi"),
+    ("usr/lib/debian-installer.d/S19brltty", 0o100644, b""),
+    ("usr/lib/finish-install.d/07brltty", 0o100755, b"#!/bin/sh"),
+    ("usr/lib/udev/brltty.sh", 0o100755, b"#!/bin/sh"),
+    ("usr/lib/udev/rules.d/brltty.rules", 0o100644, b"SUBSYSTEM"),
+    ("usr/share/brltty-udeb", 0o040755, b""),
+    ("usr/share/brltty-udeb/mate-preseed.cfg", 0o100644, b"d-i"),
+    ("var/lib/dpkg/info/brltty-udeb.postinst", 0o100755, b"#!/bin/sh"),
+    ("var/lib/dpkg/info/brltty-udeb.templates", 0o100644, b"Template:"),
+]
+BRAILLE_STATUS = (
+    "Package: brltty-udeb\nStatus: install ok unpacked\n"
+    "Version: 6.9.1+repack-2\nInstaller-Menu-Item: 1050\n\n"
+    "Package: partman-lvm\nStatus: install ok unpacked\nVersion: 159\n\n"
+)
+KEEP_MEMBERS = [
+    ("usr/lib/debian-installer-startup.d/S37speakup", 0o100755, b"speakup"),
+    ("usr/lib/debian-installer.d/S20speakup", 0o100644, b""),
+    ("usr/lib/udev/rules.d/60-persistent-storage.rules", 0o100644, b"x"),
+    ("usr/bin/main-menu", 0o100755, b"ELF"),
+]
+
+
+class NoBrailleInstallerTest(unittest.TestCase):
+    def test_filter_drops_every_braille_member_and_keeps_the_rest(self):
+        base = newc(BRAILLE_MEMBERS + KEEP_MEMBERS)
+        pruned, _, dropped = MODULE.filter_base_cpio(base, OUR_KVER)
+        names = [e["name"] for e in MODULE._parse_newc_entries(pruned)]
+        self.assertEqual(dropped, len(BRAILLE_MEMBERS))
+        for name, _, _ in BRAILLE_MEMBERS:
+            self.assertNotIn(name, names)
+        for name, _, _ in KEEP_MEMBERS:
+            self.assertIn(name, names)
+
+    def test_prune_status_drops_brltty_udeb(self):
+        text, dropped = MODULE.prune_initrd_status(BRAILLE_STATUS)
+        self.assertEqual(dropped, ["brltty-udeb"])
+        self.assertNotIn("brltty", text)
+        self.assertIn("partman-lvm", text)
+
+    def _gz(self, td, name, data):
+        p = Path(td) / name
+        with gzip.open(p, "wb") as fh:
+            fh.write(data)
+        return p
+
+    def test_verify_fails_on_any_braille_member(self):
+        with tempfile.TemporaryDirectory() as td:
+            for member in BRAILLE_MEMBERS:
+                bad = self._gz(td, "bad.gz", newc(KEEP_MEMBERS + [member]))
+                with self.assertRaisesRegex(RuntimeError, "braille"):
+                    MODULE.verify_no_braille_initrd(bad)
+
+    def test_verify_fails_when_a_later_archive_re_adds_brltty(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, "bad.gz", newc(KEEP_MEMBERS) + newc(
+                [("usr/lib/debian-installer-startup.d/S37brltty", 0o100755, b"x")]))
+            with self.assertRaisesRegex(RuntimeError, "braille"):
+                MODULE.verify_no_braille_initrd(bad)
+
+    def test_verify_fails_on_a_status_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, "bad.gz", newc(
+                [("var/lib/dpkg/status", 0o100644, BRAILLE_STATUS.encode())]))
+            with self.assertRaisesRegex(RuntimeError, "brltty-udeb"):
+                MODULE.verify_no_braille_initrd(bad)
+
+    def test_verify_passes_after_the_prune(self):
+        with tempfile.TemporaryDirectory() as td:
+            pruned, _, _ = MODULE.filter_base_cpio(
+                newc(BRAILLE_MEMBERS + KEEP_MEMBERS), OUR_KVER)
+            text, _ = MODULE.prune_initrd_status(BRAILLE_STATUS)
+            good = self._gz(td, "good.gz", pruned + newc(
+                [("var/lib/dpkg/status", 0o100644, text.encode())]))
+            self.assertEqual(MODULE.verify_no_braille_initrd(good)["braille_members"], 0)
+
+
+class RequiredInitrdPackagesTest(unittest.TestCase):
+    """wget-udeb must be in the final initrd: the Magnetar fetcher uses GNU
+    wget because d-i's busybox has no wget applet (2026-10-26)."""
+
+    STATUS_OK = ("Package: wget-udeb\nStatus: install ok unpacked\nVersion: 1.25.0-3\n\n"
+                 "Package: busybox-udeb\nStatus: install ok unpacked\nVersion: 1:1.38.0-3\n")
+
+    def _gz(self, td, data):
+        p = Path(td) / "initrd.gz"
+        p.write_bytes(gzip.compress(data))
+        return p
+
+    def test_passes_with_status_and_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            good = self._gz(td, newc([("usr/bin/wget", 0o100755, b"ELF"),
+                                      ("var/lib/dpkg/status", 0o100644, self.STATUS_OK.encode())]))
+            self.assertEqual(MODULE.verify_required_initrd_packages(good)["required_initrd_packages"],
+                             ["wget-udeb"])
+
+    def test_fails_without_the_status_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, newc([("usr/bin/wget", 0o100755, b"ELF"),
+                                     ("var/lib/dpkg/status", 0o100644,
+                                      b"Package: busybox-udeb\nStatus: install ok unpacked\n")]))
+            with self.assertRaisesRegex(RuntimeError, "wget-udeb .not in the initrd dpkg status"):
+                MODULE.verify_required_initrd_packages(bad)
+
+    def test_fails_without_the_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, newc([("var/lib/dpkg/status", 0o100644, self.STATUS_OK.encode())]))
+            with self.assertRaisesRegex(RuntimeError, "no /usr/bin/wget member"):
+                MODULE.verify_required_initrd_packages(bad)
+
+    def test_a_cached_node_is_checked_too(self):
+        """Cache hits run _verify_node_outputs, not the build path: a node
+        cached before wget-udeb was required must still be refused."""
+        with tempfile.TemporaryDirectory() as td:
+            node = Path(td)
+            (node / "linux").write_bytes(b"k")
+            (node / "initrd.gz").write_bytes(gzip.compress(newc(
+                [("var/lib/dpkg/status", 0o100644, b"Package: busybox-udeb\nStatus: install ok unpacked\n")])))
+            with self.assertRaisesRegex(RuntimeError, "wget-udeb"):
+                MODULE._verify_node_outputs(node, node / "preseed.cfg")
+
+    def test_the_later_status_wins(self):
+        """The overlay's pruned status (later archive) is the effective one."""
+        with tempfile.TemporaryDirectory() as td:
+            bad = self._gz(td, newc([("usr/bin/wget", 0o100755, b"ELF"),
+                                     ("var/lib/dpkg/status", 0o100644, self.STATUS_OK.encode())])
+                               + newc([("var/lib/dpkg/status", 0o100644,
+                                        b"Package: busybox-udeb\nStatus: install ok unpacked\n")]))
+            with self.assertRaises(RuntimeError):
+                MODULE.verify_required_initrd_packages(bad)
+
+
+
+class OverlayCpioDeterminismTest(unittest.TestCase):
+    """The overlay archive appended to the d-i initrd must not depend on when
+    or where it was staged. Measured 2026-11-07 (two amd64 builds of
+    342d44bc): its members differed only in staging-time mtimes and cpio
+    inode numbers."""
+
+    def _stage(self, root: Path) -> tuple[Path, Path]:
+        tree = root / "overlay"
+        (tree / "lib" / "firmware").mkdir(parents=True)
+        (tree / "lib" / "firmware" / "a.fw").write_bytes(b"fw")
+        (tree / "ncz").mkdir()
+        (tree / "ncz" / "helper.sh").write_text("#!/bin/sh\n")
+        (tree / "preseed.cfg").write_text("d-i x\n")
+        lst = root / "filelist"
+        lst.write_text(
+            "lib/firmware\nlib/firmware/a.fw\npreseed.cfg\nncz\nncz/helper.sh\n"
+        )
+        return tree, lst
+
+    @unittest.skipUnless(shutil.which("cpio"), "cpio not available")
+    def test_same_overlay_packs_to_the_same_bytes(self):
+        sde = 1700000000
+        outs = []
+        with tempfile.TemporaryDirectory() as td:
+            for i in range(2):
+                root = Path(td) / f"run{i}"
+                root.mkdir()
+                if i:
+                    time.sleep(1.2)
+                tree, lst = self._stage(root)
+                out = root / "overlay.cpio.gz"
+                MODULE.pack_overlay_cpio_gz(tree, lst, out, sde)
+                outs.append(out.read_bytes())
+        self.assertEqual(outs[0], outs[1], "overlay cpio differs between runs")
+        entries = list(MODULE._parse_newc_entries(gzip.decompress(outs[0])))
+        self.assertTrue(entries)
+        names = [e["name"] for e in entries]
+        self.assertIn("lib/firmware/a.fw", names)
+
+    def test_member_lists_are_byte_sorted_parents_first(self):
+        got = MODULE.c_sorted_lines("lib/b\nlib\nlib-x\n\nlib/a/z\nlib/a\n")
+        self.assertEqual(got, "lib\nlib-x\nlib/a\nlib/a/z\nlib/b\n")
+
+    def test_clamp_only_lowers_newer_mtimes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            old = root / "old"
+            new = root / "new"
+            old.write_text("o")
+            new.write_text("n")
+            os.utime(old, (1000, 1000))
+            n = MODULE.clamp_tree_mtimes(root, 5000)
+            self.assertEqual(os.lstat(old).st_mtime, 1000)
+            self.assertEqual(os.lstat(new).st_mtime, 5000)
+            self.assertEqual(os.lstat(root).st_mtime, 5000)
+            self.assertGreaterEqual(n, 2)
+            self.assertEqual(MODULE.clamp_tree_mtimes(root, None), 0)
 
 
 if __name__ == "__main__":

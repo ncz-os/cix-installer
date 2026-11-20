@@ -34,3 +34,18 @@ ncz-apt-policy
 sudo
 installation-report
 popularity-contest
+
+# --- GPU compute stack on EVERY variant incl. server (order 01:35Z 2026-11-15:
+# "Mali with gpu compute on both desktop and server no panthor") ---
+# The server manifest set is installer-base.pkgs + firmware.pkgs + this file,
+# and the server image must carry the same compute stack as the desktop:
+# cix-gpu-umd (vendor Mali userland; staged .deb installed by hook 25, not an
+# apt package), ocl-icd-libopencl1 (ICD loader), clinfo (the proof tool),
+# mesa-vulkan-drivers + vulkan-tools (server acceptance: the only desktop-class
+# packages a server may carry). hook 47-llm-stack.sh installs these at runtime
+# against the pool; seeding them here keeps the pool closure complete and the
+# manifest the source of truth.
+ocl-icd-libopencl1
+clinfo
+mesa-vulkan-drivers
+vulkan-tools

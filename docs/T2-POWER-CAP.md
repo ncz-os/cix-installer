@@ -113,7 +113,11 @@ On T2 Macs the same hook (`post-install/64-t2-power-cap.sh`) raises it, in
 | setting | value | compiled-in |
 |---|---|---|
 | `NCZ_FEED_TEMP_HOT_MC` | 100 C, or 2 C under the lowest critical trip of those sensors when it is at or below 100 C (98000 on MacBookPro16,1) | 85000 |
-| `NCZ_FEED_FPS_WARM` | 6 | 10 (above the 8 fps lock rate) |
+| `NCZ_FEED_FPS_WARM` | 30 | 15 |
+| `NCZ_SAVER_AUTO_FPS` | 30 (what Auto means for the saver frame rate; the Settings page warns before a higher rate is used) | 30 |
+| `NCZ_SAVER_RENDER_DIV` | 2 (half-resolution render, upscaled by the lock) | 1 (full resolution) |
+
+Measured on MacBookPro16,1 (Radeon Pro 5500M, 3072x1920 lock-hosted saver): half resolution at 30 fps gives 28.7 fps at 25 W GPU / 78 C junction. Full resolution is GPU-bound at about 17 fps whatever rate is asked (37-41 W, 86-90 C), so the higher rate only costs heat. The previous 15 fps / full-resolution policy gave 14.7 fps at 20 W / 75 C.
 
 Up to 100 C is normal on these Macs. Measured on both MacBookPro16,1 units
 (i9-9980HK and i7-9750H):
@@ -151,14 +155,31 @@ is kept. If no critical trip can be read at install time, the measured
 MacBookPro16,1 value is used on that model and other models keep the default.
 Delete the two lines (and log in again) to go back to the compiled-in values.
 
+## Apple T2 NVMe max_sectors_kb cap
+
+Kernel 7.4.0-rc3 raises `max_sectors_kb` to 1024 on Apple T2 NVMe drives
+(`APPLE SSD AP0512N`, firmware 1310, MDTS 8), reducing sequential direct IO
+throughput (dd bs=1M iflag/oflag=direct: ~600-680 MB/s reads vs 820-900 MB/s
+with 128). Writing 128 restores speed. The udev rule
+`/etc/udev/rules.d/73-ncz-t2-nvme-max-sectors.rules` caps it to 128 for whole
+disks (`KERNEL=="nvme[0-9]*n[0-9]*"`, `ENV{DEVTYPE}=="disk"`) whose controller
+model starts with `APPLE SSD`. The whole-disk restriction keeps partitions
+(`nvme0n1p1`), which have no `queue/max_sectors_kb`, from matching the rule
+and logging a write failure per partition. The model value on the real drive
+carries trailing blanks (`APPLE SSD AP0512N    `); the `APPLE SSD*` glob
+matches it. The rule is harmless on kernels that already default to 128 and
+on non-Apple drives (e.g., Sandisk GX 7100 remains faster at 512).
+
 ## Verification
 
-`build/test-t2-power-cap.sh` (47 assertions) runs the hook and helper against a
+`build/test-t2-power-cap.sh` (58 assertions) runs the hook and helper against a
 **fake sysfs tree**: battery/AC numbers, the read-only ceiling is never written,
 restore, idempotency, `performance` and `C=0` opt-outs, the product DMI gate,
 the bounded wait for a late `intel-rapl:0`, `--strict`, the saver thermal cap
 (100 C, 2 C under a critical trip at or below 100 C, operator value kept, no renderer = no
-change, model fallback, unwritable file reported), and registration.
+change, model fallback, unwritable file reported), the NVMe whole-disk rule
+(exact line asserted, wrong cap value and wrong model mutations detected), and
+registration.
 
 ## Adding `rasdaemon` (MCE persistence)
 
@@ -169,3 +190,12 @@ forky (checked against the pinned snapshot index 2026-10-05); `rasdaemon`
 0.8.4-2 **is** (main/amd64, deps present). It is added to the amd64 closure
 (`manifests/desktop-amd64.pkgs`) so it is available offline and its provenance
 stays traceable to forky.
+
+**Removed 2026-10-26.** On the client desktop images rasdaemon logged nine
+`Can't get traces from cxl:*` and nine `Can't write to set_event` lines at every
+boot (these machines have no CXL), plus `ras-mc-ctl` EDAC label noise, and
+nothing on the image depends on it (no reverse dependency on a real install;
+its own closure, libtraceevent1, sqlite3, libdbd-sqlite3-perl and libdbi-perl,
+about 6 MB, goes with it). Runtime machine checks still reach the kernel log
+and the journal; install `rasdaemon` by hand on a machine under investigation
+to keep them across reboots.

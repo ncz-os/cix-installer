@@ -1,0 +1,12 @@
+# manifests/pin-coherence-known-fail.tsv -- check-pin-coherence.sh rules this
+# tree is KNOWN to fail, and why a commit alone cannot fix them.
+#
+# Read by build/lib/pin-coherence-gate.sh (build-image.sh preflight) and by
+# build/test-pin-coherence.sh section 3.  Preflight turns a failure of a listed
+# rule into a loud WARN naming the owner and the exact fix, and does not abort;
+# a failure of any rule NOT listed here aborts the build.  The test suite fails
+# when a listed rule starts passing, so a row is deleted in the same commit
+# that fixes its rule.  Never add a row to get a build through: an unlisted
+# failure is a real pin disagreement.
+#
+# Columns (TAB): rule, owner, fix (the exact action that clears it), reason.

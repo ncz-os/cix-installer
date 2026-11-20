@@ -243,7 +243,7 @@ fi
 # 4. Stage models at /opt/ncz/models/.
 #    The .cix model is the NPU artifact (Compass NN AOT-compiled, INT8).
 #    The .gguf model is the CPU/Mali-Vulkan fallback.
-#    Operator can add more models via `ncz model add ...` post-install.
+#    Operator can add more models via `ncz models add ...` post-install.
 # ----------------------------------------------------------------------
 mkdir -p "$MODELS"
 missing_models=()
@@ -268,11 +268,11 @@ done
 # Models are app-layer artifacts, not driver fidelity. If the canonical
 # .cix/.gguf models aren't baked into this image, WARN but do NOT fail the
 # build: the NPU runtime (libnoe, step 3) is what proves the driver works,
-# and models are layered post-flash via `ncz model add` / `ncz install
+# and models are layered post-flash via `ncz models add` / `ncz install
 # mnemos`. (Historical: a missing .cix used to exit 1 here.)
 if [ "${#missing_models[@]}" -gt 0 ]; then
     echo "[47]   WARN: model(s) not baked into image: ${missing_models[*]}"
-    echo "[47]         layer them post-flash with 'ncz model add'; NPU runtime is installed regardless"
+    echo "[47]         layer them post-flash with 'ncz models add <url> --sha256 <hex>'; NPU runtime is installed regardless"
 fi
 
 # Stage the tokenizer for the NPU model so the npu-cix adapter runs fully
@@ -308,7 +308,10 @@ Models shipped with this NCZ image:
 
 Add more models with:
 
-    ncz model add <huggingface-id-or-path>
+    ncz models pull <name>                        # a catalog entry
+    ncz models add <url> --sha256 <64-hex-sha256>  # any other model
+
+Both verify the download's sha256 before the file is installed.
 
 The kit's `Engine.auto()` picks among installed models + adapters at
 runtime by capability tier (NPU > GPU > CPU) and measured throughput
@@ -333,6 +336,9 @@ EOF
 # ----------------------------------------------------------------------
 DOCS_SRC=/usr/local/lib/cix-installer/assets/docs
 mkdir -p /usr/share/doc/ncz
+# The doc list is a single entry today; keep the loop so more docs are a
+# one-word change.
+# shellcheck disable=SC2043
 for doc in MODELSCOPE-MODELS.md; do
     if [ -f "$DOCS_SRC/$doc" ]; then
         install -m 0644 "$DOCS_SRC/$doc" "/usr/share/doc/ncz/$doc"

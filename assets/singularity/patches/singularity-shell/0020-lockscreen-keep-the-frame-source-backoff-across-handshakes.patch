@@ -1,4 +1,4 @@
-From 9f54f637d23efde8da0b6b2c4715b4f4e1cc2ad7 Mon Sep 17 00:00:00 2001
+From 6d30eaa5d59c252ae01d961e295f2c79b2faeb99 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 13 Oct 2026 04:37:51 -0400
 Subject: [PATCH] lockscreen: keep the frame source backoff across handshakes
@@ -17,7 +17,7 @@ delay. Two headless cases cover both paths.
  2 files changed, 40 insertions(+), 1 deletion(-)
 
 diff --git a/src/lockscreen/lock_framesrc.c b/src/lockscreen/lock_framesrc.c
-index d204337..a9846cc 100644
+index 5161c27..701b05e 100644
 --- a/src/lockscreen/lock_framesrc.c
 +++ b/src/lockscreen/lock_framesrc.c
 @@ -474,7 +474,9 @@ static void handle_hello(struct lock_framesrc *h, const void *payload, size_t le
@@ -68,7 +68,7 @@ index d204337..a9846cc 100644
          if (now_ms < h->reopen_at_ms) return;   /* backing off */
          /* Start (or restart) the source. It is never stopped for input; only a
 diff --git a/tests/lockscreen-framesrc/test-framesrc.sh b/tests/lockscreen-framesrc/test-framesrc.sh
-index ec43c3e..53e6ed3 100755
+index 8031211..ef28704 100755
 --- a/tests/lockscreen-framesrc/test-framesrc.sh
 +++ b/tests/lockscreen-framesrc/test-framesrc.sh
 @@ -292,6 +292,28 @@ if kill -0 "$LOCK_PID" 2>/dev/null; then ok "first lock still alive"; else bad "
@@ -101,5 +101,5 @@ index ec43c3e..53e6ed3 100755
  echo "== RESULT: $PASS passed, $FAIL failed =="
  [ "$FAIL" -eq 0 ]
 -- 
-2.56.0
+2.47.3
 

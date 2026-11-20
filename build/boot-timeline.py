@@ -15,6 +15,42 @@ largest silent gaps (no serial output), with the text preceding each.
 """
 import argparse, os, re, shutil, subprocess, sys, threading, time
 
+def _accel_cpu(guest="x86_64"):
+    """kvm when the host serves a NATIVE guest (host uname -m == guest arch) AND /dev/kvm answers
+    KVM_GET_API_VERSION (a node can exist while the module is dead) AND the host page size is 4 KiB
+    (x86_64 always; an aarch64 host only with 4 KiB pages: CIX Sky1 O6N/cixmini can, Apple Silicon/Asahi a build host runs
+    16 KiB pages and cannot run a 4 KiB-page guest under kvm); else tcg+max. Operator 2026-11-13: O6N and cixmini
+    are KVM test hosts."""
+    import os, fcntl
+    host = os.uname().machine
+    native = host == guest and (host == "x86_64" or (host == "aarch64" and os.sysconf("SC_PAGESIZE") == 4096))
+    if native:
+        try:
+            fd = os.open("/dev/kvm", os.O_RDWR)
+        except OSError:
+            return "tcg", "max"
+        try:
+            # KVM_GET_API_VERSION = _IO(KVMIO, 0x00) = 0xAE00 (same value on x86 and arm64)
+            ok = fcntl.ioctl(fd, 0xAE00) == 12
+        except OSError:
+            ok = False
+        finally:
+            os.close(fd)   # never leak the probe fd on any path
+        if ok:
+            return "kvm", "host"
+    return "tcg", "max"
+
+
+def _ovmf(*names):
+    """Return the first existing firmware volume, else raise with candidates."""
+    import os
+    for n in names:
+        if os.path.exists(n):
+            return n
+    raise FileNotFoundError(
+        "OVMF/AAVMF firmware volume not found; tried: " + ", ".join(names))
+
+
 ap = argparse.ArgumentParser()
 ap.add_argument("image"); ap.add_argument("workdir")
 ap.add_argument("--max-secs", type=int, default=5400)
@@ -58,17 +94,26 @@ if not IS_ISO:
 
 
 if a.arch == "arm64":
-    qemu, machine, code, srcvars = "qemu-system-aarch64", "virt,gic-version=3", "/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/AAVMF/AAVMF_VARS.fd"
+    qemu, machine, code, srcvars = "qemu-system-aarch64", "virt,gic-version=3", _ovmf("/usr/share/AAVMF/AAVMF_CODE.fd", "/usr/share/edk2/aarch64/QEMU_EFI.fd",
+                    "/usr/share/edk2-aaarch64/QEMU_EFI.fd", "/usr/share/AAVMF/AAVMF_CODE.fd"), _ovmf("/usr/share/AAVMF/AAVMF_VARS.fd", "/usr/share/edk2/aarch64/QEMU_VARS.fd",
+                    "/usr/share/edk2-aaarch64/QEMU_VARS.fd", "/usr/share/AAVMF/AAVMF_VARS.fd")
     cpu, gpu = "host", ["-device", "virtio-gpu-pci"]
 else:
-    qemu, machine, code, srcvars = "qemu-system-x86_64", "q35", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd"
+    qemu, machine = "qemu-system-x86_64", "q35"
+    code = _ovmf("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_CODE.fd",
+                 "/usr/share/edk2/ovmf/OVMF_CODE.fd", "/usr/share/edk2/x64/OVMF_CODE.4m.fd")
+    srcvars = _ovmf("/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/OVMF/OVMF_VARS.fd",
+                    "/usr/share/edk2/ovmf/OVMF_VARS.fd", "/usr/share/edk2/x64/OVMF_VARS.4m.fd")
     cpu, gpu = "host", ["-vga", "std"]
 disk = os.path.join(W, "target.qcow2"); vars_ = os.path.join(W, "VARS.fd"); s0 = os.path.join(W, "serial0.log")
 for f in (disk, vars_, s0):
     if os.path.exists(f): os.remove(f)
 subprocess.check_call(["qemu-img", "create", "-f", "qcow2", disk, f"{a.disk_gb}G"], stdout=subprocess.DEVNULL)
 shutil.copy(srcvars, vars_)
-cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", cpu, "-smp", str(a.smp), "-m", str(a.mem),
+_accel, _cpu = _accel_cpu("aarch64" if a.arch == "arm64" else "x86_64")
+if _accel == "kvm" and a.arch == "arm64":
+    machine = machine.replace("gic-version=3", "gic-version=host")
+cmd = [qemu, "-M", machine, "-accel", _accel, "-cpu", cpu if _accel == "kvm" else _cpu, "-smp", str(a.smp), "-m", str(a.mem),
        "-drive", f"if=pflash,format=raw,unit=0,file={code},readonly=on",
        "-drive", f"if=pflash,format=raw,unit=1,file={vars_}",
        "-drive", f"file={disk},if=virtio,format=qcow2",
@@ -80,6 +125,7 @@ cmd = [qemu, "-M", machine, "-accel", "kvm", "-cpu", cpu, "-smp", str(a.smp), "-
 samples = []   # (t, size)
 stop = threading.Event()
 t0 = time.monotonic()
+
 def watch():
     last = -1
     while not stop.is_set():

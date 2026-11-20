@@ -1,16 +1,17 @@
 #!/bin/bash
 # Headless labwc test for the lock client's out-of-process frame source.
 #
-# Runs INSIDE a debian:forky container with: labwc, wtype, wlrctl, wayland-utils,
-# grim, python3 + python3-pil, and the three binaries built by build.sh, all
-# under /work. It drives a real labwc (WLR_BACKENDS=headless) and a real lock
-# client, and asserts on the lock's own stderr log and on real screen captures.
-# Restarts labwc per case so a lock left held never wedges the next case.
+# Runs INSIDE a debian:forky container with: labwc, wtype, wayland-utils, grim,
+# python3 + python3-pil, and the three binaries built by build.sh, all under
+# /work. It drives a real labwc (WLR_BACKENDS=headless) and a real lock client,
+# and asserts on the lock's own stderr log and on real screen captures. Restarts
+# labwc per case so a lock left held never wedges the next case.
 #
-# Cases 7-9 pin the idle-lock-over-saver contract: with the cursor over the
-# output BEFORE the lock starts, mapping the lock surface under a stationary
-# cursor must NOT raise the unlock prompt (a compositor pointer ENTER is not
-# user input); the prompt must be raised only by a real key/button/motion.
+# OWNED-PROCESS CONTRACT: each lock root is launched with setsid and a recorded
+# PID/starttime. The renderer starts a separate session intentionally. Shared
+# helpers discover verified descendants by PPID ancestry while the root is
+# intact, then retain PID/starttime records across reparenting. No broad name
+# matching or group assumption is used to discover or signal a renderer.
 set -u
 
 WORK="${WORK:-/work}"
@@ -32,7 +33,17 @@ export WLR_RENDERER=pixman WLR_NO_HARDWARE_CURSORS=1
 unset WAYLAND_DISPLAY
 
 LABWC_PID=""
-LOCK_PID=""
+LOCK_OWNED=()   # one entry per live lock launch: "PID:PGID:GENERATION"
+GEN=0
+
+# --- owned-process engine (single source of truth: owned-processes.sh) ---------
+# The engine lives in owned-processes.sh so the SAME functions are exercised by
+# the tracked unit tests/lockscreen-framesrc/test-owned-cleanup.sh; the harness
+# does not re-implement (copy) any of it.
+# shellcheck source=owned-processes.sh
+. "$(dirname "$0")/owned-processes.sh"
+trap 'stop_all' EXIT
+
 start_labwc() {
     rm -f "$RT"/wayland-* "$SOCK"
     labwc >"$WORK/tmp/labwc.log" 2>&1 &
@@ -44,44 +55,35 @@ start_labwc() {
     done
     echo "labwc did not create a wayland socket"; return 1
 }
-stop_all() {
-    [ -n "$LOCK_PID" ] && kill -9 "$LOCK_PID" 2>/dev/null
-    pkill -9 -f lock-framesrc-testsrc 2>/dev/null
-    [ -n "$LABWC_PID" ] && kill -9 "$LABWC_PID" 2>/dev/null
-    LOCK_PID=""; LABWC_PID=""
-    sleep 0.3
-}
-trap 'stop_all' EXIT
 
-start_lock() { # $1 = env value for SINGULARITY_LOCK_RENDERER (may be empty), $2 log, $3 delay ms
-    local cmd="$1" log="$2" delay="${3:-2500}"
-    : >"$log"; : >"${log}.lfs"
+# Launch an owned lock via setsid. $1=env renderer value, $2=log, $3=delay ms.
+# Launch an owned lock via setsid. $1=env renderer value, $2=log, $3=delay ms.
+# Records PID/PGID/generation; LOCK_PID mirrors the owned PID.
+start_lock() {
+    local cmd="$1" log="$2" delay="${3:-2500}" owner_nonce
+    owner_nonce=$(cat /proc/sys/kernel/random/uuid)
+    : >"$log"; : >"$log.lfs"
+    GEN=$((GEN+1))
+    NCZ_LOCK_TEST_OWNER="$owner_nonce" \
     SINGULARITY_LOCK_RENDERER="$cmd" \
     SINGULARITY_LOCK_RENDERER_SOCKET="$SOCK" \
     SINGULARITY_LOCK_RENDERER_LOG="${log}.lfs" \
     SINGULARITY_LOCK_RENDERER_DELAY_MS="$delay" \
-    "$LOCK" >>"$log" 2>&1 &
+    setsid "$LOCK" >>"$log" 2>&1 &
     LOCK_PID=$!
+    # setsid: leader PID == PGID. Record the leader's Linux start time so a
+    # reused PID cannot later qualify as our owned leader.
+    owned_add "$LOCK_PID" "$LOCK_PID" "$GEN" "$(starttime_of "$LOCK_PID")" "$owner_nonce"
 }
-wait_for() { # $1 file, $2 string, $3 seconds
-    for _ in $(seq 1 $(( ${3:-5} * 10 ))); do
-        have "$1" "$2" && return 0
-        sleep 0.1
-    done
+wait_for() { local f="$1" s="$2" secs="${3:-5}"
+    for _ in $(seq 1 $(( secs * 10 ))); do have "$f" "$s" && return 0; sleep 0.1; done
     return 1
 }
 frame_count() { grep -c "testsrc: frame seq=" "$1" 2>/dev/null || true; }
 alive() { kill -0 "$1" 2>/dev/null; }
 
-# Drive a virtual pointer through labwc's zwlr_virtual_pointer_manager_v1.
-# Placing the cursor BEFORE the lock maps the surface under a stationary
-# cursor, which is what a real host looks like; a later move is real input.
-ptr_move() { wlrctl pointer move "$1" "$2" >/dev/null 2>&1; }
-ptr_click() { wlrctl pointer click left >/dev/null 2>&1; }
-
-# Sample the corners of a screen capture and report whether the background is
-# anything but one flat colour. A live frame source paints a moving pattern; the
-# fail-closed prompt over no frames is a single flat fill.
+# Sample corners of a capture; exit 0 if the backdrop is anything but one flat
+# colour. A live/held saver paints a pattern; the fail-closed flat fill does not.
 backdrop_is_live() { # $1 = png
     python3 - "$1" <<'PY'
 import sys
@@ -106,16 +108,9 @@ if ! start_labwc; then echo "FATAL: no headless labwc"; exit 1; fi
 wayland-info 2>/dev/null | grep -o "ext_session_lock_manager_v1" | head -1 \
     && ok "labwc advertises ext_session_lock_manager_v1" \
     || bad "labwc does NOT advertise ext_session_lock_manager_v1"
-if command -v wlrctl >/dev/null 2>&1; then
-    wayland-info 2>/dev/null | grep -q "zwlr_virtual_pointer_manager_v1" \
-        && ok "labwc advertises zwlr_virtual_pointer_manager_v1 (pointer cases)" \
-        || echo "  SKIP: no virtual-pointer protocol; pointer cases will be skipped"
-else
-    echo "  SKIP: wlrctl not installed; pointer cases will be skipped"
-fi
 stop_all
 
-echo "== case 1: frames render; input raises the prompt over the live saver =="
+echo "== case 1: frames render; input raises the prompt and freezes the saver =="
 start_labwc || exit 1
 start_lock "$SRC --frames 400" "$WORK/tmp/c1.log" 4000
 if wait_for "$WORK/tmp/c1.log" "frame source accepted" 6; then ok "lock accepted the frame source"; else bad "lock did not accept the frame source"; fi
@@ -124,37 +119,50 @@ sleep 1
 f0=$(frame_count "$WORK/tmp/c1.log")
 if [ "${f0:-0}" -ge 3 ]; then ok "multiple frames streamed ($f0)"; else bad "too few frames ($f0)"; fi
 if alive "$LOCK_PID"; then ok "lock client alive while presenting"; else bad "lock client died"; fi
-# input: a key press must RAISE THE PROMPT while the saver keeps running. wtype
-# creates a transient virtual keyboard, so the first key can race the seat
-# gaining the keyboard capability; retry a few times.
+# A key press must RAISE THE PROMPT and FREEZE the saver at this frame (policy:
+# the saver never resumes while locked). wtype races the seat gaining the
+# keyboard capability, so retry a few times.
 for _ in 1 2 3 4 5; do
     wtype -d 300 -k a >/dev/null 2>&1
     have "$WORK/tmp/c1.log" "prompt raised over saver" && break
     sleep 0.3
 done
 if have "$WORK/tmp/c1.log" "prompt raised over saver"; then ok "input raised the prompt"; else bad "input did not raise the prompt"; fi
-if have "$WORK/tmp/c1.log" "frame source stopped"; then bad "input stopped the saver (prompt does not overlay)"; else ok "input did NOT stop the saver"; fi
-# The source must keep delivering frames behind the prompt.
+if wait_for "$WORK/tmp/c1.log" "frozen on demand" 4; then ok "input froze the saver at the current frame"; else bad "input did not freeze the saver"; fi
+if have "$WORK/tmp/c1.log" "frame source failed"; then bad "the freeze was treated as a fault"; else ok "the freeze was not treated as a fault"; fi
+# The saver must STOP rendering behind the prompt (freeze, not keep streaming).
 fa=$(frame_count "$WORK/tmp/c1.log"); sleep 1; fb=$(frame_count "$WORK/tmp/c1.log")
-if [ "${fb:-0}" -gt "${fa:-0}" ]; then ok "frames kept streaming behind the prompt ($fa -> $fb)"; else bad "frames stopped behind the prompt ($fa -> $fb)"; fi
-# Sample the real composited output: the backdrop under the prompt must be the
-# live saver, not the flat dark fill.
+if [ "${fb:-0}" -le "${fa:-0}" ]; then ok "saver stopped rendering after the freeze ($fa -> $fb)"; else bad "frames kept streaming behind the prompt ($fa -> $fb)"; fi
 if grim "$WORK/tmp/c1-prompt.png" >/dev/null 2>&1; then
-    if rng=$(backdrop_is_live "$WORK/tmp/c1-prompt.png"); then ok "prompt backdrop is not the flat fill ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
+    if rng=$(backdrop_is_live "$WORK/tmp/c1-prompt.png"); then ok "prompt backdrop is the held frame ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
 else
     bad "grim could not capture the locked screen"
 fi
 if alive "$LOCK_PID"; then ok "lock client alive after input"; else bad "lock died on input"; fi
-# After the prompt has been idle, the raw saver returns.
-if wait_for "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed" 8; then ok "prompt lowered and the saver resumed"; else bad "prompt did not lower"; fi
+# Once the prompt has been idle for the delay it lowers and the saver resumes: a
+# fresh source is started, frames stream, the lock stays held throughout.
+if wait_for "$WORK/tmp/c1.log" "frame source resumed (prompt lowered)" 8; then ok "prompt idle: the frozen saver was resumed"; else bad "the frozen saver was not resumed after the prompt lowered"; fi
+if wait_for "$WORK/tmp/c1.log" "prompt lowered; saver frames resumed" 4; then ok "prompt lowered over the resumed saver"; else bad "prompt did not lower"; fi
+fr0=$(frame_count "$WORK/tmp/c1.log")
+for _ in $(seq 1 40); do fr1=$(frame_count "$WORK/tmp/c1.log"); [ "${fr1:-0}" -gt $(( ${fr0:-0} + 3 )) ] && break; sleep 0.1; done
+if [ "${fr1:-0}" -gt $(( ${fr0:-0} + 3 )) ]; then ok "frames stream again after the resume ($fr0 -> $fr1)"; else bad "no new frames after the resume ($fr0 -> ${fr1:-0})"; fi
+if have "$WORK/tmp/c1.log" "cleared frames (fail-closed)"; then bad "the resume cleared the frame (fail-closed path)"; else ok "the resume did not clear the held frame"; fi
+if alive "$LOCK_PID"; then ok "lock client alive after the resume"; else bad "lock died on the resume"; fi
+# Input again freezes the resumed saver.
+for _ in 1 2 3 4 5; do
+    wtype -d 300 -k a >/dev/null 2>&1
+    [ "$(grep -c "frozen on demand" "$WORK/tmp/c1.log")" -ge 2 ] && break
+    sleep 0.3
+done
+if [ "$(grep -c "frozen on demand" "$WORK/tmp/c1.log")" -ge 2 ]; then ok "input froze the resumed saver again"; else bad "input did not freeze the resumed saver"; fi
 stop_all
 
 echo "== case 2: feed kill -9 => lock held and the prompt still works =="
 start_labwc || exit 1
 start_lock "$SRC --frames 400" "$WORK/tmp/c2.log" 3000
 wait_for "$WORK/tmp/c2.log" "frame source accepted" 6 || true
-testsrc_pid=$(pgrep -f "lock-framesrc-testsrc" | head -1)
-if [ -n "$testsrc_pid" ]; then kill -9 "$testsrc_pid"; ok "killed the frame source (-9)"; else bad "frame source pid not found"; fi
+testsrc_pid="$(owned_source_pid)"   # ONLY the owned group, exe-verified
+if [ -n "$testsrc_pid" ] && kill_owned_source "$testsrc_pid"; then ok "killed the owned frame source (-9)"; else bad "owned frame source pid not found"; fi
 if wait_for "$WORK/tmp/c2.log" "frame source failed" 4 || wait_for "$WORK/tmp/c2.log" "exited status" 2; then ok "lock noticed the dead frame source"; else bad "lock did not notice the dead source"; fi
 sleep 0.5
 if alive "$LOCK_PID"; then ok "lock client still alive after saver -9 (fail-closed)"; else bad "lock client died with the saver"; fi
@@ -192,89 +200,172 @@ stop_all
 echo "== case 6: default build is inert (no frame source) =="
 start_labwc || exit 1
 : >"$WORK/tmp/c6.log"
-"$LOCKOFF" >>"$WORK/tmp/c6.log" 2>&1 &
+GEN=$((GEN+1))
+setsid "$LOCKOFF" >>"$WORK/tmp/c6.log" 2>&1 &
 LOCK_PID=$!
+owned_add "$LOCK_PID" "$LOCK_PID" "$GEN" "$(starttime_of "$LOCK_PID")"
 if wait_for "$WORK/tmp/c6.log" "lock: configure" 6; then ok "default build locks as upstream"; else bad "default build did not lock"; fi
 if have "$WORK/tmp/c6.log" "framesrc" ; then bad "default build somehow used the frame source"; else ok "default build used no frame source"; fi
 stop_all
 
-# Cases 7-9 need the virtual-pointer protocol + wlrctl. Detect once.
-PTR_OK=0
-if command -v wlrctl >/dev/null 2>&1; then
-    start_labwc || exit 1
-    wayland-info 2>/dev/null | grep -q "zwlr_virtual_pointer_manager_v1" && PTR_OK=1
-    stop_all
-fi
-
-# Stage a lock with the cursor placed over the output BEFORE the lock starts,
-# and wait until the surface is accepted and frames are flowing. Echoes nothing;
-# leaves the lock running with the prompt NOT raised.
-stage_stationary_lock() { # $1 = log, $2 = delay ms
-    local log="$1" delay="${2:-4000}"
-    start_labwc || return 1
-    ptr_move 400 300; sleep 0.5     # cursor over the output before the lock
-    start_lock "$SRC --frames 400" "$log" "$delay"
-    wait_for "$log" "frame source accepted" 6 || true
-    wait_for "$log" "testsrc: frame seq=" 4 || true
-    sleep 2                          # a window with no user input at all
-}
-
-if [ "$PTR_OK" = 1 ]; then
-    echo "== case 7: stationary cursor at lock => NO prompt; a real MOVE raises it =="
-    if stage_stationary_lock "$WORK/tmp/c7.log"; then
-        if have "$WORK/tmp/c7.log" "prompt raised over saver"; then
-            bad "pointer ENTER/initial motion raised the prompt at lock time (no input)"
-        else
-            ok "stationary cursor at lock: no prompt before input"
-        fi
-        # a REAL pointer move must raise the prompt (pt_motion path)
-        ptr_move 720 520
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            have "$WORK/tmp/c7.log" "prompt raised over saver" && break; sleep 0.3
-        done
-        if have "$WORK/tmp/c7.log" "prompt raised over saver"; then ok "a real pointer move raised the prompt"; else bad "a real pointer move did NOT raise the prompt"; fi
-        if alive "$LOCK_PID"; then ok "lock client still alive after the move"; else bad "lock died on a pointer move"; fi
-    else
-        bad "case 7: could not stage the stationary-cursor lock"
-    fi
-    stop_all
-
-    echo "== case 8: stationary cursor at lock => NO prompt; a BUTTON raises it =="
-    if stage_stationary_lock "$WORK/tmp/c8.log"; then
-        if have "$WORK/tmp/c8.log" "prompt raised over saver"; then
-            bad "prompt raised with no input before the button"
-        else
-            ok "stationary cursor at lock: no prompt before the button"
-        fi
-        ptr_click
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            have "$WORK/tmp/c8.log" "prompt raised over saver" && break; sleep 0.3
-        done
-        if have "$WORK/tmp/c8.log" "prompt raised over saver"; then ok "a pointer button raised the prompt"; else bad "a pointer button did NOT raise the prompt"; fi
-    else
-        bad "case 8: could not stage the stationary-cursor lock"
-    fi
-    stop_all
-
-    echo "== case 9: stationary cursor at lock => NO prompt; a KEY raises it =="
-    if stage_stationary_lock "$WORK/tmp/c9.log"; then
-        if have "$WORK/tmp/c9.log" "prompt raised over saver"; then
-            bad "prompt raised with no input before the key"
-        else
-            ok "stationary cursor at lock: no prompt before the key"
-        fi
-        for _ in 1 2 3 4 5; do
-            wtype -d 300 -k a >/dev/null 2>&1
-            have "$WORK/tmp/c9.log" "prompt raised over saver" && break; sleep 0.3
-        done
-        if have "$WORK/tmp/c9.log" "prompt raised over saver"; then ok "a key press raised the prompt"; else bad "a key press did NOT raise the prompt"; fi
-    else
-        bad "case 9: could not stage the stationary-cursor lock"
-    fi
-    stop_all
+echo "== case 7: source HOLD => freeze; the lock keeps the last frame, then idles =="
+start_labwc || exit 1
+start_lock "$SRC --hold=4" "$WORK/tmp/c7.log" 3000
+wait_for "$WORK/tmp/c7.log" "frame source accepted" 6 || true
+wait_for "$WORK/tmp/c7.log" "testsrc: HOLD" 6 || true
+if wait_for "$WORK/tmp/c7.log" "frame source HOLD: keeping the last frame" 6; then ok "lock entered HOLD"; else bad "lock never entered HOLD"; fi
+sleep 1
+if owned_source_alive; then bad "source still rendering after HOLD"; else ok "source exited after HOLD (render work ended)"; fi
+if have "$WORK/tmp/c7.log" "frame source failed"; then bad "HOLD was treated as a fault"; else ok "HOLD was not treated as a fault"; fi
+if have "$WORK/tmp/c7.log" "frame source stopped"; then bad "the lock cleared the held frame"; else ok "the held frame was not cleared"; fi
+if have "$WORK/tmp/c7.log" "cleared frames (fail-closed)"; then bad "HOLD took the fail-closed clear path"; else ok "HOLD did not clear (freeze path)"; fi
+if alive "$LOCK_PID"; then ok "lock client alive after HOLD"; else bad "lock died on HOLD"; fi
+if grim "$WORK/tmp/c7-frozen.png" >/dev/null 2>&1; then
+    if rng=$(backdrop_is_live "$WORK/tmp/c7-frozen.png"); then ok "frozen backdrop is the held saver frame ($rng)"; else bad "frozen backdrop is the flat fill ($rng)"; fi
 else
-    echo "== cases 7-9: SKIPPED (no wlrctl / virtual-pointer protocol) =="
+    bad "grim could not capture the frozen screen"
 fi
+for _ in 1 2 3 4 5; do
+    wtype -d 300 -k a >/dev/null 2>&1
+    have "$WORK/tmp/c7.log" "prompt raised over saver" && break
+    sleep 0.3
+done
+if have "$WORK/tmp/c7.log" "prompt raised over saver"; then ok "input raised the prompt over the held frame"; else bad "input did not raise the prompt over the held frame"; fi
+if grim "$WORK/tmp/c7-prompt.png" >/dev/null 2>&1; then
+    if rng=$(backdrop_is_live "$WORK/tmp/c7-prompt.png"); then ok "prompt overlays the held frame ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
+else
+    bad "grim could not capture the frozen prompt"
+fi
+if alive "$LOCK_PID"; then ok "lock still held after input over a frozen frame"; else bad "lock died on input over a frozen frame"; fi
+stop_all
+
+echo "== case 8: crash WITHOUT HOLD => frame cleared (fail-closed flat) =="
+start_labwc || exit 1
+start_lock "$SRC --frames 400" "$WORK/tmp/c8.log" 3000
+wait_for "$WORK/tmp/c8.log" "frame source accepted" 6 || true
+wait_for "$WORK/tmp/c8.log" "testsrc: frame seq=" 4 || true
+testsrc_pid="$(owned_source_pid)"
+if [ -n "$testsrc_pid" ] && kill_owned_source "$testsrc_pid"; then ok "killed the owned frame source (-9)"; else bad "owned frame source pid not found"; fi
+if wait_for "$WORK/tmp/c8.log" "frame source failed" 4 || wait_for "$WORK/tmp/c8.log" "exited status" 2; then ok "lock noticed the dead frame source"; else bad "lock did not notice the dead source"; fi
+sleep 0.5
+if have "$WORK/tmp/c8.log" "frame source HOLD"; then bad "a crash produced a HOLD"; else ok "a crash did not produce a HOLD"; fi
+if have "$WORK/tmp/c8.log" "cleared frames (fail-closed)"; then ok "a crash cleared the frame (fail-closed)"; else bad "a crash did not clear the frame"; fi
+if alive "$LOCK_PID"; then ok "lock client alive after the crash (fail-closed)"; else bad "lock died on the crash"; fi
+stop_all
+
+echo "== case 9: input BEFORE the freeze timer => prompt over a held frame =="
+start_labwc || exit 1
+start_lock "$SRC --frames 400" "$WORK/tmp/c9.log" 3000
+wait_for "$WORK/tmp/c9.log" "frame source accepted" 6 || true
+wait_for "$WORK/tmp/c9.log" "testsrc: frame seq=" 4 || true
+src_before="$(owned_source_pid)"
+if [ -n "$src_before" ]; then ok "saver was streaming before input"; else bad "saver never produced a frame"; fi
+for _ in 1 2 3 4 5; do
+    wtype -d 300 -k a >/dev/null 2>&1
+    have "$WORK/tmp/c9.log" "prompt raised over saver" && break
+    sleep 0.3
+done
+if have "$WORK/tmp/c9.log" "prompt raised over saver"; then ok "input raised the prompt"; else bad "input did not raise the prompt"; fi
+if wait_for "$WORK/tmp/c9.log" "frozen on demand" 4; then ok "source frozen on demand (input before the timer)"; else bad "source not frozen on demand"; fi
+sleep 1
+if owned_source_alive; then bad "saver still rendering after the freeze"; else ok "saver stopped after the freeze"; fi
+if have "$WORK/tmp/c9.log" "frame source failed"; then bad "the freeze was treated as a fault"; else ok "the freeze was not treated as a fault"; fi
+if have "$WORK/tmp/c9.log" "cleared frames (fail-closed)"; then bad "the freeze cleared the frame"; else ok "the held frame was not cleared"; fi
+if alive "$LOCK_PID"; then ok "lock alive after the freeze"; else bad "lock died on the freeze"; fi
+if grim "$WORK/tmp/c9.png" >/dev/null 2>&1; then
+    if rng=$(backdrop_is_live "$WORK/tmp/c9.png"); then ok "prompt backdrop is the held frame ($rng)"; else bad "prompt backdrop is the flat fill ($rng)"; fi
+else
+    bad "grim could not capture the frozen prompt"
+fi
+stop_all
+
+echo "== case 10: two lock clients at once (second yields; first keeps its source) =="
+start_labwc || exit 1
+start_lock "$SRC --frames 200" "$WORK/tmp/c10a.log"
+first_pid="$(owned_pid)"; first_pgid="$(owned_pgid)"
+if wait_for "$WORK/tmp/c10a.log" "frame source accepted" 6; then ok "first lock accepted the frame source"; else bad "first lock did not accept the frame source"; fi
+# A second lock client starts against the SAME renderer socket while the first
+# owns it. It must yield instead of unlinking the live socket, and must not
+# disturb the first instance. Launched via setsid -> its OWN group, recorded.
+: >"$WORK/tmp/c10b.log"
+GEN=$((GEN+1))
+SINGULARITY_LOCK_RENDERER="$SRC --frames 200" \
+SINGULARITY_LOCK_RENDERER_SOCKET="$SOCK" \
+    setsid "$LOCK" >>"$WORK/tmp/c10b.log" 2>&1 &
+LOCK2_PID=$!
+owned_add "$LOCK2_PID" "$LOCK2_PID" "$GEN" "$(starttime_of "$LOCK2_PID")"
+if wait_for "$WORK/tmp/c10b.log" "another lock instance owns the renderer socket; yielding" 6; then
+    ok "second lock yielded instead of clobbering the socket"
+else
+    bad "second lock did not yield (see c10b.log)"
+fi
+sleep 1
+if [ -S "$SOCK" ]; then ok "renderer socket survived the second client"; else bad "renderer socket was removed by the second client"; fi
+if grep -q "testsrc: frame seq=" "$WORK/tmp/c10a.log"; then ok "first lock is still streaming after the race"; else bad "first lock stopped streaming"; fi
+if kill -0 "$first_pid" 2>/dev/null; then ok "first lock still alive"; else bad "first lock died"; fi
+# Cleanup covers BOTH exact owned groups (first + second), each by own PGID.
+kill -9 -- "-$first_pgid" 2>/dev/null
+kill -9 -- "-$LOCK2_PID" 2>/dev/null
+wait "$first_pid" 2>/dev/null
+wait "$LOCK2_PID" 2>/dev/null
+stop_all
+
+echo "== case 11: a source that dies after every handshake backs off exponentially =="
+start_labwc || exit 1
+start_lock "$SRC --gpu-error" "$WORK/tmp/c11.log"
+sleep 6
+n=$(grep -c "spawned frame source" "$WORK/tmp/c11.log" 2>/dev/null || true)
+if have "$WORK/tmp/c11.log" "backoff 1000ms"; then ok "backoff grows across handshakes"; else bad "backoff did not grow (see c11.log)"; fi
+if [ "${n:-0}" -le 7 ]; then ok "source respawned $n times in 6 s"; else bad "source respawned $n times in 6 s"; fi
+if alive "$LOCK_PID"; then ok "lock alive while backing off"; else bad "lock died while backing off"; fi
+stop_all
+
+echo "== case 12: no output => the source is not started =="
+WLR_HEADLESS_OUTPUTS=0 start_labwc || exit 1
+start_lock "$SRC --frames 200" "$WORK/tmp/c12.log"
+if wait_for "$WORK/tmp/c12.log" "[framesrc] enabled" 6; then
+    sleep 3
+    if have "$WORK/tmp/c12.log" "spawned frame source"; then bad "source spawned with no output (see c12.log)"; else ok "no source spawned without an output"; fi
+    if alive "$LOCK_PID"; then ok "lock alive with no output"; else bad "lock died with no output"; fi
+else
+    echo "  SKIP: the lock was not engaged without an output on this compositor"
+fi
+stop_all
+
+echo "== case 13: pause-capable saver: input suspends it, prompt timeout resumes it =="
+start_labwc || exit 1
+start_lock "$SRC --frames 600 --pause-ok" "$WORK/tmp/c13.log" 4000
+wait_for "$WORK/tmp/c13.log" "frame source accepted" 6 || true
+wait_for "$WORK/tmp/c13.log" "testsrc: frame seq=3" 6 || true
+src13="$(owned_source_pid)"
+for _ in 1 2 3 4 5; do
+    wtype -d 300 -k a >/dev/null 2>&1
+    have "$WORK/tmp/c13.log" "prompt raised over saver" && break
+    sleep 0.3
+done
+if wait_for "$WORK/tmp/c13.log" "frame source paused (prompt up; renderer suspended)" 4; then ok "input paused the saver (no freeze/kill)"; else bad "input did not pause the saver"; fi
+if wait_for "$WORK/tmp/c13.log" "testsrc: PAUSE" 3; then ok "the source received PAUSE"; else bad "the source never saw PAUSE"; fi
+fa=$(frame_count "$WORK/tmp/c13.log"); sleep 2; fb=$(frame_count "$WORK/tmp/c13.log")
+if [ "$fb" -le $(( fa + 1 )) ]; then ok "no frames while paused ($fa -> $fb)"; else bad "frames kept coming while paused ($fa -> $fb)"; fi
+if have "$WORK/tmp/c13.log" "frame source frozen on demand"; then bad "a pause-capable saver was frozen/ended"; else ok "the saver was not ended"; fi
+if wait_for "$WORK/tmp/c13.log" "frame source resumed (renderer continues)" 8; then ok "prompt timeout resumed the same saver"; else bad "the saver was not resumed"; fi
+if wait_for "$WORK/tmp/c13.log" "(suspended saver continues)" 3; then ok "prompt lowered over the continuing saver"; else bad "prompt did not lower"; fi
+for _ in $(seq 1 40); do fc=$(frame_count "$WORK/tmp/c13.log"); [ "$fc" -gt $(( fb + 3 )) ] && break; sleep 0.1; done
+if [ "$fc" -gt $(( fb + 3 )) ]; then ok "frames stream again after RESUME ($fb -> $fc)"; else bad "no frames after RESUME ($fb -> $fc)"; fi
+src13b="$(owned_source_pid)"
+if [ -n "$src13" ] && [ "$src13" = "$src13b" ] && [ "$(grep -c "spawned frame source" "$WORK/tmp/c13.log")" = 1 ]; then ok "same source process continued (no respawn)"; else bad "the source was respawned ($src13 -> $src13b)"; fi
+if alive "$LOCK_PID"; then ok "lock still held after the resume"; else bad "lock died"; fi
+stop_all
+
+echo "== case 14: the prompt timeout is at most 60 s =="
+start_labwc || exit 1
+start_lock "$SRC --frames 100 --pause-ok" "$WORK/tmp/c14.log" 120000
+if wait_for "$WORK/tmp/c14.log" "lock: prompt timeout 60000 ms" 6; then ok "a requested 120 s timeout is clamped to 60 s"; else bad "prompt timeout not clamped ($(grep -a 'prompt timeout' "$WORK/tmp/c14.log"))"; fi
+stop_all
+start_labwc || exit 1
+start_lock "$SRC --frames 100 --pause-ok" "$WORK/tmp/c14b.log" 3000
+if wait_for "$WORK/tmp/c14b.log" "lock: prompt timeout 3000 ms" 6; then ok "a shorter timeout is kept"; else bad "a shorter timeout was not kept"; fi
+stop_all
 
 echo ""
 echo "== RESULT: $PASS passed, $FAIL failed =="

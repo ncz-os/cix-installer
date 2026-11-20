@@ -26,5 +26,47 @@
 # PrepareForSleep), 0023 (saver resumes when the prompt lowers), leafs 0001
 # (window buttons with the classic titlebar) and nearby 0001+0002 (links are
 # freed when they close; an open link is kept when the peer announces itself).
-amd64	1f2564d3d125ad1c8e2dc0ffbe64bc83b18eaa6ea6aafe5fc50b093dc37a8e1a	ncz-singularity-desktop_20261013233000+bk0+tgzef364e5b_amd64.deb
-arm64	4d16a21f024ca74bb9e40ab74251f37a0591d7d55078548948108d4bc8715e31	ncz-singularity-desktop_20261013233000+bk0+tgz03b581f4_arm64.deb
+# 2026-11-06: the arm64 row is a LOCAL build from superproject 6427e9c with the
+# full downstream queue applied (shell 13, loginui 3, greeter 3, nearby 1,
+# plugins 3, desktop 0) - version 20261106140923+bk0+git6427e9c4, built on a build host
+# by build/build-singularity.sh + build-singularity-deb.sh (PAYLOAD_RC=0,
+# 10235/10235 targets, 0 failures).
+# 2026-11-06 (arm64, cycle 454): rebuilt on a build host from the same superproject 6427e9c4
+# (10236/10236 targets, 0 failures, ELF machine 0xb7); the earlier 20261106151728 row
+# named an artifact that existed in no store, which is why it was rebuilt.
+# 2026-11-06 (later): the amd64 row is now a LOCAL build of the SAME superproject
+# commit 6427e9c4, on a build host (docker 29.9.3, debian:forky amd64, native, no
+# emulation): 10236/10236 targets, 0 failures, ELF machine 0x3e, acceptance gate
+# build/check-payload-ships-patches.sh rc=0, version
+# 20261106212410+bk0+git6427e9c4. Both rows now describe the same upstream source,
+# so the earlier deliberate skew is CLOSED.
+# 2026-11-09 (cycle 272): a build host desktop layer build rebuilt the payload from
+# the SAME pinned sources (84 pins, native ninja 10236/10236) as version
+# 20261109175812+bk0+tgzaaf1065d; its supersede logic pruned the reviewed
+# 20261106212410 deb from assets/cix-debs and the vendor mirror, and the
+# rebuilt payload could NOT simply replace it: the 0.3.26 screensaver plugin's
+# ABI lock (post-install/lib/ncz-screensavers-plugin.lock) pins libsingularity
+# sha256 for BOTH arches to the reviewed build, so a rebuilt (byte-different)
+# payload breaks check-ssplugin-abi.sh at the image stage.
+# 2026-11-09 (cycle 273): RECOVERY -- the reviewed deb was found intact in the
+# artifact store (ncz-singularity-debs/payload-20261106222540/amd64/, sha256
+# verified against this pin) and restored to assets/cix-debs; the unreviewed
+# 20261109175812 rebuild is discarded. This row is reverted to the reviewed
+# bytes so the payload/plugin/ABI trio matches the published payload
+# (20261108-9937de3c). Keep this pin until the plugin is rebuilt against a
+# new payload with a matching lock update.
+# 2026-11-18 (r2d): both rows are LOCAL builds of fork superproject ef5078c (upstream singularity-desktop main 0c4f262c, 81 submodules at their latest
+# heads, loginui at main) with the ported NCZ queue in assets/singularity/patches (35 patches, img/r2d-20261118): amd64 on a build host, arm64 on a build host,
+# built by build/build-singularity.sh + build-singularity-deb.sh (all targets, 0 failures; shader gate OK). The debs and their sidecars are in the
+# artifact store ncz-singularity-debs/payload-20261118125446/amd64 and payload-20261118125655/arm64. The screensaver plugin is rebuilt against
+# these (post-install/lib/ncz-screensavers-plugin.lock).
+# 2026-11-18 (later): REBUILT with the Zig system core on the baseline CPU (libsingularity zig-cpu=baseline). The first r2d payloads were built for the
+# build host CPU (AVX-512 on a build host) and the shell died with an illegal instruction on Intel hosts. The rebuild is from the committed pins; libsingularity
+# is byte-identical to the first build, only libsinty-system-core.so differs (0 AVX-512 instructions).
+# 2026-11-18 (r2f): REBUILT with singularity-shell queue patch 0026 (IdleManager.rearm restores the screens before re-arming the idle watches; a settings change
+# while the screens were dimmed or blanked left the backlight at the dim level and the display off, and the dimmed level survived reboots). Same pinned sources
+# and baseline Zig CPU as the 20261118125446/20261118125655 rebuild; libsingularity is byte-identical (amd64 646fc6a6, arm64 2d236dea), so the screensaver plugin
+# 0.3.27 and its lock stay valid. Built on a build host (amd64) and a build host (arm64) from cix-installer img/r2f-20261118; the debs and sidecars are in the artifact store
+# ncz-singularity-debs/payload-20261118204624/amd64 and payload-20261118205017/arm64. Verified on a test machine (dim then settings change restores the backlight).
+amd64	f4afbdcd1c3d5ab62fa2f5c3cff53caecc96ec44fa69cd5ca88cf6d665a1c2f8	ncz-singularity-desktop_20261118204624+bk0+tgz9d20ea30_amd64.deb
+arm64	60fd748a4ed49cba3963f3fd48945fc7860bb7ada007e65eaf6947c32a2a7acc	ncz-singularity-desktop_20261118205017+bk0+tgz226d23be_arm64.deb

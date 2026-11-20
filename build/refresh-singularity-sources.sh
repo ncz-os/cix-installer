@@ -87,9 +87,18 @@ else
     printf '# this run and recorded (with the deb sha256) in the build receipt.  NOT committed\n'
     printf '# implicitly: a deliberate bump is reviewed, check-patched, rebuilt, then committed.\n'
     printf '# Columns: path<TAB>url<TAB>branch<TAB>sha (see assets/singularity/upstream-pins.tsv)\n'
-    cat "$tmp"
+    # Merge the resolved heads OVER the tree pins instead of replacing them:
+    # propose only emits rows it can resolve from tracked branches; the '-'
+    # rows (no tracked branch: the superproject gitlink is authoritative) are
+    # mandatory coverage for validate and must be carried through from $PINS.
+    awk -F'\t' '
+      NR==FNR { if ($0 !~ /^[#[:space:]]*$/ && NF) { o[$1]=$0; n++; ord[n]=$1 } ; next }
+      /^[#[:space:]]*$/ { print; next }
+      { if ($1 in o) { print o[$1]; seen[$1]=1 } else print }
+      END { for (i=1;i<=n;i++) if (!(ord[i] in seen)) print o[ord[i]] }
+    ' "$tmp" "$PINS"
   } > "$UP"
-  echo "[sources] latest: froze $(grep -vcE '^[#[:space:]]*$' "$tmp") rows into $(basename "$UP")"
+  echo "[sources] latest: froze $(grep -vcE '^[#[:space:]]*$' "$tmp") resolved heads over $(grep -vcE '^[#[:space:]]*$' "$PINS") pins into $(basename "$UP")"
   rm -f "$tmp"; trap - EXIT
 fi
 

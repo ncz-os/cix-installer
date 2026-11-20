@@ -322,17 +322,28 @@ mkdir -p "$REPOROOT/docs/screenshots/26.10"
 head -c 700 /dev/urandom > "$REPOROOT/docs/screenshots/26.10/01-desktop.png"
 head -c 500 /dev/urandom > "$REPOROOT/docs/screenshots/26.10/02-lock.png"
 TAG=v26.10-preview2
-AMD=ncz-os-amd64-20261014-abcdef12; ARM=ncz-os-arm64-20261014-abcdef12
-mkparts() { ( cd "$1/$2" && for p in ncz-os-"$2"-*.part-*; do printf '%s  %s\n' "$(sha "$p")" "$p"; done > "PARTS-$2.sha256" ); }
-mkrel() { # $1 dir: amd64 (1 part) + arm64 (2 parts) + common files
-  local d=$1; mkdir -p "$d/amd64" "$d/arm64"
+AMD=ncz-os-amd64-20261014-abcdef12-desktop; ARM=ncz-os-arm64-20261014-abcdef12-desktop
+mkparts() {
+  ( cd "$1/$2" && for p in ncz-os-"$2"-*-"$3".img.zst.part-*; do
+      printf '%s  %s\n' "$(sha "$p")" "$p"
+    done > "PARTS-$2-$3.sha256" )
+}
+mkrel() {
+  local d=$1 arch flavor image
+  mkdir -p "$d/amd64" "$d/arm64"
   head -c 2000 /dev/urandom > "$d/amd64/$AMD.img.zst.part-00"
   head -c 3000 /dev/urandom > "$d/arm64/$ARM.img.zst.part-00"
   head -c 1000 /dev/urandom > "$d/arm64/$ARM.img.zst.part-01"
-  mkparts "$d" amd64; mkparts "$d" arm64
-  local ha hb; ha=$(sha_str b); hb=$(sha_str a)
-  printf '%s  %s\n' "$ha" "$AMD.img" > "$d/amd64/SHA256SUMS-amd64"
-  printf '%s  %s\n' "$hb" "$ARM.img" > "$d/arm64/SHA256SUMS-arm64"
+  for arch in amd64 arm64; do
+    head -c 400 /dev/urandom > "$d/$arch/ncz-os-$arch-20261014-abcdef12-server.img.zst.part-00"
+    for flavor in desktop server; do
+      image=ncz-os-$arch-20261014-abcdef12-$flavor.img
+      mkparts "$d" "$arch" "$flavor"
+      printf '%s  %s\n' "$(sha_str "$image")" "$image" \
+        "$(sha_str "$image.zst")" "$image.zst" > "$d/$arch/SHA256SUMS-$arch-$flavor"
+    done
+    cat "$d/$arch/SHA256SUMS-$arch-desktop" "$d/$arch/SHA256SUMS-$arch-server" > "$d/$arch/SHA256SUMS-$arch"
+  done
   cat "$d/amd64/SHA256SUMS-amd64" "$d/arm64/SHA256SUMS-arm64" > "$d/SHA256SUMS"
   cp "$ROOT/tools/ncz-join-image.sh" "$d/"
   printf 'NCZ-OS 26.10 Cygnus — Preview 2\n' > "$d/TITLE"
@@ -349,21 +360,37 @@ mkrel() { # $1 dir: amd64 (1 part) + arm64 (2 parts) + common files
 
 ## amd64: Intel/AMD PCs and Apple T2 Macs
 
+### Desktop
+
 | Image | sha256 of the .img |
 |---|---|
-| \`$AMD\` | \`$ha\` |
+| \`$AMD\` | \`$(sha_str "$AMD.img")\` |
 
-Download the amd64 files and run \`sh ncz-join-image.sh amd64\`.
+Download the amd64 files and run \`sh ncz-join-image.sh amd64 desktop\`.
+
+### Server
+
+$(sha_str "${AMD%-desktop}-server.img")
+
+Run \`sh ncz-join-image.sh amd64 server\`.
 
 ## arm64: CIX Sky1
 
+### Desktop
+
 | Image | sha256 of the .img |
 |---|---|
-| \`$ARM\` | \`$hb\` |
+| \`$ARM\` | \`$(sha_str "$ARM.img")\` |
 
-Download the arm64 files and run \`sh ncz-join-image.sh arm64\`; the first part is
-[arm64/ncz-os-arm64.img.zst.part-00](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64.img.zst.part-00),
-its list [PARTS-arm64.sha256](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/PARTS-arm64.sha256).
+Download the arm64 files and run \`sh ncz-join-image.sh arm64 desktop\`; the first part is
+[arm64/ncz-os-arm64-desktop.img.zst.part-00](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64-desktop.img.zst.part-00),
+its list [PARTS-arm64-desktop.sha256](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/PARTS-arm64-desktop.sha256).
+
+### Server
+
+$(sha_str "${ARM%-desktop}-server.img")
+
+Run \`sh ncz-join-image.sh arm64 server\`.
 
 ## Source
 
@@ -374,9 +401,12 @@ Source: [$TAG](https://gitlab.test/ncz-os/cix-installer/-/tree/$TAG), see
 EOF
 }
 REL="$T/rel"; mkrel "$REL"
-NFILES=10      # GitHub assets = GitLab links
-NGLUPLOADS=12  # GitLab package files: the links' files + a join script copy per architecture package
-CANON="$AMD.img.zst.part-00 PARTS-amd64.sha256 SHA256SUMS-amd64 $ARM.img.zst.part-00 $ARM.img.zst.part-01 PARTS-arm64.sha256 SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS NOTES.md"
+NFILES=18      # GitHub assets = GitLab links
+NGLUPLOADS=20  # GitLab package files: the links' files + a join script copy per architecture package
+CANON="$AMD.img.zst.part-00 PARTS-amd64-desktop.sha256 SHA256SUMS-amd64-desktop ${AMD%-desktop}-server.img.zst.part-00 PARTS-amd64-server.sha256 SHA256SUMS-amd64-server SHA256SUMS-amd64 $ARM.img.zst.part-00 $ARM.img.zst.part-01 PARTS-arm64-desktop.sha256 SHA256SUMS-arm64-desktop ${ARM%-desktop}-server.img.zst.part-00 PARTS-arm64-server.sha256 SHA256SUMS-arm64-server SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS NOTES.md"
+GL_CANON=$(for name in $CANON; do
+  case "$name" in *-amd64*) echo "amd64/$name" ;; *-arm64*) echo "arm64/$name" ;; *) echo "$name" ;; esac
+done | paste -sd ' ')
 reset_state() { # the situation before the cutover: Preview 1 on GitHub, old releases on both
   local pv1="$T/pv1"; mkdir -p "$pv1"; printf 'old sums\n' > "$pv1/SHA256SUMS"
   local s; s=$(sha "$pv1/SHA256SUMS"); cp "$pv1/SHA256SUMS" "$MOCK_BLOBS/$s"
@@ -451,12 +481,12 @@ for case in shot link relimg pre sections layout badpart; do
     pre) echo no > "$D/PRERELEASE" ;;
     sections) sedi 's/^## arm64: CIX Sky1$/## Sky1/' "$D/NOTES.md" ;;
     layout) mv "$D/amd64/$AMD.img.zst.part-00" "$D/" ;;
-    badpart) echo "[p](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64.img.zst.part-07)" >> "$D/NOTES.md" ;;
+    badpart) echo "[p](https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads/arm64/ncz-os-arm64-desktop.img.zst.part-07)" >> "$D/NOTES.md" ;;
   esac
   reset_state
   out=$(bash "$SYNC" --dir "$D" --tag "$TAG" --apply "${gated[@]}" 2>&1); rc=$?
   if [ "$case" = badpart ]; then
-    check "refused input ($case) exits 2 with no change" '[ "$rc" -eq 2 ] && [ "$(mutations)" -eq 0 ] && grep -q "ncz-os-arm64.img.zst.part-07" <<<"$out"' || echo "$out"
+    check "refused input ($case) exits 2 with no change" '[ "$rc" -eq 2 ] && [ "$(mutations)" -eq 0 ] && grep -q "ncz-os-arm64-desktop.img.zst.part-07" <<<"$out"' || echo "$out"
   else
     check "refused input ($case) exits 2 with no request" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ]' || echo "$out"
   fi
@@ -484,10 +514,10 @@ check "one GitLab release left: $TAG" '[ "$(st ".gl.releases | keys | join(\",\"
 check "tags kept on both forges" '[ "$(st ".gh.tags | length")" -eq 4 ] && [ "$(st ".gl.tags | length")" -eq 4 ]'
 check "no tag created" '[ "$(st ".gh.tags_created // [] | length")" -eq 0 ]'
 check "GitHub assets in canonical order (amd64, arm64, common)" '[ "$(st "[.gh.releases[0].assets | sort_by(.id)[].name] | join(\" \")")" = "$CANON" ]'
-check "GitLab links in the same order, in arch folders" '[ "$(st "[.gl.releases[\"$TAG\"].links[].name] | join(\" \")")" = "amd64/$AMD.img.zst.part-00 amd64/PARTS-amd64.sha256 amd64/SHA256SUMS-amd64 arm64/$ARM.img.zst.part-00 arm64/$ARM.img.zst.part-01 arm64/PARTS-arm64.sha256 arm64/SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS NOTES.md" ]'
-check "GitLab part link has stable folder path" '[ "$(st ".gl.releases[\"$TAG\"].links[] | select(.name==\"arm64/$ARM.img.zst.part-01\") | .direct_asset_path")" = /arm64/ncz-os-arm64.img.zst.part-01 ]'
+check "GitLab links in the same order, in arch folders" '[ "$(st "[.gl.releases[\"$TAG\"].links[].name] | join(\" \")")" = "$GL_CANON" ]'
+check "GitLab part link has stable folder path" '[ "$(st ".gl.releases[\"$TAG\"].links[] | select(.name==\"arm64/$ARM.img.zst.part-01\") | .direct_asset_path")" = /arm64/ncz-os-arm64-desktop.img.zst.part-01 ]'
 check "GitLab packages per architecture + common" '[ "$(st "[.gl.packages[] | select(.name | startswith(\"ncz-os-image\")) | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-arm64,ncz-os-image-common" ]'
-check "GitHub body uses GitHub link forms" '[ "$(st ".gh.releases[0].body" | grep -c "https://raw.github.test/ncz-os/cix-installer/main/docs/screenshots")" -eq 2 ] && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases/download/$TAG/SHA256SUMS" && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases)" && st ".gh.releases[0].body" | grep >/dev/null "releases/download/$TAG/$ARM.img.zst.part-00)" && st ".gh.releases[0].body" | grep >/dev/null "releases/download/$TAG/PARTS-arm64.sha256)" && ! st ".gh.releases[0].body" | grep >/dev/null "releases/latest"'
+check "GitHub body uses GitHub link forms" '[ "$(st ".gh.releases[0].body" | grep -c "https://raw.github.test/ncz-os/cix-installer/main/docs/screenshots")" -eq 2 ] && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases/download/$TAG/SHA256SUMS" && st ".gh.releases[0].body" | grep >/dev/null "https://github.test/ncz-os/cix-installer/releases)" && st ".gh.releases[0].body" | grep >/dev/null "releases/download/$TAG/$ARM.img.zst.part-00)" && st ".gh.releases[0].body" | grep >/dev/null "releases/download/$TAG/PARTS-arm64-desktop.sha256)" && ! st ".gh.releases[0].body" | grep >/dev/null "releases/latest"'
 check "GitLab body is NOTES.md as staged" '[ "$(st ".gl.releases[\"$TAG\"].description")" = "$(cat "$REL/NOTES.md")" ]'
 check "GitHub release is a pre-release" '[ "$(st ".gh.releases[0].prerelease")" = true ]'
 check "release lists read back after retiring" 'grep -q "GitHub lists 1 release(s) ($TAG, prerelease=yes); GitLab release $TAG exists and is not upcoming" <<<"$out"'
@@ -529,8 +559,8 @@ mism title "$GHR.name = \"other\"" "DIFF  title: GitHub 'other'"
 mism body "$GHR.body += \"\nextra line\n\"" "notes body differs"
 mism body-diff-line "$GHR.body += \"\nextra line\n\"" "+extra line\|-extra line"
 mism asset-missing "$GHR.assets |= map(select(.name != \"SHA256SUMS\"))" "asset names differ"
-mism size "$GHR.assets |= map(if .name == \"ncz-os-amd64-20261014-abcdef12.img.zst.part-00\" then .size = 1 else . end)" "size of ncz-os-amd64-20261014-abcdef12.img.zst.part-00"
-mism sha "$GHR.assets |= map(if .name == \"ncz-os-arm64-20261014-abcdef12.img.zst.part-00\" then .digest = \"sha256:$(printf '1%.0s' {1..64})\" else . end)" "sha256 of ncz-os-arm64-20261014-abcdef12.img.zst.part-00"
+mism size "$GHR.assets |= map(if .name == \"ncz-os-amd64-20261014-abcdef12-desktop.img.zst.part-00\" then .size = 1 else . end)" "size of ncz-os-amd64-20261014-abcdef12-desktop.img.zst.part-00"
+mism sha "$GHR.assets |= map(if .name == \"ncz-os-arm64-20261014-abcdef12-desktop.img.zst.part-00\" then .digest = \"sha256:$(printf '1%.0s' {1..64})\" else . end)" "sha256 of ncz-os-arm64-20261014-abcdef12-desktop.img.zst.part-00"
 mism extra-gh-list ".gh.releases += [{\"id\": 98, \"tag_name\": \"v2026.08.27-v14\", \"name\": \"old\", \"body\": \"\", \"draft\": false, \"prerelease\": false, \"created_at\": \"2026-08-27T23:18:14Z\", \"assets\": []}]" "GitHub releases page lists 2 releases; it must list only $TAG"
 mism extra-gh-release ".gh.releases += [{\"id\": 99, \"tag_name\": \"v26.10-preview1\", \"name\": \"P1\", \"body\": \"\", \"draft\": false, \"prerelease\": true, \"created_at\": \"2026-08-27T23:40:38Z\", \"assets\": []}]" "github has another release: v26.10-preview1"
 mism extra-gl-release ".gl.releases[\"v2026.08.18-v12\"] = {\"name\": \"old\", \"description\": \"\", \"released_at\": \"2026-08-18T04:37:42Z\", \"links\": []}" "gitlab has another release: v2026.08.18-v12"
@@ -541,14 +571,14 @@ mism other-tag-link "$GHR.body += \"\n[old](https://github.test/ncz-os/cix-insta
 mism gh-latest-link "$GHR.body += \"\n[latest](https://github.test/ncz-os/cix-installer/releases/latest)\n\"" "GitHub /releases/latest never reaches a pre-release"
 mism draft "$GHR.draft = true" "GitHub release is a draft"
 mism gl-latest ".gl.releases[\"$TAG\"].upcoming = true" "GitLab releases/permalink/latest -> 'none'"
-mism direct-path ".gl.releases[\"$TAG\"].links |= map(if .name == \"arm64/$ARM.img.zst.part-00\" then .direct_asset_path = \"/$ARM.img.zst.part-00\" else . end)" "expected stable alias '/arm64/ncz-os-arm64.img.zst.part-00'"
+mism direct-path ".gl.releases[\"$TAG\"].links |= map(if .name == \"arm64/$ARM.img.zst.part-00\" then .direct_asset_path = \"/$ARM.img.zst.part-00\" else . end)" "expected stable alias '/arm64/ncz-os-arm64-desktop.img.zst.part-00'"
 mism gh-order "$GHR.assets |= map(if (.name | startswith(\"ncz-os-amd64\")) then .id += 100000 else . end)" "github files are not in the canonical order"
-mism gl-noprefix ".gl.releases[\"$TAG\"].links |= map(if .name == \"arm64/PARTS-arm64.sha256\" then .name = \"PARTS-arm64.sha256\" else . end)" "expected the name 'arm64/PARTS-arm64.sha256'"
+mism gl-noprefix ".gl.releases[\"$TAG\"].links |= map(if .name == \"arm64/PARTS-arm64-desktop.sha256\" then .name = \"PARTS-arm64-desktop.sha256\" else . end)" "expected the name 'arm64/PARTS-arm64-desktop.sha256'"
 mism gl-linktype ".gl.releases[\"$TAG\"].links |= map(if .name == \"amd64/SHA256SUMS-amd64\" then .link_type = \"other\" else . end)" "link type 'other', expected package"
 mism gl-package ".gl.releases[\"$TAG\"].links |= map(if .name == \"amd64/$AMD.img.zst.part-00\" then .url |= sub(\"ncz-os-image-amd64\"; \"ncz-os-image-common\") else . end)" "points into package 'ncz-os-image-common', expected ncz-os-image-amd64"
 mism unexpected "$GHR.assets += [{\"id\": 999999, \"name\": \"PARTS.sha256\", \"size\": 1, \"digest\": null, \"sha\": \"0\"}]" "unexpected file on a release page: PARTS.sha256"
 mism section-missing "$GHR.body |= sub(\"## arm64: CIX Sky1\"; \"## Sky1\")" "the notes have no section heading naming arm64"
-mism join-missing "$GHR.body |= sub(\"sh ncz-join-image.sh amd64\"; \"sh join amd64\")" "the amd64 section of the notes is missing: the 'ncz-join-image.sh amd64' command"
+mism join-missing "$GHR.body |= sub(\"sh ncz-join-image.sh amd64\"; \"sh join amd64\")" "the amd64 section of the notes is missing: the 'ncz-join-image.sh amd64 desktop' command"
 mism foreign-link ".gl.releases[\"$TAG\"].links |= map(if .name == \"ncz-join-image.sh\" then .url = \"https://elsewhere.test/x\" else . end)" "does not point at this project's generic package registry"
 # small file served with other bytes on GitHub than its digest claims: the byte check catches it
 printf 'tampered\n' > "$T/tampered"; badblob=$(sha "$T/tampered"); cp "$T/tampered" "$MOCK_BLOBS/$badblob"
@@ -557,7 +587,7 @@ both_serve() { # file -> jq filter serving the tampered blob for it on both forg
   printf '%s' "$GHR.assets |= map(if .name == \"$1\" then .serve = \"$badblob\" else . end) | .gl.packages |= map(.files |= map(if .file_name == \"$1\" then .serve = \"$badblob\" else . end))"
 }
 mism sums-concat "$(both_serve SHA256SUMS)" "SHA256SUMS is not SHA256SUMS-amd64 SHA256SUMS-arm64 in that order"
-mism parts-list "$(both_serve PARTS-arm64.sha256)" "PARTS-arm64.sha256 does not list exactly the arm64 parts on the page"
+mism parts-list "$(both_serve PARTS-arm64-desktop.sha256)" "PARTS-arm64-desktop.sha256 does not list exactly the arm64-desktop parts on the page"
 jq '.raw_override = {"gl:docs/screenshots/26.10/02-lock.png": "404"}' "$T/good.json" > "$T/g2.json"
 mism shot-404 '.raw_override = {"gl:docs/screenshots/26.10/02-lock.png": "404"}' "02-lock.png answers HTTP 404"
 mism shot-corrupt '.raw_override = {"gh:docs/screenshots/26.10/01-desktop.png": "corrupt"}' "does not match docs/screenshots/26.10/01-desktop.png"
@@ -567,7 +597,7 @@ jq '.' "$T/good.json" > "$MOCK_STATE"
 out=$(bash "$CHECK" --tag v26.10-preview1 "${CK[@]}" 2>&1); rc=$?
 check "tag that is not the single release fails" '[ "$rc" -eq 1 ] && grep -q "github has no release for v26.10-preview1" <<<"$out" && grep -q "github has another release: $TAG" <<<"$out"'
 # quick mode: size still compared, sha not
-jq "$GHR.assets |= map(if .name == \"ncz-os-arm64-20261014-abcdef12.img.zst.part-00\" then .digest = \"sha256:$(printf '2%.0s' {1..64})\" else . end)" "$T/good.json" > "$MOCK_STATE"
+jq "$GHR.assets |= map(if .name == \"ncz-os-arm64-20261014-abcdef12-desktop.img.zst.part-00\" then .digest = \"sha256:$(printf '2%.0s' {1..64})\" else . end)" "$T/good.json" > "$MOCK_STATE"
 bash "$CHECK" --tag "$TAG" --quick "${CK[@]}" >/dev/null 2>&1; rc=$?
 check "quick mode ignores sha256" '[ "$rc" -eq 0 ]'
 # staged folder differs from pages
@@ -582,11 +612,11 @@ check "staged folder not in the layout fails" '[ "$rc" -eq 1 ] && grep -q "does 
 # 9. sync replaces a changed file and keeps canonical order
 cp "$T/good.json" "$MOCK_STATE"; : > "$MOCK_LOG"
 D="$T/rel2"; rm -rf "$D"; cp -r "$REL" "$D"
-head -c 1200 /dev/urandom > "$D/arm64/$ARM.img.zst.part-01"; mkparts "$D" arm64
+head -c 1200 /dev/urandom > "$D/arm64/$ARM.img.zst.part-01"; mkparts "$D" arm64 desktop
 out=$(bash "$SYNC" --dir "$D" --tag "$TAG" --apply "${gated[@]}" 2>&1); rc=$?
 check "changed-file sync exits 0" '[ "$rc" -eq 0 ]' || echo "$out"
-check "unchanged leading file not re-uploaded" '! grep -q "^POST https://uploads.*name=ncz-os-arm64-20261014-abcdef12.img.zst.part-00 " "$MOCK_LOG"'
-check "changed file and later files re-uploaded" 'grep -q "^POST https://uploads.*name=ncz-os-arm64-20261014-abcdef12.img.zst.part-01 " "$MOCK_LOG" && grep -q "^POST https://uploads.*name=NOTES.md " "$MOCK_LOG"'
+check "unchanged leading file not re-uploaded" '! grep -q "^POST https://uploads.*name=ncz-os-arm64-20261014-abcdef12-desktop.img.zst.part-00 " "$MOCK_LOG"'
+check "changed file and later files re-uploaded" 'grep -q "^POST https://uploads.*name=ncz-os-arm64-20261014-abcdef12-desktop.img.zst.part-01 " "$MOCK_LOG" && grep -q "^POST https://uploads.*name=NOTES.md " "$MOCK_LOG"'
 check "amd64 group not re-uploaded" '! grep -qE "^POST https://uploads.*name=(ncz-os-amd64|PARTS-amd64|SHA256SUMS-amd64)" "$MOCK_LOG"'
 check "order still canonical" '[ "$(st "[.gh.releases[0].assets | sort_by(.id)[].name] | join(\" \")")" = "$CANON" ]'
 
@@ -634,7 +664,7 @@ cat > "$L/docs/bad.md" <<'EOF'
 [x](https://github.com/ncz-os/cix-installer/releases/download/v26.10-preview2/ncz-os-arm64-20261014-abcdef12.img.zst.part-00)
 [x](https://gitlab.com/ncz-os/cix-installer/-/releases/v2026.08.18-v12)
 [x](https://gitlab.com/api/v4/projects/81838641/packages/generic/ncz-iso/2026.08.27-v14/a.iso)
-[x](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/amd64/ncz-os-amd64-20261014-abcdef12.img.zst.part-00)
+[x](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/amd64/ncz-os-amd64-20261014-abcdef12-desktop.img.zst.part-00)
 EOF
 out=$(NCZ_LINT_ROOT="$L" bash "$LINKS" --current-tag v26.10-preview2 2>&1); rc=$?
 check "links: other tags, /releases/latest and changing names fail" '[ "$rc" -eq 1 ] && [ "$(grep -c "^RELEASE-LINK: docs/bad.md:" <<<"$out")" -eq 9 ]' || echo "$out"
@@ -664,7 +694,7 @@ out=$(NCZ_LINT_ROOT="$R" bash "$LINKS" 2>&1); rc=$?
 check "links pass after the refresh" '[ "$rc" -eq 0 ]' || echo "$out"
 
 # 12. ncz-join-image.sh with per-architecture files (and the older combined files)
-if command -v zstd >/dev/null && [ "$(df -Pk "$T" | awk 'NR==2{print $4}')" -ge 8500000 ]; then
+if command -v zstd >/dev/null; then
   J="$T/join"; mkdir -p "$J"
   head -c 300000 /dev/urandom > "$J/img.raw"
   zstd -q -c "$J/img.raw" > "$J/img.zst"
@@ -683,7 +713,82 @@ for i, o in enumerate(range(0, len(d), 100000)): open("%s%02d" % (sys.argv[2], i
   sh "$ROOT/tools/ncz-join-image.sh" -d "$J" -f >/dev/null 2>&1; rc=$?
   check "join script refuses a bad part" '[ "$rc" -ne 0 ]'
 else
-  echo "SKIP join-script checks: $(command -v zstd >/dev/null || echo 'zstd not installed')$(command -v zstd >/dev/null && echo 'under 8.5 GB free')"
+  echo "SKIP join-script checks: zstd not installed"
+fi
+
+# Four flavored images, including stable links in the rendered notes.
+if command -v zstd >/dev/null; then
+  F="$T/flavored"
+  args=()
+  names=()
+  for arch in amd64 arm64; do
+    for flavor in desktop server; do
+      key=$arch-$flavor
+      stem=ncz-os-$arch-20261119-abcdef12-$flavor
+      printf '%s\n' "$key" > "$T/$stem.img"
+      sha256sum "$T/$stem.img" > "$T/$stem.img.sha256"
+      args+=("--$key" "$T/$stem.img")
+      names+=("$stem.img.zst.part-00" "PARTS-$key.sha256" "SHA256SUMS-$key")
+    done
+    names+=("SHA256SUMS-$arch")
+  done
+  names+=(ncz-join-image.sh SHA256SUMS NOTES.md)
+  "$ROOT/tools/stage-release.sh" --apply --out "$F" "${args[@]}" >/dev/null || exit 1
+  urls=https://gitlab.test/ncz-os/cix-installer/-/releases/permalink/latest/downloads
+  {
+    printf '# Preview\n'
+    for arch in amd64 arm64; do
+      printf '\n## %s\n' "$arch"
+      for flavor in desktop server; do
+        key=$arch-$flavor
+        printf '\n### %s\n\n%s\n\nRun `sh ncz-join-image.sh %s %s`.\n' \
+          "${flavor^}" "$(awk 'NR == 1 {print $1}' "$F/$arch/SHA256SUMS-$key")" "$arch" "$flavor"
+        printf '[part](%s/%s/ncz-os-%s.img.zst.part-00) [checksums](%s/%s/SHA256SUMS-%s)\n' \
+          "$urls" "$arch" "$key" "$urls" "$arch" "$key"
+      done
+    done
+  } > "$F/NOTES.md"
+  printf 'NCZ-OS Preview\n' > "$F/TITLE"
+  awk '$2 ~ /\.img$/ {print "PASS", $1, $2}' "$F/SHA256SUMS" > "$AUDIT"
+  reset_state
+  out=$(bash "$SYNC" --dir "$F" --tag "$TAG" "${gated[@]}" 2>&1); rc=$?
+  check "flavored sync dry run passes without mutation" '[ "$rc" -eq 0 ] && [ "$(mutations)" -eq 0 ] && grep -q "every image in SHA256SUMS passed" <<<"$out"' || echo "$out"
+  check "flavored sync dry run plans all files on both forges" '[ "$(grep -c "\[dry-run\] upload .* bytes)$" <<<"$out")" -eq 17 ] && [ "$(grep -c "\[dry-run\] upload .* -> " <<<"$out")" -eq 19 ]' || echo "$out"
+
+  out=$(bash "$SYNC" --dir "$F" --tag "$TAG" --apply "${gated[@]}" 2>&1); rc=$?
+  check "mocked flavored sync passes parity" '[ "$rc" -eq 0 ]' || echo "$out"
+  check "flavored assets and links follow canonical order" '[ "$(st "[.gh.releases[0].assets | sort_by(.id)[].name] | join(\" \")")" = "${names[*]}" ] && [ "$(st "[.gl.releases[\"$TAG\"].links[].name | split(\"/\")[-1]] | join(\" \")")" = "${names[*]}" ]'
+  alias_paths=$(st "[.gl.releases[\"$TAG\"].links[].direct_asset_path | select(startswith(\"/arm64/ncz-os-\"))] | join(\" \")")
+  check "flavored GitLab aliases keep the folders" '[ "$alias_paths" = "/arm64/ncz-os-arm64-desktop.img.zst.part-00 /arm64/ncz-os-arm64-server.img.zst.part-00" ]'
+  check "flavored aliases render as flat GitHub download links" 'st ".gh.releases[0].body" | grep -Fq "releases/download/$TAG/ncz-os-arm64-20261119-abcdef12-server.img.zst.part-00"'
+
+  partial="$T/partial"
+  cp -r "$F" "$partial"
+  rm "$partial/arm64/"{*server.img.zst.part-*,PARTS-arm64-server.sha256,SHA256SUMS-arm64-server}
+  cp "$partial/arm64/SHA256SUMS-arm64-desktop" "$partial/arm64/SHA256SUMS-arm64"
+  cat "$partial/amd64/SHA256SUMS-amd64" "$partial/arm64/SHA256SUMS-arm64" > "$partial/SHA256SUMS"
+  awk '$2 ~ /\.img$/ {print "PASS", $1, $2}' "$partial/SHA256SUMS" > "$AUDIT"
+  : > "$MOCK_LOG"
+  out=$(bash "$CHECK" --tag "$TAG" --release-dir "$partial" "${CK[@]}" 2>&1); rc=$?
+  check "parity rejects a three-image directory before any request" '[ "$rc" -eq 1 ] && [ ! -s "$MOCK_LOG" ] && grep -q "arm64-server: .* not found" <<<"$out"' || echo "$out"
+  out=$(bash "$SYNC" --dir "$partial" --tag "$TAG" --apply "${gated[@]}" 2>&1); rc=$?
+  check "sync apply rejects a three-image directory before any request" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ] && grep -q "arm64-server: .* not found" <<<"$out"' || echo "$out"
+
+  cp "$MOCK_STATE" "$T/four-images.json"
+  jq --arg tag "$TAG" '
+    .gh.releases[0].assets |= map(select(.name | contains("arm64-server") or (startswith("ncz-os-arm64-") and contains("-server.img")) | not))
+    | .gl.releases[$tag].links |= map(select(.name | startswith("arm64/") and contains("-server") | not))
+  ' "$T/four-images.json" > "$MOCK_STATE"
+  out=$(bash "$CHECK" --tag "$TAG" --quick "${CK[@]}" 2>&1); rc=$?
+  check "parity rejects three images on both release pages" '[ "$rc" -eq 1 ] && grep -q "missing required image: arm64-server" <<<"$out"' || echo "$out"
+  cp "$T/four-images.json" "$MOCK_STATE"
+  awk '$2 ~ /\.img$/ {print "PASS", $1, $2}' "$F/SHA256SUMS" > "$AUDIT"
+
+  sed 's/ncz-join-image.sh arm64 server/ncz-join-image.sh arm64 desktop/' "$F/NOTES.md" > "$F/NOTES.changed"
+  mv "$F/NOTES.changed" "$F/NOTES.md"
+  : > "$MOCK_LOG"
+  out=$(bash "$SYNC" --dir "$F" --tag "$TAG" "${gated[@]}" 2>&1); rc=$?
+  check "notes require the correct join command in each subsection" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ] && grep -q "ncz-join-image.sh arm64 server" <<<"$out"' || echo "$out"
 fi
 
 # 13. hermetic: every request went to the mocked forges

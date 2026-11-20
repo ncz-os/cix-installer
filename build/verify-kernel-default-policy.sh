@@ -45,6 +45,9 @@
 #       must match DEFAULT_BASE (7.3); an -rcN default is allowed only while
 #       RC_DEFAULT_ALLOWED=1 and the pinned version really is an -rcN; EDGE must
 #       be disabled; and no 7.2.x channel/overlay asset may be staged.
+#  11.  (both arches) build/check-kernel-lifecycle.py: every committed pin
+#       equals the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE,
+#       is not RETIRED and is not below MIN_VERSION (missing file = FAIL).
 #
 # Usage:
 #   verify-kernel-default-policy.sh [--root <repo-root>] [--arch arm64|amd64]
@@ -378,6 +381,36 @@ if [ -f "$_amd64_hook" ]; then
         err "amd64: classifier hook still carries the retired 'amd64 edge channel is pinned' marker"
     fi
 fi
+# Check 8b (amd64, 2026-11-02): the kernel install path must be ADD-ONLY.
+# zz1 has to invoke the tool with --add; a bare invocation wipes the ESP and
+# regenerates the menu, which made every newly installed kernel the DEFAULT on
+# the next reboot (two test machines, 2026-11-02). zz2 (the promote guard) must
+# ship alongside it, because it is the ONLY hook allowed to move
+# default_selection outside the install-time generator.
+_amd64_zz2="$ROOT/assets/refind/zz2-ncz-refind-promote-guard"
+if [ -f "$_amd64_hook" ]; then
+    if grep -qE '\$REFRESH"? +--add|"\$REFRESH" --add' "$_amd64_hook" 2>/dev/null; then
+        log "amd64: kernel postinst.d hook is add-only (zz1 calls the tool with --add)"
+    else
+        err "amd64: zz1 does not call the refresh tool with --add; a bare call wipes the ESP and changes the default on every kernel install"
+    fi
+    # A bare, verbless invocation (the pre-2026-11-02 form) must be gone.
+    # [[:space:]] not \s: \s is a GNU/PCRE extension, not POSIX ERE.
+    if grep -qE '^[[:space:]]*"?\$REFRESH"?[[:space:]]*$|BUILD_VERSION="\$BUILD_VERSION" "\$REFRESH"[[:space:]]*$' "$_amd64_hook" 2>/dev/null; then
+        err "amd64: zz1 still contains a verbless refresh invocation (it would wipe the menu)"
+    fi
+    # Check 8b (continued): the promote guard must sit beside zz1. This nested here
+    # because "there is no refind hook in this root" is not a violation - before, the
+    # zz2 test ran unconditionally, so every root without assets/refind (an arm64
+    # fixture, a server-only tree) failed a check about a file it never had.
+    if [ ! -f "$_amd64_zz2" ]; then
+        err "amd64: $_amd64_zz2 is missing (the promote guard that keeps default_selection stable)"
+    elif ! grep -q -- '--promote' "$_amd64_zz2" 2>/dev/null; then
+        err "amd64: zz2-ncz-refind-promote-guard does not call --promote"
+    else
+        log "amd64: promote guard (zz2) is present and delegates to --promote"
+    fi
+fi
 if [ -f "$_amd64_refresh" ]; then
     if grep -q "$UNIFIED_MARKER" "$_amd64_refresh" 2>/dev/null; then
         log "amd64: rEFInd refresh is on the unified 7.3 policy"
@@ -432,12 +465,23 @@ if [ -s "$POLICY_FILE" ]; then
     if [ -z "$DEFAULT_BASE" ]; then
         err "assets/kernel/KERNEL-POLICY has no DEFAULT_BASE"
     elif [ -n "$_default_kver" ]; then
-        case "$_default_kver" in
-            "$DEFAULT_BASE"|"$DEFAULT_BASE".*|"$DEFAULT_BASE"-*)
-                log "default kernel '$_default_kver' matches pinned base $DEFAULT_BASE" ;;
-            *)
-                err "default kernel '$_default_kver' is not the pinned $DEFAULT_BASE series (assets/kernel/KERNEL-POLICY)" ;;
-        esac
+        # DEFAULT_BASE may be a comma-separated list while a directed kernel
+        # line switch is in flight (operator 2026-11-09 22:20Z: 7.3.x -> 7.4.x
+        # on both architectures); the default must match one listed base.
+        _base_ok=""; _ifs="$IFS"; IFS=','
+        for _base in $DEFAULT_BASE; do
+            IFS="$_ifs"
+            case "$_default_kver" in
+                "$_base"|"$_base".*|"$_base"-*) _base_ok=1 ;;
+            esac
+            IFS=','
+        done
+        IFS="$_ifs"
+        if [ -n "$_base_ok" ]; then
+            log "default kernel '$_default_kver' matches pinned base $DEFAULT_BASE"
+        else
+            err "default kernel '$_default_kver' is not the pinned $DEFAULT_BASE series (assets/kernel/KERNEL-POLICY)"
+        fi
         # Stronger: refuse any 7.2.x default specifically (the retired series).
         case "$_default_kver" in
             7.2.*|7.2-*) err "default kernel '$_default_kver' is from the retired 7.2.x series" ;;
@@ -448,9 +492,9 @@ if [ -s "$POLICY_FILE" ]; then
                 err "default kernel '$_default_kver' is an -rcN but RC_DEFAULT_ALLOWED is not 1 in assets/kernel/KERNEL-POLICY"
             else
                 if [ -z "$RC_DEFAULT_EXPIRY_NOTE" ]; then
-                    err "RC_DEFAULT_ALLOWED=1 but RC_DEFAULT_EXPIRY_NOTE is empty (must say 'replace by 7.3.0 final')"
+                    err "RC_DEFAULT_ALLOWED=1 but RC_DEFAULT_EXPIRY_NOTE is empty (must say which final release replaces the rc)"
                 else
-                    log "rc default '$_default_kver' allowed (RC_DEFAULT_EXPIRY_NOTE present; replace by 7.3.0 final)"
+                    log "rc default '$_default_kver' allowed (RC_DEFAULT_EXPIRY_NOTE present; $RC_DEFAULT_EXPIRY_NOTE)"
                 fi
             fi
         else
@@ -495,6 +539,31 @@ if [ -s "$POLICY_FILE" ]; then
             [ -n "$RESCUE_ARM64" ] || err "RESCUE_ARM64_BLACKLIST is empty in assets/kernel/KERNEL-POLICY"
             ;;
     esac
+fi
+
+# ---------------------------------------------------------------------------
+# Check 11 (both arches, 2026-11-07): the kernel lifecycle. Every committed pin
+# must equal the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE (the
+# file the kernel-ci promotion registry regenerates), must not be RETIRED and
+# must not sort below MIN_VERSION. rc3 (ba74b7c7) shipped the retired 7.3.0
+# kernels because only the 7.3 series was checked.
+# ---------------------------------------------------------------------------
+_lifecycle="$(cd "$(dirname "$0")" && pwd)/check-kernel-lifecycle.py"
+if [ ! -f "$_lifecycle" ]; then
+    err "build/check-kernel-lifecycle.py is missing (the retired-kernel gate cannot run)"
+elif ! command -v python3 >/dev/null 2>&1; then
+    err "python3 is required for the kernel lifecycle gate"
+else
+    case "$ARCH" in amd64|x86_64) _lc_arch=amd64 ;; *) _lc_arch=arm64 ;; esac
+    if _lc_out=$(python3 -I "$_lifecycle" --root "$ROOT" --arch "$_lc_arch" 2>&1); then
+        log "lifecycle: ${_lc_out#\[kernel-lifecycle\] }"
+    else
+        _lc_rc=$?
+        err "lifecycle: build/check-kernel-lifecycle.py exited $_lc_rc"
+        while IFS= read -r _l; do
+            [ -n "$_l" ] && err "lifecycle: ${_l#\[kernel-lifecycle\] FAIL: }"
+        done <<< "$_lc_out"
+    fi
 fi
 
 if [ "$FAIL" = 1 ]; then

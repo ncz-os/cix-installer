@@ -93,8 +93,11 @@ publish_deb() {
 # (assets/kernel/mainline/KVER), checked before anything is copied and
 # again on the final pool. A newer rc in the tree can no longer be
 # ingested for the shipping channel; it fails the build instead.
+# The full Version (+rNNN) and sha256 are pinned too (BUILD-STABILITY M7):
+# KVER alone let r292 debs pass under the r293 kernel-manifest.json.
 SKY1_KVER_FILE="${SKY1_KVER_FILE:-$REPO/assets/kernel/mainline/KVER}"
-"$REPO/build/check-kernel-deb-pin.sh" "$SKY1_KVER_FILE" "$KERNEL_DEBS"
+SKY1_KERNEL_MANIFEST="${SKY1_KERNEL_MANIFEST:-$REPO/assets/kernel-manifest.json}"
+"$REPO/build/check-kernel-deb-pin.sh" --manifest "$SKY1_KERNEL_MANIFEST" "$SKY1_KVER_FILE" "$KERNEL_DEBS"
 
 if compgen -G "$KERNEL_DEBS/*.deb" >/dev/null; then
     echo "== publishing kernel debs from $KERNEL_DEBS =="
@@ -168,7 +171,7 @@ fi
 
 # The pool can also hold a Sky1 kernel from an EARLIER run that this run
 # did not replace. Check what will actually be indexed.
-"$REPO/build/check-kernel-deb-pin.sh" "$SKY1_KVER_FILE" "$VENDOR/pool/main"
+"$REPO/build/check-kernel-deb-pin.sh" --manifest "$SKY1_KERNEL_MANIFEST" "$SKY1_KVER_FILE" "$VENDOR/pool/main"
 
 cd "$VENDOR"
 mkdir -p "$BINDIR"

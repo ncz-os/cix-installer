@@ -68,6 +68,7 @@ CONF="$TROOT/etc/ncz/power-cap.conf"
 if [ "$rc" = 0 ] && [ -x "$HELPER" ]; then ok "hook installs the helper"; else bad "helper not installed (rc=$rc): $(tail -3 "$T/hook.out")"; fi
 for f in "$CONF" \
          "$TROOT/etc/udev/rules.d/72-ncz-t2-power-cap.rules" \
+         "$TROOT/etc/udev/rules.d/73-ncz-t2-nvme-max-sectors.rules" \
          "$TROOT/usr/lib/systemd/system-sleep/ncz-t2-power-cap" \
          "$TROOT/etc/systemd/system/thermald.service.d/10-ncz-t2-power-cap.conf"; do
     if [ -s "$f" ]; then ok "installed $(basename "$f")"; else bad "missing $f"; fi
@@ -83,6 +84,51 @@ if grep -q 'SUBSYSTEM=="power_supply"' "$TROOT/etc/udev/rules.d/72-ncz-t2-power-
    && grep -q 'ATTR{type}=="Mains"' "$TROOT/etc/udev/rules.d/72-ncz-t2-power-cap.rules"; then
     ok "udev rule re-applies on the Mains change event"
 else bad "udev rule does not cover plug/unplug"; fi
+
+# NVMe max_sectors_kb rule exists and is exactly the intended rule line
+# (fixed strings, because the line contains udev regex/glob specials:
+# [0-9], *, {, }).
+NVME_RULE="$TROOT/etc/udev/rules.d/73-ncz-t2-nvme-max-sectors.rules"
+NVME_RULE_LINE='ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="APPLE SSD*", ATTR{queue/max_sectors_kb}="128"'
+if grep -qF "$NVME_RULE_LINE" "$NVME_RULE"; then
+    ok "NVMe rule asserts the whole intended rule line (whole-disk Apple SSD cap at 128)"
+else
+    bad "NVMe rule does not match the exact intended rule line: '$(grep '^ACTION' "$NVME_RULE" 2>/dev/null)'"
+fi
+if grep -qF 'KERNEL=="nvme[0-9]*n[0-9]*"' "$NVME_RULE" && grep -qF 'ENV{DEVTYPE}=="disk"' "$NVME_RULE"; then
+    ok "NVMe rule is restricted to whole disks (partitions do not match)"
+else bad "NVMe rule missing the whole-disk KERNEL/DEVTYPE restriction"; fi
+if grep -qF 'ATTRS{model}=="APPLE SSD*"' "$NVME_RULE" && grep -qF 'ATTR{queue/max_sectors_kb}="128"' "$NVME_RULE"; then
+    ok "NVMe rule matches APPLE SSD* only and caps max_sectors_kb to 128"
+else
+    bad "NVMe rule missing Apple SSD match or max_sectors_kb cap"
+fi
+# Ensure it does NOT match generic NVMe models
+if ! grep -q 'WD PC SN5000S' "$NVME_RULE" && ! grep -q 'Sandisk Optimus GX 7100' "$NVME_RULE"; then
+    ok "NVMe rule does not match generic NVMe models"
+else
+    bad "NVMe rule incorrectly matches generic models"
+fi
+# Prove the test can fail: mutate the rule in the sandbox.
+# Wrong cap value (512 instead of 128):
+printf '%s\n' '# mutated' > "$NVME_RULE"
+printf 'ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="APPLE SSD*", ATTR{queue/max_sectors_kb}="512"\n' >> "$NVME_RULE"
+if grep -qF "$NVME_RULE_LINE" "$NVME_RULE"; then
+    bad "NVMe test is broken: it passed a mutated rule with the wrong cap value (512)"
+else
+    ok "NVMe test detects a mutated rule with the wrong cap value (512)"
+fi
+# Wrong model (a generic drive instead of APPLE SSD*):
+printf '%s\n' '# mutated' > "$NVME_RULE"
+printf 'ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="WD PC SN5000S*", ATTR{queue/max_sectors_kb}="128"\n' >> "$NVME_RULE"
+if grep -qF "$NVME_RULE_LINE" "$NVME_RULE"; then
+    bad "NVMe test is broken: it passed a mutated rule matching a generic model"
+else
+    ok "NVMe test detects a mutated rule matching a generic model (WD PC SN5000S)"
+fi
+# Restore the real rule written by the hook.
+HOOKRUN
+
 grep -q 'ExecStartPre=.*ncz-t2-power-cap apply' "$TROOT/etc/systemd/system/thermald.service.d/10-ncz-t2-power-cap.conf" \
     && ok "thermald drop-in runs the cap before thermald starts" || bad "thermald drop-in missing ExecStartPre"
 
@@ -217,7 +263,8 @@ if grep -q 'keep me' "$CONF"; then ok "second hook run preserves the operator co
 # The hook raises the saver feed's hot pause (compiled-in 85 C) on T2 Macs to
 # 100 C, or 2 C under the lowest critical trip of the governor's sensors when
 # that trip is at or below 100 C, and
-# sets the warm-band fps to 6, in /etc/ncz/lock-renderer.env only.
+# sets the warm-band fps to 15 (the validated T2 warm policy), in
+# /etc/ncz/lock-renderer.env only.
 HW="$T/hwmon"; DMIF="$T/dmi"
 mk_hwmon() { # mk_hwmon "name:crit[,crit...]" ...   (crit "-" = no crit file)
     rm -rf "$HW"; mkdir -p "$HW"
@@ -244,6 +291,8 @@ SAVERRUN() {
 }
 hot()  { sed -n 's/^NCZ_FEED_TEMP_HOT_MC=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 warm() { sed -n 's/^NCZ_FEED_FPS_WARM=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+autofps() { sed -n 's/^NCZ_SAVER_AUTO_FPS=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+renderdiv() { sed -n 's/^NCZ_SAVER_RENDER_DIV=//p' "$LENV" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 
 # MacBookPro16,1 as measured: coretemp crit 100 C, amdgpu edge/junction/mem
 # 110/105/150 C, t2smc without crit files, nvme (not a governor sensor) lower.
@@ -253,21 +302,43 @@ renderer_env
 SAVERRUN; rc=$?
 if [ "$rc" = 0 ] && [ "$(hot)" = 98000 ]; then ok "saver cap: MacBookPro16,1 sensors -> NCZ_FEED_TEMP_HOT_MC=98000 (coretemp crit = Tjmax 100 C, - 2 C)"
 else bad "saver cap: expected 98000, got '$(hot)' (rc=$rc): $(tail -3 "$T/saver.out")"; fi
-[ "$(warm)" = 6 ] && ok "saver cap: warm-band fps set to 6" || bad "saver cap: warm fps '$(warm)'"
+[ "$(warm)" = 30 ] && ok "saver cap: warm-band fps set to 30" || bad "saver cap: warm fps '$(warm)'"
+[ "$(autofps)" = 30 ] && ok "saver Auto frame rate on a T2 Mac: NCZ_SAVER_AUTO_FPS=30" || bad "saver Auto fps '$(autofps)'"
+[ "$(renderdiv)" = 2 ] && ok "saver render divisor on a T2 Mac: NCZ_SAVER_RENDER_DIV=2 (half resolution)" || bad "saver render divisor '$(renderdiv)'"
 grep -q '^SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed$' "$LENV" \
     && ok "saver cap: renderer line preserved" || bad "saver cap: renderer line changed"
 # shellcheck source=/dev/null
-if (set -a; . "$LENV"; [ "$NCZ_FEED_TEMP_HOT_MC" = 98000 ] && [ "$NCZ_FEED_FPS_WARM" = 6 ]); then
+if (set -a; . "$LENV"; [ "$NCZ_FEED_TEMP_HOT_MC" = 98000 ] && [ "$NCZ_FEED_FPS_WARM" = 30 ] && [ "$NCZ_SAVER_RENDER_DIV" = 2 ]); then
     ok "saver cap: env file sources cleanly the way the session launcher reads it"
 else bad "saver cap: env file does not source"; fi
 SAVERRUN
-if [ "$(hot)" = 98000 ] && [ "$(warm)" = 6 ]; then ok "saver cap: second run is idempotent (one line each)"
+if [ "$(hot)" = 98000 ] && [ "$(warm)" = 30 ] && [ "$(autofps)" = 30 ] && [ "$(renderdiv)" = 2 ]; then ok "saver cap: second run is idempotent (one line each)"
 else bad "saver cap: duplicate lines after second run: hot='$(hot)' warm='$(warm)'"; fi
 
 # an operator value is kept
 renderer_env; printf 'NCZ_FEED_TEMP_HOT_MC=88000\n' >> "$LENV"
 SAVERRUN
 [ "$(hot)" = 88000 ] && ok "saver cap: existing NCZ_FEED_TEMP_HOT_MC kept" || bad "saver cap: operator value replaced: '$(hot)'"
+
+# an explicit operator warm fps is kept (no migration/overwrite)
+renderer_env; printf 'NCZ_FEED_FPS_WARM=6\n' >> "$LENV"
+SAVERRUN
+[ "$(warm)" = 6 ] && ok "saver cap: existing NCZ_FEED_FPS_WARM=6 kept" || bad "saver cap: explicit warm fps replaced: '$(warm)'"
+
+# an explicit operator Auto fps is kept
+renderer_env; printf 'NCZ_SAVER_AUTO_FPS=24\n' >> "$LENV"
+SAVERRUN
+[ "$(autofps)" = 24 ] && ok "saver cap: existing NCZ_SAVER_AUTO_FPS=24 kept" || bad "saver cap: explicit Auto fps replaced: '$(autofps)'"
+
+# an explicit operator render divisor is kept
+renderer_env; printf 'NCZ_SAVER_RENDER_DIV=1\n' >> "$LENV"
+SAVERRUN
+[ "$(renderdiv)" = 1 ] && ok "saver cap: existing NCZ_SAVER_RENDER_DIV=1 kept" || bad "saver cap: explicit render divisor replaced: '$(renderdiv)'"
+
+# an explicit operator hot value is kept
+renderer_env; printf 'NCZ_FEED_TEMP_HOT_MC=94000\n' >> "$LENV"
+SAVERRUN
+[ "$(hot)" = 94000 ] && ok "saver cap: existing NCZ_FEED_TEMP_HOT_MC=94000 kept" || bad "saver cap: explicit hot value replaced: '$(hot)'"
 
 # a lower critical trip lowers the cap (crit - 2 C)
 renderer_env; mk_hwmon "coretemp:97000" "amdgpu:105000"
@@ -287,8 +358,8 @@ SAVERRUN
 # a cap that would not raise the default is not written
 renderer_env; mk_hwmon "coretemp:87000"
 SAVERRUN
-if [ -z "$(hot)" ] && [ -z "$(warm)" ]; then ok "saver cap: crit 87 C -> nothing written (crit - 2 C is not above 85 C)"
-else bad "saver cap: wrote '$(hot)'/'$(warm)' for crit 87 C"; fi
+if [ -z "$(hot)" ] && [ -z "$(warm)" ] && [ -z "$(autofps)" ]; then ok "saver cap: crit 87 C -> nothing written (crit - 2 C is not above 85 C)"
+else bad "saver cap: wrote '$(hot)'/'$(warm)'/'$(autofps)' for crit 87 C"; fi
 
 # sensors absent (installer kernel): measured model value, other models untouched
 renderer_env; mk_hwmon "nvme:84850"
@@ -296,7 +367,8 @@ SAVERRUN
 [ "$(hot)" = 98000 ] && ok "saver cap: no sensors + MacBookPro16,1 -> 98 C" || bad "saver cap: no sensors MBP16,1 gave '$(hot)'"
 renderer_env; mk_dmi MacBookAir9,1
 SAVERRUN
-[ -z "$(hot)" ] && ok "saver cap: no sensors + other T2 model -> default kept" || bad "saver cap: unmeasured model got '$(hot)'"
+if [ -z "$(hot)" ] && [ -z "$(warm)" ] && [ -z "$(autofps)" ]; then ok "saver cap: no sensors + other T2 model -> default kept"
+else bad "saver cap: unmeasured model got '$(hot)'/'$(warm)'/'$(autofps)'"; fi
 
 # no renderer configured: the env file is neither created nor changed
 mk_dmi MacBookPro16,1; mk_hwmon "coretemp:100000"

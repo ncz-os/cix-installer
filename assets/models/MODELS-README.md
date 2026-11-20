@@ -53,13 +53,26 @@ No manual embedding step, no per-model wiring. See
 
 ## Adding models
 
-There is no working `ncz model add`/`ncz models pull` command yet —
-`ncz models pull` is a **stub** (prints `STUB (r75)` and exits 2, see
-`post-install/46-ncz-cli.sh` and task #99). To add a `.cix` model today,
-pull it manually from the Cix model hub and stage it in this directory —
-see [`docs/MODELSCOPE-MODELS.md`](../../docs/MODELSCOPE-MODELS.md) for the
-full manual procedure. `ncz models list` (no `pull`) does work today, and
-shows installed `.cix` files.
+Use the CLI — it verifies the download's sha256 before the file is
+installed, so a model never lands in `/opt/ncz/models` unverified:
+
+```sh
+# a catalog entry (pinned url + sha256 + licence)
+ncz models pull bge-small-zh-v1.5_256.cix
+
+# a user-supplied model that is NOT in the catalog
+ncz models add <url> --sha256 <64-hex-sha256>
+```
+
+`ncz models add` requires `--sha256`: the download is checked against that
+hash before it is installed, and an installed file with a *different* hash
+is refused rather than overwritten. Each installed model gets a
+`META-INF/<file>.provenance` sidecar recording its source URL and verified
+hash; `ncz models list` shows that source next to the model.
+
+To add a `.cix` model from the Cix model hub by hand instead, see
+[`docs/MODELSCOPE-MODELS.md`](../../docs/MODELSCOPE-MODELS.md) for the
+full manual procedure.
 
 Once a model is staged, `Engine.auto()` picks among installed models +
 adapters by capability tier (NPU > GPU > CPU) and measured throughput

@@ -167,17 +167,27 @@ export PATH="$T/bin:$PATH"
 if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }; sha_str() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 else sha() { shasum -a 256 "$1" | cut -d' ' -f1; }; sha_str() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }; fi
 sedi() { sed "$1" "$2" > "$2.sedi" && mv "$2.sedi" "$2"; }   # in-place sed on GNU and BSD
-mkparts() { # $1 dir $2 arch: (re)write PARTS-<arch>.sha256 from the parts present
-  ( cd "$1/$2" && for p in ncz-os-"$2"-*.part-*; do printf '%s  %s\n' "$(sha "$p")" "$p"; done > "PARTS-$2.sha256" )
+mkparts() {
+  ( cd "$1/$2" && for p in ncz-os-"$2"-*-"$3".img.zst.part-*; do
+      printf '%s  %s\n' "$(sha "$p")" "$p"
+    done > "PARTS-$2-$3.sha256" )
 }
-mkrel() { # $1 dir: amd64 (2 parts) + arm64 (1 part) + common files
-  local d=$1; mkdir -p "$d/amd64" "$d/arm64"
-  head -c 3000 /dev/urandom > "$d/amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-00"
-  head -c 1000 /dev/urandom > "$d/amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01"
-  head -c 2000 /dev/urandom > "$d/arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-00"
-  mkparts "$d" amd64; mkparts "$d" arm64
-  printf '%s  %s\n' "$(sha_str a)" ncz-os-amd64-20261013-abcdef12.img > "$d/amd64/SHA256SUMS-amd64"
-  printf '%s  %s\n' "$(sha_str b)" ncz-os-arm64-20261013-abcdef12.img > "$d/arm64/SHA256SUMS-arm64"
+mkrel() {
+  local d=$1 arch flavor image
+  mkdir -p "$d/amd64" "$d/arm64"
+  head -c 3000 /dev/urandom > "$d/amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-00"
+  head -c 1000 /dev/urandom > "$d/amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-01"
+  head -c 2000 /dev/urandom > "$d/arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00"
+  for arch in amd64 arm64; do
+    head -c 400 /dev/urandom > "$d/$arch/ncz-os-$arch-20261013-abcdef12-server.img.zst.part-00"
+    for flavor in desktop server; do
+      image=ncz-os-$arch-20261013-abcdef12-$flavor.img
+      mkparts "$d" "$arch" "$flavor"
+      printf '%s  %s\n' "$(sha_str "$image")" "$image" \
+        "$(sha_str "$image.zst")" "$image.zst" > "$d/$arch/SHA256SUMS-$arch-$flavor"
+    done
+    cat "$d/$arch/SHA256SUMS-$arch-desktop" "$d/$arch/SHA256SUMS-$arch-server" > "$d/$arch/SHA256SUMS-$arch"
+  done
   cat "$d/amd64/SHA256SUMS-amd64" "$d/arm64/SHA256SUMS-arm64" > "$d/SHA256SUMS"
   cp "$ROOT/tools/ncz-join-image.sh" "$d/"
 }
@@ -193,8 +203,8 @@ EOF
 st() { jq -r "$1" "$MOCK_STATE"; }
 mutations() { grep -cE '^(PUT|POST|DELETE) ' "$MOCK_LOG" || true; }
 REL="$T/rel"; mkrel "$REL"
-NLINKS=9      # 4 amd64 + 3 arm64 + ncz-join-image.sh + SHA256SUMS
-NUPLOADS=11   # the links' files + a join script copy in each architecture package
+NLINKS=17     # architecture files + ncz-join-image.sh + SHA256SUMS
+NUPLOADS=19   # the links' files + a join script copy in each architecture package
 PK='.packages[] | select(.name != "linux-source-cix-sky1-ncz")'
 LINKS='.releases["v26.10-test"].links'
 
@@ -225,14 +235,14 @@ out=$(bash "$TOOL" --dir "$REL" --tag v26.10-test --name "NCZ-OS test" 2>&1); rc
 check "publish exits 0" '[ "$rc" -eq 0 ]' || echo "$out"
 check "publish uploads every package file once" '[ "$(grep -c "^PUT .*/packages/generic/ncz-os-image-" "$MOCK_LOG")" -eq $NUPLOADS ]'
 check "three packages: amd64, arm64, common" '[ "$(st "[$PK | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-arm64,ncz-os-image-common" ]'
-check "amd64 package holds its files and the join script" '[ "$(st "[$PK | select(.name==\"ncz-os-image-amd64\") | .files[].file_name] | sort | join(\" \")")" = "PARTS-amd64.sha256 SHA256SUMS-amd64 ncz-join-image.sh ncz-os-amd64-20261013-abcdef12.img.zst.part-00 ncz-os-amd64-20261013-abcdef12.img.zst.part-01" ]'
-check "registry sha256 equals the local file" '[ "$(st "[$PK | .files[] | select(.file_name==\"PARTS-arm64.sha256\")][0].file_sha256")" = "$(sha "$REL/arm64/PARTS-arm64.sha256")" ]'
+check "amd64 package holds its files and the join script" '[ "$(st "[$PK | select(.name==\"ncz-os-image-amd64\") | .files[].file_name] | sort | join(\" \")")" = "PARTS-amd64-desktop.sha256 PARTS-amd64-server.sha256 SHA256SUMS-amd64 SHA256SUMS-amd64-desktop SHA256SUMS-amd64-server ncz-join-image.sh ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-00 ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-01 ncz-os-amd64-20261013-abcdef12-server.img.zst.part-00" ]'
+check "registry sha256 equals the local file" '[ "$(st "[$PK | .files[] | select(.file_name==\"PARTS-arm64-desktop.sha256\")][0].file_sha256")" = "$(sha "$REL/arm64/PARTS-arm64-desktop.sha256")" ]'
 check "release created with title" '[ "$(st ".releases[\"v26.10-test\"].name")" = "NCZ-OS test" ]'
 check "one link per file" '[ "$(st "$LINKS | length")" -eq $NLINKS ]'
-check "links in canonical order with folder names" '[ "$(st "[$LINKS[].name] | join(\" \")")" = "amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-00 amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01 amd64/PARTS-amd64.sha256 amd64/SHA256SUMS-amd64 arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-00 arm64/PARTS-arm64.sha256 arm64/SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS" ]'
-check "part link points at the arm64 package file" '[ "$(st "$LINKS[] | select(.name==\"arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-00\") | .url")" = "$NCZ_GITLAB_API/projects/4242/packages/generic/ncz-os-image-arm64/26.10-test/ncz-os-arm64-20261013-abcdef12.img.zst.part-00" ]'
-check "part link: package type, stable folder path" '[ "$(st "$LINKS[] | select(.name==\"amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01\") | \"\(.link_type) \(.direct_asset_path)\"")" = "package /amd64/ncz-os-amd64.img.zst.part-01" ]'
-check "arch checksum link: package type, folder path" '[ "$(st "$LINKS[] | select(.name==\"amd64/PARTS-amd64.sha256\") | \"\(.link_type) \(.direct_asset_path)\"")" = "package /amd64/PARTS-amd64.sha256" ]'
+check "links in canonical order with folder names" '[ "$(st "[$LINKS[].name] | join(\" \")")" = "amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-00 amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-01 amd64/PARTS-amd64-desktop.sha256 amd64/SHA256SUMS-amd64-desktop amd64/ncz-os-amd64-20261013-abcdef12-server.img.zst.part-00 amd64/PARTS-amd64-server.sha256 amd64/SHA256SUMS-amd64-server amd64/SHA256SUMS-amd64 arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00 arm64/PARTS-arm64-desktop.sha256 arm64/SHA256SUMS-arm64-desktop arm64/ncz-os-arm64-20261013-abcdef12-server.img.zst.part-00 arm64/PARTS-arm64-server.sha256 arm64/SHA256SUMS-arm64-server arm64/SHA256SUMS-arm64 ncz-join-image.sh SHA256SUMS" ]'
+check "part link points at the arm64 package file" '[ "$(st "$LINKS[] | select(.name==\"arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00\") | .url")" = "$NCZ_GITLAB_API/projects/4242/packages/generic/ncz-os-image-arm64/26.10-test/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00" ]'
+check "part link: package type, stable folder path" '[ "$(st "$LINKS[] | select(.name==\"amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-01\") | \"\(.link_type) \(.direct_asset_path)\"")" = "package /amd64/ncz-os-amd64-desktop.img.zst.part-01" ]'
+check "arch checksum link: package type, folder path" '[ "$(st "$LINKS[] | select(.name==\"amd64/PARTS-amd64-desktop.sha256\") | \"\(.link_type) \(.direct_asset_path)\"")" = "package /amd64/PARTS-amd64-desktop.sha256" ]'
 check "common file: other type, top-level path, common package" '[ "$(st "$LINKS[] | select(.name==\"SHA256SUMS\") | \"\(.link_type) \(.direct_asset_path) \(.url | test(\"/ncz-os-image-common/\"))\"")" = "other /SHA256SUMS true" ]'
 check "token never in curl argv" '! grep -qF "$TOKEN_VALUE" "$MOCK_ARGV"'
 check "token never in output" '! grep -qF "$TOKEN_VALUE" <<<"$out"'
@@ -248,17 +258,17 @@ check "re-run updates the existing release, does not create" '! grep -qE "^POST 
 check "re-run reports files present" '[ "$(grep -c "  present  " <<<"$out")" -eq $NUPLOADS ]'
 
 # 6. a changed part is re-uploaded and the older copy removed
-echo extra >> "$REL/arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-00"; mkparts "$REL" arm64
+echo extra >> "$REL/arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00"; mkparts "$REL" arm64 desktop
 : > "$MOCK_LOG"
 bash "$TOOL" --dir "$REL" --tag v26.10-test >/dev/null 2>&1; rc=$?
 check "changed part run exits 0" '[ "$rc" -eq 0 ]'
-check "changed part and PARTS-arm64.sha256 re-uploaded only" '[ "$(grep -c "^PUT .*/packages/generic/" "$MOCK_LOG")" -eq 2 ]'
+check "changed part and PARTS-arm64-desktop.sha256 re-uploaded only" '[ "$(grep -c "^PUT .*/packages/generic/" "$MOCK_LOG")" -eq 2 ]'
 check "one copy per file name remains in each package" '[ "$(st "[$PK | ([.files[].file_name] | (length == (unique|length)))] | all")" = true ]'
-check "remaining copy is the new one" '[ "$(st "$PK | .files[] | select(.file_name==\"ncz-os-arm64-20261013-abcdef12.img.zst.part-00\") | .file_sha256")" = "$(sha "$REL/arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-00")" ]'
+check "remaining copy is the new one" '[ "$(st "$PK | .files[] | select(.file_name==\"ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00\") | .file_sha256")" = "$(sha "$REL/arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-00")" ]'
 
 # 7. registry reports a different sha256: fail, no release
 reset_state
-jq '.corrupt_sha=["ncz-os-amd64-20261013-abcdef12.img.zst.part-01"]' "$MOCK_STATE" > "$MOCK_STATE.n" && mv "$MOCK_STATE.n" "$MOCK_STATE"
+jq '.corrupt_sha=["ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-01"]' "$MOCK_STATE" > "$MOCK_STATE.n" && mv "$MOCK_STATE.n" "$MOCK_STATE"
 out=$(bash "$TOOL" --dir "$REL" --tag v26.10-test 2>&1); rc=$?
 check "sha mismatch from registry exits non-zero" '[ "$rc" -ne 0 ]'
 check "sha mismatch retried 3 times" '[ "$(grep -c "^PUT .*part-01?select" "$MOCK_LOG")" -eq 3 ]'
@@ -280,21 +290,17 @@ layout_case() { # name expected-message setup...
   check "layout $name exits 2 with no request" '[ "$rc" -eq 2 ] && [ ! -s "$MOCK_LOG" ]' || echo "$out"
   check "layout $name names the problem" 'grep -qF -- "$msg" <<<"$out"' || echo "$out"
 }
-layout_case badpart "checksum mismatch for amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-00" 'echo x >> amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-00'
-layout_case unlisted "arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-01 is not listed in arm64/PARTS-arm64.sha256" 'head -c 10 /dev/urandom > arm64/ncz-os-arm64-20261013-abcdef12.img.zst.part-01'
+layout_case badpart "checksum mismatch for amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-00" 'echo x >> amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-00'
+layout_case unlisted "arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-01 is not listed in the flavor layout" 'head -c 10 /dev/urandom > arm64/ncz-os-arm64-20261013-abcdef12-desktop.img.zst.part-01'
 layout_case nojoin "ncz-join-image.sh not found" 'rm ncz-join-image.sh'
 layout_case nosums "amd64/SHA256SUMS-amd64 not found" 'rm amd64/SHA256SUMS-amd64'
 layout_case combined "SHA256SUMS is not SHA256SUMS-amd64 followed by SHA256SUMS-arm64" 'cat arm64/SHA256SUMS-arm64 amd64/SHA256SUMS-amd64 > SHA256SUMS'
-layout_case toplevel "part outside an architecture folder" 'cp amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-00 .'
-layout_case wrongarch "which is not an arm64 image part" 'mv amd64/ncz-os-amd64-20261013-abcdef12.img.zst.part-01 arm64/ && cat amd64/PARTS-amd64.sha256 >> arm64/PARTS-arm64.sha256 && sedi "/part-01/d" amd64/PARTS-amd64.sha256'
-layout_case noarch "no architecture folder" 'rm -rf amd64 arm64'
+layout_case toplevel "part outside an architecture folder" 'cp amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-00 .'
+layout_case wrongarch "which is not an image part for arm64-desktop" 'mv amd64/ncz-os-amd64-20261013-abcdef12-desktop.img.zst.part-01 arm64/ && cat amd64/PARTS-amd64-desktop.sha256 >> arm64/PARTS-arm64-desktop.sha256 && sedi "/part-01/d" amd64/PARTS-amd64-desktop.sha256'
+layout_case noarch "amd64-desktop: amd64/PARTS-amd64-desktop.sha256 not found" 'rm -rf amd64 arm64'
 
-# 10. a single architecture is a valid release
-ONE="$T/one"; mkrel "$ONE"; rm -rf "$ONE/arm64"; cp "$ONE/amd64/SHA256SUMS-amd64" "$ONE/SHA256SUMS"
-reset_state
-bash "$TOOL" --dir "$ONE" --tag v26.10-test >/dev/null 2>&1; rc=$?
-check "amd64-only release exits 0" '[ "$rc" -eq 0 ]'
-check "amd64-only release has no arm64 package or links" '[ "$(st "[$PK | .name] | sort | join(\",\")")" = "ncz-os-image-amd64,ncz-os-image-common" ] && ! st "$LINKS[].name" | grep >/dev/null "^arm64/"'
+# 10. a single architecture is refused before any request
+layout_case onearch "arm64-server: arm64/PARTS-arm64-server.sha256 not found" 'rm -rf arm64'
 
 # 11. tag that does not exist: no upload, no release (the tool never creates tags)
 reset_state

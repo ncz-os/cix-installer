@@ -1,8 +1,9 @@
 #!/bin/bash
 # build-singularity.sh — reproducible build of the NCZ-OS Singularity Desktop
-# payload (/opt/singularity) for CIX Sky1 (arm64).
+# payload (/opt/singularity) for the host's architecture: arm64 (CIX Sky1) and
+# amd64 are both built natively; the .deb step selects the arch that matches.
 #
-# NCZ-OS 26.7 "Maximilian" ships Singularity Desktop (labwc/wlroots, GTK4/Vala,
+# NCZ-OS 26.10 "Cygnus" ships Singularity Desktop (labwc/wlroots, GTK4/Vala,
 # GLES on CIX libmali) as THE desktop, replacing XFCE/X11. This script produces
 # the canonical, rebuildable `singularity-opt.tgz` artifact that
 # post-install/20-desktop.sh extracts to /opt/singularity at desktop-layer bake
@@ -10,8 +11,8 @@
 # reproducible from upstream sources.
 #
 # METHOD (matches the Sky1 bring-up build, docs/upstream/singularity/):
-#   1. debian:<codename> arm64 container, matching release.conf (native
-#      on any arm64 host with docker/podman).
+#   1. debian:<codename> container for this host's arch, matching release.conf
+#      (native on any arm64 or amd64 host with docker/podman).
 #   2. clone singularityos-lab/singularity-desktop --recursive.
 #   3. build the `vetro` Go host tool (UI transpiler) and put it on PATH.
 #   4. meson setup --prefix=/opt/singularity --libdir=lib ; ninja ; meson install
@@ -94,6 +95,28 @@ else
         exit 1
     }
     SRC_REF="$(NCZ_SINGULARITY_PINS="$PINS_FILE" bash "$REPO_ROOT/build/singularity-pins.sh" sha .)" || exit 1
+    # Mirror the pinned repos on the host BEFORE the container starts: the
+    # container has no ssh credentials, so ssh:// pin rows are served from
+    # the pin cache. Both steps are HARD failures: a pinned build must not
+    # proceed without its pinned bytes (no fallback to branch heads exists),
+    # and a container that cannot reach a URL fails late and expensively --
+    # fail loud here instead, naming the URL (2026-11-13 lane A 07:0xZ).
+    NCZ_SINGULARITY_PINS="$PINS_FILE" bash "$REPO_ROOT/build/singularity-pins.sh" reachable || {
+        echo "ERROR: the build container cannot reach every pinned URL (rows above)." >&2
+        echo "       Fix network access or the pin row, then re-run." >&2
+        exit 1
+    }
+    NCZ_SINGULARITY_PINS="$PINS_FILE" bash "$REPO_ROOT/build/singularity-pins.sh" fetch-cache || {
+        echo "ERROR: singularity pin cache refresh failed (rows above) -- a pinned build" >&2
+        echo "       cannot proceed without its pinned commits. Fix network access or the" >&2
+        echo "       pin row, then re-run. No fallback to branch heads is allowed." >&2
+        exit 1
+    }
+    # Compute the cache location ONCE here and pass it explicitly to the
+    # container (mounted read-only at /ncz-pin-cache): the far side must
+    # never derive it from the tree layout.
+    PIN_CACHE_HOST="$(NCZ_SINGULARITY_PINS="$PINS_FILE" bash "$REPO_ROOT/build/singularity-pins.sh" cache-path)" || exit 1
+    [ -d "$PIN_CACHE_HOST" ] || { echo "ERROR: pin cache $PIN_CACHE_HOST missing after fetch-cache" >&2; exit 1; }
 fi
 # Optional checked-out superproject.  This is intentionally explicit: local
 # NCZ fixes must never be mistaken for an upstream main build.
@@ -101,6 +124,40 @@ SRC_DIR="${SINGULARITY_SOURCE_DIR:-}"
 VETRO_REPO="${VETRO_REPO:-https://github.com/singularityos-lab/vetro}"
 PREFIX="/opt/singularity"
 OUT="${OUT:-$(cd "$(dirname "$0")/.." && pwd)/build/sinty-out}"
+# Host-owned container workspace. Inside the container /work holds the clone,
+# the meson build tree, and DESTDIR staging; nothing inside the container
+# must live on copy-on-write overlay scratch, because a hard kill of the
+# container would erase it and a slow host would deadlock on overlay churn.
+# NCZ_SINGULARITY_WORK_DIR overrides for build hosts that prefer a different
+# mount; the default sits inside $OUT so every build owns its workspace
+# (a shared $HOME/Projects/work can be written into by two parallel builds
+# racing on the same /work bind). Do NOT delete a pre-existing workspace
+# the caller did not ask us to create -- the actual native task uses
+# its own task/work, not this default.
+WORK_DIR="${NCZ_SINGULARITY_WORK_DIR:-$OUT/work}"
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
+# Hard guard: refuse to start a build whose workspace would land on tmpfs,
+# ramfs, or any overlay/aufs scratch. The workspace MUST exist before
+# findmnt is consulted (otherwise findmnt walks up the parent path and
+# reports the nearest mounted ancestor -- which can silently be the host
+# root or something we never intended). A failed findmnt OR an empty
+# successful probe OR a tmpfs/ramfs/overlay/aufs/fuse-overlayfs backing
+# is a hard failure with the offending mount, before any apt fetch. Real
+# disk filesystems (btrfs, ext4, xfs, zfs, f2fs, ...) are accepted. The
+# guard itself lives in lib/ncz-work-dir-guard.sh so apt-sim-tests.sh can
+# exercise the EXACT same policy without copying the case statement.
+. "$(cd "$(dirname "$0")" && pwd)/lib/ncz-work-dir-guard.sh"
+ncz_work_dir_guard "$WORK_DIR" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/go" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/go-build" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/go/pkg/mod" || exit 1
+ncz_work_dir_guard "$WORK_DIR/caches/xdg" || exit 1
+ncz_work_dir_guard "$WORK_DIR/tmp" || exit 1
+mkdir -p "$WORK_DIR/tmp"
+# Container TMPDIR is on the host-owned bind (not overlay /tmp), so any
+# process the helper spawns that respawns apt or writes scratch state
+# sees the same backing store the rest of the build is using.
+export NCZ_SINGULARITY_TMPDIR="$WORK_DIR/tmp"
 . "$(cd "$(dirname "$0")" && pwd)/lib/ncz-site.sh"
 PUSH_STORE=0
 case "${1:-}" in --push|--push-argonas) PUSH_STORE=1 ;; esac
@@ -118,11 +175,20 @@ CE="$(command -v docker || command -v podman || true)"
     exit 1
 }
 
+# The container is debian:<codename> for the HOST's architecture, and the payload is
+# built natively for it (no cross, no emulation). Both arches are supported: the
+# amd64 payload was first built on a build host on 2026-11-06 (10236/10236 targets), and
+# build-singularity-deb.sh takes NCZ_SINGULARITY_ARCH so the .deb always matches the
+# tarball it packages. The only requirement is that the payload arch equals the arch
+# of the image it is baked into -- a mismatched tarball is caught by the deb step and
+# by the acceptance gate, not by refusing to build.
 ARCH="$(uname -m)"
 case "$ARCH" in
-    aarch64|arm64) ;;
-    *) echo "WARN: host arch=$ARCH — Singularity payload is arm64; build MUST run on/emulate aarch64 (this container image is $IMAGE)." >&2 ;;
+    aarch64|arm64|armv8l) PAYLOAD_ARCH=arm64 ;;
+    x86_64|amd64)         PAYLOAD_ARCH=amd64 ;;
+    *) echo "WARN: host arch=$ARCH is not one NCZ ships; the payload will be built natively for it and the deb step will refuse it." >&2 ;;
 esac
+echo "   arch   = ${PAYLOAD_ARCH:-unknown} (native, no emulation)"
 
 mkdir -p "$OUT"
 # The Depends sidecar is regenerated with the tarball; never let a previous
@@ -148,14 +214,45 @@ echo "           $OUT/singularity-opt.tgz.sources (upstream commit of every repo
 BUILD_SCRIPT='
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+# Host-owned cache directories for Go toolchain (module cache, build cache,
+# XDG cache). Bound to /work/caches/* from the host before container launch.
+export GOPATH=/work/caches/go
+export GOCACHE=/work/caches/go-build
+export GOMODCACHE=/work/caches/go/pkg/mod
+export XDG_CACHE_HOME=/work/caches/xdg
+# Keep apt scratch on the host-owned bind so the simulation and the real
+# install do not race against overlay /tmp churn.
+export TMPDIR=/work/tmp
+mkdir -p "$TMPDIR"
 apt-get update -q
+# ZERO-REMOVALS GATE (NCZ-OS payload policy): run the simulation through
+# the generic helper against the SAME package list and flag set as the
+# real transaction, against the SAME base the real install will read.
+# The helper takes the EXACT install arguments (already-expanded) and
+# runs `apt-get install -s` with them; the simulation and the install
+# use identical arguments by construction. The simulation must finish
+# cleanly (exit 0) AND must not print any "Remv " line -- a Remv here
+# means we are about to delete a package the shipped system still
+# needs (e.g. pulling libfoo-dev which Conflicts/Replaces libfoo on the
+# target). No bypass, no --allow-downgrades, no --no-trusted; if the
+# dependency resolution itself is wrong, the build fails here with the
+# exact Remv line, not silently later. On a clean simulation the
+# helper runs the actual `apt-get install` with the SAME arguments.
+# The install argument list is written ONCE below -- the helper
+# receives it as "$@" verbatim, so BUILD_SCRIPT cannot drift its
+# package list away from the gate.
 # SIT (subprojects/sit, the toolkit the superproject builds since 615dba0) needs the
 # gstreamer-play, vulkan/glslc, colord and X11 extension headers in the block before
 # build-essential (meson setup with the superproject SIT_OPTIONS, measured 2026-10-13).
 # Build deps (Debian 13 / Ubuntu 26.04 names — see docs/upstream/singularity/
 # 20-pr-arm64-build.md). No arch guards needed; the tree builds clean on aarch64.
-apt-get install -y --no-install-recommends \
-    ca-certificates git golang-go \
+# $SINGULARITY_METADATA_SEARCH_DEV is set by the host build to the
+# metadata-search -dev package for the chosen base (e.g. libtinysparql-dev
+# on forky, libtracker-sparql-3.0-dev elsewhere); it appears exactly once
+# in the install argument list below -- the helper reuses the same args.
+bash /ncz-build/apt-sim-zero-removals.sh /work/tmp/apt-sim.log \
+    -y --no-install-recommends \
+    ca-certificates git golang-go curl xz-utils \
     libglib2.0-bin \
     valac meson ninja-build pkg-config gettext \
     libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev \
@@ -202,7 +299,7 @@ apt-get install -y --no-install-recommends \
     freerdp3-dev libarchive-dev libfido2-dev libfreetype-dev liblzma-dev \
     libsane-dev libxcb-render-util0-dev libxcb-xinput-dev libzbar-dev \
     libzstd-dev nettle-dev \
-    libevdev-dev libmtdev-dev libwacom-dev libtracker-sparql-3.0-dev \
+    libevdev-dev libmtdev-dev libwacom-dev \
     libsfdo-dev libudev-dev \
     libgstreamer-plugins-bad1.0-dev libvulkan-dev glslc libcolord-dev \
     libxcursor-dev libxdamage-dev libxi-dev libxinerama-dev libxrandr-dev \
@@ -211,6 +308,38 @@ apt-get install -y --no-install-recommends \
     build-essential
 
 mkdir -p /work && cd /work
+
+# zig toolchain: libsingularity system core at the frozen 20261113 heads is a zig
+# library (build.zig addLibrary API = zig 0.15+; 0.17.1 breaks that build.zig,
+# 0.16.0 verified compile-clean against these exact sources 2026-11-13). Debian
+# forky carries no zig package, so provision the pinned upstream tarball when the
+# base image lacks one. sha256 per arch below (ziglang.org/download/index.json).
+if ! command -v zig >/dev/null 2>&1; then
+    case "$(uname -m)" in
+        x86_64)  _zig_arch=x86_64;  _zig_sha=70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00 ;;
+        aarch64) _zig_arch=aarch64; _zig_sha=ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17 ;;
+        *) echo "zig provisioning: unsupported arch $(uname -m)" >&2; exit 1 ;;
+    esac
+    curl -fsSL -o /work/tmp/zig.tar.xz "https://ziglang.org/download/0.16.0/zig-${_zig_arch}-linux-0.16.0.tar.xz"
+    echo "${_zig_sha}  /work/tmp/zig.tar.xz" | sha256sum -c -
+    mkdir -p /work/caches/zig
+    tar -xJf /work/tmp/zig.tar.xz -C /work/caches/zig --strip-components=1
+    export PATH="/work/caches/zig:$PATH"
+fi
+
+# cups.vapi stub: forky valac ships no cups binding (no package provides one;
+# apt-file empty for cups.vapi and the Cups GIR) and libsingularity passes
+# dependency(cups) to valac as --pkg cups. The Vala sources only mirror IPP
+# constants locally (src/print/ipp.vala); the C side links the real libcups via
+# pkg-config, so an empty Cups namespace satisfies the generator. Project-owned
+# vapi dir + VALAFLAGS --vapidir (review 214: never write into the system
+# vapidir); the export happens only when the base image lacks a real binding.
+mkdir -p /work/caches/vapi
+printf "[CCode (cheader_filename = \"cups/cups.h\")]\nnamespace Cups {\n}\n" > /work/caches/vapi/cups.vapi
+if ! ls /usr/share/vala*/vapi/cups.vapi >/dev/null 2>&1; then
+    export VALAFLAGS="--vapidir=/work/caches/vapi"
+    echo "    NOTE: stub cups.vapi at /work/caches/vapi (no distro binding exists)"
+fi
 
 # vetro host tool (UI .vetro -> .ui transpiler). Go 1.24+.
 if [ "$NCZ_SINGULARITY_TRACK_HEAD" = 1 ]; then
@@ -320,10 +449,22 @@ fi
 # directory name rather than guessing from the patch content means a patch can
 # never be applied against the wrong tree -- the first version of this assumed
 # every patch was for labwc, which would have silently mis-targeted the shell.
+# Queues whose upstream is cloned as a STANDALONE repository rather than a
+# superproject submodule. Their patches are applied at the clone site further
+# down, with the same apply/skip/hard-fail contract, so this loop must not
+# require a subprojects/<name> tree for them. Adding a queue here without a
+# clone site is caught by build/test-singularity-patch-queues.sh.
+STANDALONE_QUEUES="singularity-boot-splash"
+
 if [ -d /ncz-patches ]; then
     for _sub in /ncz-patches/*/; do
         [ -d "$_sub" ] || continue
         _name=$(basename "$_sub")
+        case " $STANDALONE_QUEUES " in
+            *" $_name "*)
+                echo "    ncz patches ($_name): standalone repository, applied at its clone site"
+                continue ;;
+        esac
         _tree="subprojects/$_name"
         # A patch directory named after the ROOT repo itself (singularity-desktop
         # is not its own subproject/submodule) applies at the top level instead.
@@ -462,8 +603,23 @@ fi
 # subproject (see /ncz-patches/singularity-shell/0014), so it is passed as a
 # subproject option; if the patch did not apply the option would not exist and
 # meson would fail loudly here, which is the intended failure mode.
-meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release \
-    -Dsingularity-shell:lock_framesrc=enabled
+# lock_framesrc exists only when the fork queue patch 0014 applied (pinned
+# builds); a queue-less --sources latest head may not define it. Gate the flag
+# on the option existing so both build lines work; the loud failure mode for a
+# pinned build missing 0014 is preserved by the grep on the pinned tree.
+if grep -q lock_framesrc subprojects/singularity-shell/meson_options.txt 2>/dev/null; then
+# Zig system core CPU (2026-11-18): libsingularity builds libsinty-system-core.so with Zig, and Zig targets the
+# native CPU of the BUILD HOST unless told otherwise. A payload built on a build host (Zen 4, AVX-512) therefore died with an
+# illegal instruction on every Intel T2 test host (no AVX-512), and one built on a build host (Apple M) would carry the
+# features of that CPU onto the Sky1 boards. The baseline model is the generic x86_64 or aarch64 target, valid on every shipped board.
+    meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release \
+        -Dlibsingularity:zig-cpu=baseline \
+        -Dsingularity-shell:lock_framesrc=enabled
+else
+    echo "    NOTE: singularity-shell has no lock_framesrc option (queue patch 0014 not applied); lock-saver plan inert"
+    meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release \
+        -Dlibsingularity:zig-cpu=baseline
+fi
 # libmali / SceneFX (O6N black screen, 2026-10-10). The bundled SceneFX in
 # labwc is a meson [wrap-git] subproject, invisible to singularity-pins.sh and
 # /ncz-patches (both key on superproject submodule paths). Resolve the wrap and
@@ -577,6 +733,22 @@ else
     bash /ncz-build/singularity-pins.sh clone singularity-boot-splash singularity-boot-splash
 fi
 cd singularity-boot-splash
+# The boot splash is its own repository, so its OWN sources take a queue too
+# (the loginui queue below patches the renderer it bundles, not this repo).
+if [ -d /ncz-patches/singularity-boot-splash ]; then
+    for _p in /ncz-patches/singularity-boot-splash/*.patch; do
+        [ -e "$_p" ] || continue
+        if git apply --check "$_p" 2>/dev/null; then
+            git apply "$_p"
+            echo "    ncz patch applied (boot-splash repo): $(basename "$_p")"
+        elif git apply --reverse --check "$_p" 2>/dev/null; then
+            echo "    ncz patch already present (boot-splash repo): $(basename "$_p")"
+        else
+            echo "ERROR: ncz patch does not apply to singularity-boot-splash: $(basename "$_p")" >&2
+            exit 1
+        fi
+    done
+fi
 # The boot splash bundles its OWN copy of singularity-loginui (the Cairo
 # renderer that draws the logo and loading bar), so the loginui patches the
 # desktop tree received above must be applied here as well, or the boot splash
@@ -606,6 +778,23 @@ meson setup build --prefix='"$PREFIX"' --libdir=lib --buildtype=release
 ninja -C build
 DESTDIR=/work/stage meson install -C build
 test -x "/work/stage'"$PREFIX"'/bin/singularity-boot-splash"
+
+# ncz-loginui-reinstall-after-boot-splash - see the commit message: the boot-splash
+# repo bundles its own loginui and installs it after the superproject, overwriting
+# the patched header and archive. Put the superproject copies back.
+_ncz_inc="/work/stage/opt/singularity/include"
+_ncz_lib="/work/stage/opt/singularity/lib"
+# Every one of the three must be present: a silent skip here would leave a mixed
+# stage (patched header, unpatched archive) and the acceptance gate would be the
+# only thing between that and a pinned payload.
+for _lf in loginui.h widget.h; do
+    [ -f "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" ] || {
+        echo "ERROR: cannot reinstall ${_lf}: superproject copy missing" >&2; exit 1; }
+    install -m 644 "/work/singularity-desktop/subprojects/singularity-loginui/${_lf}" "${_ncz_inc}/${_lf}"
+done
+[ -f /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a ] || {
+    echo "ERROR: cannot reinstall libloginui.a: superproject build archive missing" >&2; exit 1; }
+install -m 644 /work/singularity-desktop/build/subprojects/singularity-loginui/libloginui.a "${_ncz_lib}/libloginui.a"
 
 # Package. Paths are opt/singularity/... so `tar -C /` lands at /opt/singularity.
 cd /work/stage
@@ -655,15 +844,20 @@ esac
 
 echo "== running build in $IMAGE ($CE)${NCZ_CONTAINER_PLATFORM:+ platform=$NCZ_CONTAINER_PLATFORM} =="
 CE_ARGS=(--rm --network="$CONTAINER_NETWORK" -v "$OUT":/out \
+         -v "$WORK_DIR":/work \
          -v "$REPO_ROOT/build":/ncz-build:ro \
          -e SRC_REF="$SRC_REF" -e SINGULARITY_METADATA_SEARCH_DEV="$METADATA_SEARCH_DEV" \
-         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD")
+         -e NCZ_SINGULARITY_TRACK_HEAD="$TRACK_HEAD" \
+         -e NCZ_SINGULARITY_TMPDIR="$NCZ_SINGULARITY_TMPDIR")
 # Optional exact SceneFX commit for the wrap the compositor-pins resolver
 # freezes (build/patch-singularity-scenefx.sh honours it). Unset -> the helper
 # resolves labwc's scenefx.wrap revision itself.
 [ -n "${NCZ_SCENEFX_SHA:-}" ] && CE_ARGS+=(-e NCZ_SCENEFX_SHA="$NCZ_SCENEFX_SHA")
 if [ "$TRACK_HEAD" != 1 ]; then
     CE_ARGS+=(-v "$PINS_FILE":/ncz-pins.tsv:ro -e NCZ_SINGULARITY_PINS=/ncz-pins.tsv)
+    # Host-refreshed mirror at an explicitly computed path, mounted read-only
+    # at a fixed container path -- decoupled from the tree layout.
+    CE_ARGS+=(-v "$PIN_CACHE_HOST":/ncz-pin-cache:ro -e NCZ_SINGULARITY_PIN_CACHE=/ncz-pin-cache)
     # An explicit SINGULARITY_REPO / VETRO_REPO (e.g. a local mirror) still
     # supplies the bytes; the commit still comes from the pin file.
     [ -n "${SINGULARITY_REPO:-}" ] && CE_ARGS+=(-e SINGULARITY_REPO_OVERRIDE="$SINGULARITY_REPO")
@@ -697,7 +891,7 @@ fi
 # INSIDE the container, so assets/singularity/patches/ is invisible to it
 # unless mounted -- which is why a tarball built here was a clean upstream
 # baseline and silently did NOT contain our labwc fix. Mount it read-only.
-NCZ_PATCHES="$REPO_ROOT/assets/singularity/patches"
+NCZ_PATCHES="${NCZ_SINGULARITY_PATCHES:-$REPO_ROOT/assets/singularity/patches}"
 if [ -d "$NCZ_PATCHES" ]; then
     CE_ARGS+=(-v "$NCZ_PATCHES":/ncz-patches:ro)
 fi

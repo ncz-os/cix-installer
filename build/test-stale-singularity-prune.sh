@@ -5,6 +5,13 @@
 # stage exactly that sha256-checked deb instead of recompiling.
 # r201 amd64 image: two Singularity debs (older build 46 MB) shipped in
 # /usr/local/lib/cix-installer/assets/cix-debs/.
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-stale-singularity-prune: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -u
 HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 SCRIPT="${NCZ_SCRIPT_UNDER_TEST:-$HERE/build-squashfs-layers.sh}"

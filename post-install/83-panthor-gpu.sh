@@ -1,11 +1,14 @@
 #!/bin/bash
-# 83-panthor-gpu.sh — register the Panthor GPU kernel driver as a DKMS package
-# (panthor-cix) and install the ncz-gpu-select kernel-driver selector.
+# 83-panthor-gpu.sh — install the ncz-gpu-switcher GPU-driver selector
+# (Mali loader) and purge any Panthor DKMS registration.
 #
-# 26.7 ships MALI (mali_kbase, 82-mali-gpu.sh) as the DEFAULT and only-supported
-# GPU stack. Panthor is EXPERIMENTAL / opt-in (Mesa GL + PanVK Vulkan) and is
-# NOT selected by default. This hook only makes panthor *available* to switch
-# to; it does not change the running GPU driver.
+# PANThOR IS NOT SHIPPED (order 01:35Z 2026-11-15, "NO PANTHOR ANYWHERE"):
+# one GPU driver, the vendor Mali stack, on desktop and server. This hook
+# used to also register the panthor-cix DKMS package; that section is gone.
+# What remains is the stack switcher (one source of truth for driver loading:
+# loads the mali trio explicitly, holds both drivers in modprobe.d against
+# udev-autoload races) plus the belt-and-braces purge of any stale panthor-cix
+# registration. Revisit Panthor after Linux 7.4 ships.
 #
 # Symmetric with mali-kbase (82-mali-gpu.sh): panthor is packaged as DKMS
 # (assets/kernel/panthor) so it is decoupled from the weekly
@@ -130,141 +133,10 @@ rm -f /etc/systemd/system/ncz-mali-kbase-load.service \
 rm -f /usr/local/sbin/ncz-mali-kbase-allowed
 echo "[83] removed ncz-mali-kbase-load.service (ncz-gpu-switcher owns driver loading)"
 
-# --- 2. register the panthor-cix DKMS source (opt-in; built on demand) -------
-# build/build-dkms-debs.sh produces a real panthor-cix-dkms_*.deb from this
-# same asset dir (postinst: dkms add + autoinstall + dracut refresh, same as
-# 82-mali-gpu.sh). Prefer that real, dpkg-tracked package when staged — it's
-# what gives apt an update path; the raw source-copy below never registered
-# with dpkg. Fall back to raw source-copy only if no .deb is staged.
-KVER_NEXT=""
-[ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(tr -d ' \t\r\n' < "$INSTALLER_META/KVER_NEXT")
-
-# Prebuilt-overlay fallback. Runs after the staged .deb installs and after raw
-# source registration (not when the asset dir has no dkms.conf): a DKMS build that did not leave a module for
-# the target kernel must still end with the vermagic-matched panthor.ko from
-# assets/kernel/panthor/<kver>/. Mirrors 82-mali-gpu.sh. The staged-.deb path
-# used to `exit 0` right after `dpkg -i`; the deb postinst never fails on a
-# missing/failed DKMS build, so a failed build (r200: DRIVER_GEM_GPUVA on 7.3)
-# left the target with NO panthor module and this fallback never ran.
-_panthor_overlay_fallback() {
-    local PREBUILT="" _c _vm
-    for _c in "$ASSET_DIR/$KVER_NEXT/panthor.ko" "${SRC:-/nonexistent}/${KVER_NEXT}/panthor.ko"; do
-        [ -n "$KVER_NEXT" ] && [ -s "$_c" ] || continue
-        _vm=$(modinfo -F vermagic "$_c" 2>/dev/null | awk '{print $1}')
-        if [ -n "$_vm" ] && [ "$_vm" != "$KVER_NEXT" ]; then
-            echo "[83] REFUSE prebuilt $_c: vermagic '$_vm' != '$KVER_NEXT'"; continue
-        fi
-        PREBUILT="$_c"; break
-    done
-    # Does updates/dkms already hold a panthor module, UNDER ANY COMPRESSION?
-    #
-    # This gate used to test only the bare "panthor.ko" name. DKMS on forky
-    # installs the module COMPRESSED -- updates/dkms/panthor.ko.xz -- so the test
-    # saw "nothing there" even on a completely successful DKMS build, and the
-    # prebuilt fallback below overwrote nothing but happily added a SECOND,
-    # uncompressed copy beside it.
-    #
-    # MEASURED on O6N 2026-08-18, both files present in the same directory:
-    #   -rw-r--r-- 385272  /lib/modules/7.2.0-sky1-ncz/updates/dkms/panthor.ko
-    #   -rw-r--r--  82680  /lib/modules/7.2.0-sky1-ncz/updates/dkms/panthor.ko.xz
-    # which is what made `dkms status` report panthor-cix/7.2.0 as
-    # "Differences between built and installed modules" -- DKMS compares its own
-    # .ko.xz against a directory that also contains a foreign .ko it never wrote.
-    #
-    # Harmless in the shipping configuration only because BOTH GPU drivers are
-    # blacklisted in /etc/modprobe.d/ncz-gpu-drivers.conf and mali is the bound
-    # driver. It would stop being harmless the moment someone selects panthor via
-    # ncz-gpu-select, since which of the two depmod prefers is not something this
-    # script should be leaving to chance.
-    _have_panthor_mod() {
-        local d="/usr/lib/modules/$KVER_NEXT/updates/dkms"
-        [ -s "$d/panthor.ko" ] || [ -s "$d/panthor.ko.xz" ] \
-            || [ -s "$d/panthor.ko.zst" ] || [ -s "$d/panthor.ko.gz" ]
-    }
-
-    if [ -n "$KVER_NEXT" ] && ! _have_panthor_mod && [ -n "$PREBUILT" ]; then
-        install -D -m 0644 "$PREBUILT" "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
-        depmod -a "$KVER_NEXT" 2>/dev/null || true
-        echo "[83] installed vermagic-matched prebuilt Panthor for $KVER_NEXT"
-    elif [ -n "$KVER_NEXT" ] && ! _have_panthor_mod; then
-        echo "[83] WARN: no DKMS-built and no prebuilt Panthor for $KVER_NEXT — in-tree module would flood-wedge Sky1; do NOT expose the Panthor boot entry"
-    else
-        # Clear any uncompressed leftover from a previous install that ran the
-        # old gate, so DKMS and the module tree agree from here on.
-        _stale="/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko"
-        if [ -n "$KVER_NEXT" ] && [ -s "$_stale" ] \
-           && [ -s "/usr/lib/modules/$KVER_NEXT/updates/dkms/panthor.ko.xz" ]; then
-            rm -f "$_stale"
-            depmod -a "$KVER_NEXT" 2>/dev/null || true
-            echo "[83] removed stale uncompressed panthor.ko (DKMS .ko.xz is authoritative)"
-        else
-            echo "[83] panthor module already present in updates/dkms for $KVER_NEXT"
-        fi
-    fi
-}
-
-PANTHOR_DEB=$(ls /usr/local/lib/cix-installer/assets/cix-debs/panthor-cix-dkms_*.deb 2>/dev/null | head -1)
-if [ -n "$PANTHOR_DEB" ]; then
-    if dpkg -i "$PANTHOR_DEB" >/dev/null 2>&1; then
-        echo "[83] installed $(basename "$PANTHOR_DEB") via dpkg — panthor-cix now apt-tracked"
-        _panthor_overlay_fallback
-        echo "[83] panthor GPU stage done (selector installed; DKMS package installed)"
-        exit 0
-    fi
-    echo "[83] WARN: dpkg -i $(basename "$PANTHOR_DEB") failed — falling back to raw DKMS source registration"
-    # Same half-configured-record risk as 82-mali-gpu.sh -- clear it so a
-    # later real install attempt isn't blocked on a failed postinst here.
-    dpkg --purge panthor-cix-dkms >/dev/null 2>&1 || true
-fi
-
-if [ ! -d "$ASSET_DIR" ] || [ ! -f "$ASSET_DIR/dkms.conf" ]; then
-    echo "[83] no panthor-cix DKMS source at $ASSET_DIR — skipping DKMS registration"
-    echo "[83] panthor GPU stage done (selector installed; DKMS source absent)"
-    exit 0
-fi
-
-if ! command -v dkms >/dev/null 2>&1; then
-    echo "[83] dkms not present — staging panthor-cix source to /usr/src only"
-fi
-
-SRC=/usr/src/${PKG_NAME}-${PKG_VER}
-rm -rf "$SRC"
-install -d -m 0755 "$SRC"
-cp -a "$ASSET_DIR"/. "$SRC"/
-# drop any stray build artifacts from the asset tree; keep sources + dkms.conf
-rm -f "$SRC"/*.o "$SRC"/*.ko "$SRC"/*.mod* "$SRC"/Module.symvers "$SRC"/modules.order 2>/dev/null
-# the provenance patch dir is not part of the buildable module
-rm -rf "$SRC"/patches 2>/dev/null
-echo "[83] staged panthor-cix source -> $SRC"
-
-if command -v dkms >/dev/null 2>&1; then
-    dkms add -m "$PKG_NAME" -v "$PKG_VER" >/dev/null 2>&1 \
-        && echo "[83] dkms add ${PKG_NAME}/${PKG_VER}" \
-        || echo "[83] dkms add skipped (already registered?)"
-
-    # Build now only if the NEXT (7.2) kernel headers are present; otherwise
-    # DKMS autoinstall rebuilds it on the next kernel upgrade. The module is
-    # NOT loaded now — mali is the default and panthor is opt-in via
-    # ncz-gpu-select, which rebuilds the initramfs at switch time.
-    if [ -n "$KVER_NEXT" ] && [ -f "/usr/lib/modules/$KVER_NEXT/build/Makefile" ]; then
-        dkms build   -m "$PKG_NAME" -v "$PKG_VER" -k "$KVER_NEXT" >/dev/null 2>&1 \
-          && dkms install -m "$PKG_NAME" -v "$PKG_VER" -k "$KVER_NEXT" --force >/dev/null 2>&1 \
-          && echo "[83] dkms built+installed ${PKG_NAME} for $KVER_NEXT (-> updates/dkms/)" \
-          || echo "[83] dkms build/install deferred (will autoinstall on kernel upgrade)"
-    else
-        echo "[83] no NEXT kernel headers — panthor-cix DKMS will autoinstall on kernel upgrade"
-    fi
-fi
-
-# Always fall back to the vermagic-matched patched module when DKMS did not
-# leave one in updates/dkms — INCLUDING when the dkms binary itself is absent
-# from the target (mirrors 82-mali-gpu.sh, whose prebuilt overlay is likewise
-# unconditional). This gate being inside the dkms-only path is exactly what
-# shipped O6N installs with NO panthor module in updates/dkms: the unpatched
-# in-tree panthor.ko then wins depmod, probes the still-secured GPU, and
-# wedges the board in the TF-A "IDM: GPU secure access" flood
-# (metal-confirmed on O6N, 2026-07-31).
-_panthor_overlay_fallback
-
-echo "[83] panthor GPU stage done — panthor available via 'ncz-gpu-select panthor' (experimental)"
+# Panthor is NOT shipped (operator 2026-11-14): one GPU driver, the vendor Mali stack, on desktop and server.
+# panthor-cix is no longer registered with DKMS, no prebuilt overlay is installed, and the rEFInd generator emits
+# no Panthor entry. The switcher above stays as the Mali loader. Revisit after Linux 7.4 ships.
+rm -rf "/usr/src/${PKG_NAME}-${PKG_VER}" 2>/dev/null
+dkms remove -m "$PKG_NAME" -v "$PKG_VER" --all >/dev/null 2>&1 || true
+echo "[83] panthor-cix not shipped (Mali only); switcher installed"
 exit 0

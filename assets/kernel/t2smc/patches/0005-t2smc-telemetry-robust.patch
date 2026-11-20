@@ -1,8 +1,8 @@
 diff --git a/t2smc.c b/t2smc.c
-index 3f93861..c4decb3 100644
+index 66c1e3d..d2ebc4c 100644
 --- a/t2smc.c
 +++ b/t2smc.c
-@@ -509,18 +509,45 @@ static int t2smc_read_scaled(struct t2smc_device *t2, const char *key,
+@@ -713,18 +713,45 @@ static int t2smc_read_scaled(struct t2smc_device *t2, const char *key,
  			return ret;
  
  		memcpy(&raw, buf, sizeof(raw));
@@ -51,7 +51,7 @@ index 3f93861..c4decb3 100644
  
  		*val = min_t(u64, magnitude, LONG_MAX);
  		if (raw & BIT(31))
-@@ -1416,52 +1443,70 @@ static ssize_t t2smc_power_show(struct device *dev,
+@@ -1741,47 +1768,67 @@ static ssize_t t2smc_power_show(struct device *dev,
  		return sysfs_emit(buf, "%u\n", READ_ONCE(t2->power_status));
  	case T2SMC_POWER_CAPACITY:
  		ret = t2smc_read_be16(t2, T2SMC_BATTERY_CAPACITY, &value16);
@@ -76,6 +76,8 @@ index 3f93861..c4decb3 100644
  		ret = t2smc_read_scaled(t2, T2SMC_BATTERY_POWER, 1000000, &val);
 +		if (ret)
 +			return ret;
+ 		/* B0AP is positive while discharging, B0AC while charging */
+ 		val = -val;
  		break;
  	case T2SMC_POWER_CHARGE_FULL:
  		ret = t2smc_read_be16(t2, T2SMC_BATTERY_FULL, &value16);
@@ -115,12 +117,16 @@ index 3f93861..c4decb3 100644
 +		if (ret)
 +			return ret;
  		break;
- 	default:
- 		return -EINVAL;
- 	}
- 
--	if (ret)
--		return ret;
- 	return sysfs_emit(buf, "%ld\n", val);
- }
- 
+ 	case T2SMC_POWER_TIME_TO_EMPTY:
+ 	case T2SMC_POWER_TIME_TO_FULL:
+@@ -1789,7 +1836,9 @@ static ssize_t t2smc_power_show(struct device *dev,
+ 			T2SMC_BATTERY_TIME_TO_EMPTY : T2SMC_BATTERY_TIME_TO_FULL;
+ 		ret = t2smc_read_be16(t2, key, &value16);
+ 		/* Minutes, 0xffff while not (dis)charging */
+-		if (!ret && value16 == 0xffff)
++		if (ret)
++			return ret;
++		if (value16 == 0xffff)
+ 			return -ENODATA;
+ 		val = (long)value16 * 60;
+ 		break;

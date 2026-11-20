@@ -9,7 +9,10 @@
 # __versions fails; a vermagic for another KVER fails; a missing overlay set
 # fails; a manifest KVER that disagrees fails; a missing Module.symvers is an
 # input error (2); the staging dir is found through the assets/kernel/mainline
-# symlink.
+# symlink; an overlay whose struct module size (.gnu.linkonce.this_module)
+# differs from the in-tree reference in modules-cixmini.tgz fails (the r292
+# 0x4c0-vs-0x500 class); a staging dir without that reference is an input
+# error; --ref-ko overrides it.
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE="$SCRIPT_DIR/verify-overlay-modversions.py"
@@ -19,12 +22,15 @@ PASS=0; FAIL=0
 KVER=7.3.0-rc6-sky1-ncz
 
 # mkko <out.ko> <vermagic|-> <versions "sym=0xcrc,..."|-> [exports "sym,..."]
+# TM=<hex size|-> sets the .gnu.linkonce.this_module size (default 0x500; - omits it)
 mkko() {
-    python3 - "$@" <<'PY'
-import struct, sys
+    TM="${TM:-0x500}" python3 - "$@" <<'PY'
+import os, struct, sys
 out, vm, vers = sys.argv[1], sys.argv[2], sys.argv[3]
 exports = sys.argv[4].split(",") if len(sys.argv) > 4 and sys.argv[4] else []
 secs = []  # (name, type, body, link, entsize)
+if os.environ["TM"] != "-":
+    secs.append((".gnu.linkonce.this_module", 1, b"\0" * int(os.environ["TM"], 16), 0, 0))
 if vm != "-":
     secs.append((".modinfo", 1, b"license=GPL\0vermagic=" + vm.encode() + b"\0", 0, 0))
 if vers != "-":
@@ -68,9 +74,13 @@ fixture() {
     printf '0x11111111\tfoo\tvmlinux\tEXPORT_SYMBOL\t\n0x22222222\tbar\tvmlinux\tEXPORT_SYMBOL_GPL\t\n0x00000033\tmodule_layout\tvmlinux\tEXPORT_SYMBOL\t\n' \
         > "$st/headers-dir/lib/modules/$KVER/build/Module.symvers"
     ln -s "$st" "$r/repo/assets/kernel/mainline"
+    # in-tree reference module (struct module size of the pinned build)
+    mkdir -p "$r/mods/lib/modules/$KVER/kernel/drivers/gpu"
+    mkko "$r/mods/lib/modules/$KVER/kernel/drivers/gpu/ref.ko" "$KVER SMP preempt mod_unload modversions aarch64" "-"
+    COPYFILE_DISABLE=1 tar -czf "$st/modules-cixmini.tgz" -C "$r/mods" lib
     printf '{"variants":{"mainline":{"kver":"%s"}}}\n' "$KVER" > "$r/repo/assets/kernel-manifest.json"
     local d
-    for d in mali vpu npu panthor; do
+    for d in mali vpu npu; do
         mkdir -p "$r/repo/assets/kernel/$d/$KVER"
         mkko "$r/repo/assets/kernel/$d/$KVER/$d.ko" "$KVER SMP preempt mod_unload modversions aarch64" \
             "module_layout=0x33,foo=0x11111111,bar=0x22222222"
@@ -110,9 +120,9 @@ mkko "$R/repo/assets/kernel/npu/$KVER/npu.ko" "$KVER SMP preempt mod_unload modv
 expect "module without __versions fails" 1 'npu.ko: no __versions entries' "$R/repo"
 
 R=$T/vm; fixture "$R"
-mkko "$R/repo/assets/kernel/panthor/$KVER/panthor.ko" "7.3.0-rc6-sky1-nczX SMP preempt mod_unload modversions aarch64" \
+mkko "$R/repo/assets/kernel/vpu/$KVER/amvx.ko" "7.3.0-rc6-sky1-nczX SMP preempt mod_unload modversions aarch64" \
     "module_layout=0x33,foo=0x11111111"
-expect "vermagic of another KVER fails" 1 'panthor.ko: vermagic .* does not start with' "$R/repo"
+expect "vermagic of another KVER fails" 1 'amvx.ko: vermagic .* does not start with' "$R/repo"
 
 R=$T/noset; fixture "$R"; rm -rf "$R/repo/assets/kernel/npu/$KVER"
 expect "missing overlay set fails" 1 "MISSING overlay set: assets/kernel/npu/$KVER" "$R/repo"
@@ -130,6 +140,79 @@ expect "dangling mainline symlink is an input error" 2 'staging dir not found' "
 R=$T/expl; fixture "$R"; rm -f "$R/repo/assets/kernel/mainline"
 expect "--staging and --symvers override the symlink" 0 'PASS' "$R/repo" \
     --staging "$R/staging" --symvers "$R/staging/headers-dir/lib/modules/$KVER/build/Module.symvers"
+
+R=$T/layout; fixture "$R"
+TM=0x4c0 mkko "$R/repo/assets/kernel/mali/$KVER/mali.ko" "$KVER SMP preempt mod_unload modversions aarch64" \
+    "module_layout=0x33,foo=0x11111111,bar=0x22222222"
+expect "struct module size drift fails (r292: 0x4c0 vs 0x500, CRCs and vermagic correct)" 1 \
+    'mali.ko: this_module 0x4c0 != kernel 0x500' "$R/repo"
+
+R=$T/nolayout; fixture "$R"
+TM=- mkko "$R/repo/assets/kernel/npu/$KVER/npu.ko" "$KVER SMP preempt mod_unload modversions aarch64" \
+    "module_layout=0x33,foo=0x11111111"
+expect "module without a this_module section fails" 1 'npu.ko: no .gnu.linkonce.this_module section' "$R/repo"
+
+R=$T/noref; fixture "$R"; rm -f "$R/staging/modules-cixmini.tgz"
+expect "missing in-tree reference is an input error" 2 "cannot read the kernel's struct module size" "$R/repo"
+
+R=$T/refko; fixture "$R"; rm -f "$R/staging/modules-cixmini.tgz"
+TM=0x4c0 mkko "$R/ref.ko" "$KVER SMP preempt mod_unload modversions aarch64" "-"
+expect "--ref-ko overrides the tgz reference" 1 'this_module 0x500 != kernel 0x4c0' "$R/repo" --ref-ko "$R/ref.ko"
+
+# --- prebuilt kernel BOM (--bom) ---------------------------------------------
+# build/stage-arm64-kernel.sh derives the pinned payload with Module.symvers at
+# the top of the dir and no headers-dir, and the BOM tracks no per-KVER
+# overlays (DKMS builds them on the target). --bom: a tree with no prebuilt .ko
+# for the kernel passes without comparing anything; any prebuilt .ko that does
+# exist is checked in full against <staging>/Module.symvers.
+BKV=7.3.1-sky1-ncz
+# bomfixture <root>: staging laid out like build/kernel-mainline/<release>/, no overlays
+bomfixture() {
+    local r=$1 st=$1/staging
+    mkdir -p "$st" "$r/repo/assets/kernel"
+    printf '%s\n' "$BKV" > "$st/KVER"
+    printf '0x11111111\tfoo\tvmlinux\tEXPORT_SYMBOL\t\n0x22222222\tbar\tvmlinux\tEXPORT_SYMBOL_GPL\t\n0x00000033\tmodule_layout\tvmlinux\tEXPORT_SYMBOL\t\n' \
+        > "$st/Module.symvers"
+    ln -s "$st" "$r/repo/assets/kernel/mainline"
+    mkdir -p "$r/mods/lib/modules/$BKV/kernel/drivers/gpu"
+    mkko "$r/mods/lib/modules/$BKV/kernel/drivers/gpu/ref.ko" "$BKV SMP preempt mod_unload modversions aarch64" "-"
+    COPYFILE_DISABLE=1 tar -czf "$st/modules-cixmini.tgz" -C "$r/mods" lib
+    printf '{"variants":{"mainline":{"kver":"%s"}}}\n' "$BKV" > "$r/repo/assets/kernel-manifest.json"
+    printf 'KVER=%s\nPKGVERSION=%s+r297\n' "$BKV" "$BKV" > "$r/repo/assets/kernel/mainline.debs"
+    # older kernels' overlay dirs are present in the real tree and must not count
+    mkdir -p "$r/repo/assets/kernel/mali/7.3.0-sky1-ncz"
+    mkko "$r/repo/assets/kernel/mali/7.3.0-sky1-ncz/mali.ko" "7.3.0-sky1-ncz SMP preempt mod_unload modversions aarch64" "module_layout=0x99"
+}
+
+R=$T/bom; bomfixture "$R"
+expect "BOM, no prebuilt overlay .ko -> SKIP, PASS" 0 "no prebuilt overlay \\.ko for $BKV" "$R/repo" --bom
+
+R=$T/bomlegacy; bomfixture "$R"
+expect "same BOM tree without --bom still requires headers-dir (unchanged)" 2 'Module.symvers not found: .*headers-dir' "$R/repo"
+
+R=$T/bomok; bomfixture "$R"; mkdir -p "$R/repo/assets/kernel/mali/$BKV"
+mkko "$R/repo/assets/kernel/mali/$BKV/mali.ko" "$BKV SMP preempt mod_unload modversions aarch64" "module_layout=0x33,foo=0x11111111"
+expect "BOM, one prebuilt .ko with the kernel's CRCs -> PASS vs <staging>/Module.symvers" 0 \
+    "symvers=.*/staging/Module.symvers .*modules=1" "$R/repo" --bom
+
+R=$T/bomcrc; bomfixture "$R"; mkdir -p "$R/repo/assets/kernel/vpu/$BKV"
+mkko "$R/repo/assets/kernel/vpu/$BKV/vpu.ko" "$BKV SMP preempt mod_unload modversions aarch64" "module_layout=0x33,bar=0xdeadbeef"
+expect "BOM, a prebuilt .ko whose CRC disagrees -> FAIL" 1 \
+    'CRC MISMATCH assets/kernel/vpu/.*/vpu.ko bar module=0xdeadbeef kernel=0x22222222' "$R/repo" --bom
+
+R=$T/bomlayout; bomfixture "$R"; mkdir -p "$R/repo/assets/kernel/vpu/$BKV"
+TM=0x4c0 mkko "$R/repo/assets/kernel/vpu/$BKV/amvx.ko" "$BKV SMP preempt mod_unload modversions aarch64" "module_layout=0x33"
+expect "BOM, a prebuilt .ko with another struct module layout -> FAIL" 1 'amvx.ko: this_module 0x4c0 != kernel 0x500' "$R/repo" --bom
+
+R=$T/bomnosym; bomfixture "$R"; rm -f "$R/staging/Module.symvers"; mkdir -p "$R/repo/assets/kernel/npu/$BKV"
+mkko "$R/repo/assets/kernel/npu/$BKV/npu.ko" "$BKV SMP preempt mod_unload modversions aarch64" "module_layout=0x33"
+expect "BOM, prebuilt .ko but no Module.symvers -> input error" 2 'Module.symvers not found' "$R/repo" --bom
+
+R=$T/bomkver; bomfixture "$R"; printf 'KVER=7.3.2-sky1-ncz\n' > "$R/repo/assets/kernel/mainline.debs"
+expect "BOM KVER != staged KVER -> FAIL" 1 'mainline.debs KVER 7.3.2-sky1-ncz != staged KVER 7.3.1-sky1-ncz' "$R/repo" --bom
+
+R=$T/bomnopin; bomfixture "$R"; rm -f "$R/repo/assets/kernel/mainline.debs"
+expect "--bom without assets/kernel/mainline.debs -> input error" 2 'requires assets/kernel/mainline.debs' "$R/repo" --bom
 
 echo "test-overlay-modversions: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

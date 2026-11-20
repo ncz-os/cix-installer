@@ -112,7 +112,7 @@ def live_candidate_source(package: str) -> str:
     """The apt source URI the package's CURRENT candidate actually resolves to.
 
     Re-queried here, fresh, right before installing -- not cached from any
-    earlier step -- to avoid a TOCTOU gap between validation and install.
+    earlier step so validation and installation use the same file.
     """
     try:
         proc = subprocess.run(

@@ -43,7 +43,8 @@ DONE="$NCZ_TMP/.ncz-disk-done"
 for _ncz_u in "${NCZ_UI_SH:-}" /ncz/ncz-ui.sh /cdrom/ncz-payload/ncz-ui.sh "$(dirname "$0")/ncz-ui.sh"; do
     [ -n "$_ncz_u" ] && [ -r "$_ncz_u" ] && . "$_ncz_u" && break
 done
-command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; }
+command -v ncz_ui_brand >/dev/null 2>&1 || { ncz_ui_brand() { echo "NCZ-OS"; }; ncz_ui_id() { echo ""; }; ncz_ui_step() { echo "[${1}/8] "; }; }
+command -v ncz_ui_title >/dev/null 2>&1 || ncz_ui_title() { if [ -n "$1" ]; then echo "$(ncz_ui_step "$1")$(ncz_ui_brand) - $2"; else echo "$(ncz_ui_brand) - $2"; fi; }
 
 log() {
     echo "[ncz chooser] $*"
@@ -88,6 +89,49 @@ parent_disk_of_dev() {
         if [ -n "$_parent" ] && [ "$_parent" != "block" ]; then echo "/dev/$_parent"; return 0; fi
     fi
     echo "/dev/$_n"
+}
+
+# ----------------------------------------------------------------------------
+# boot_disk_of_system -> echoes the whole-disk /dev node the machine BOOTED from,
+# or nothing when it cannot be proven. Best-effort and DELIBERATELY silent on
+# doubt: the disk chooser marks the boot disk so the operator does not erase the
+# running disk by accident, so a WRONG marker is worse than no marker.
+#
+# Two simple, robust signals, in order (no firmware-byte parsing: EFI device
+# paths vary too much across vendors to decode safely in POSIX sh, and a bad
+# decode would mislabel a disk on a destructive screen):
+#   1. the EFI System Partition currently mounted (vfat/msdos in /proc/mounts),
+#      resolved to its parent whole disk;
+#   2. the kernel command line's root= / BOOT_IMAGE= target, same resolution.
+# Sky1 METAL has no efivars/mounted ESP (see late.sh), so signal 2 matters there.
+# Anything unresolved returns nothing and the marker is simply omitted.
+# ----------------------------------------------------------------------------
+boot_disk_of_system() {
+    # --- signal 1: the mounted EFI System Partition's disk ---
+    while read -r _dev _mp _fs _rest; do
+        case "$_fs" in vfat|msdos|fat) ;; *) continue ;; esac
+        [ "$_dev" = "/dev/root" ] && continue
+        case "$_dev" in /dev/*) parent_disk_of_dev "$_dev"; return 0 ;; esac
+    done < /proc/mounts
+    # --- signal 2: the root= / BOOT_IMAGE= disk from the kernel command line ---
+    for _t in $(cat "${NCZ_CMDLINE:-/proc/cmdline}" 2>/dev/null) ; do
+        case "$_t" in
+            root=/dev/*|BOOT_IMAGE=/dev/*)
+                case "${_t#*=}" in /dev/*) parent_disk_of_dev "${_t#*=}"; return 0 ;; esac
+                ;;
+            root=UUID=*)
+                for _l in /dev/disk/by-uuid/"${_t#root=UUID=}" ; do
+                    [ -e "$_l" ] && { parent_disk_of_dev "$_l"; return 0; }
+                done
+                ;;
+            root=PARTUUID=*)
+                for _l in /dev/disk/by-partuuid/"${_t#root=PARTUUID=}" ; do
+                    [ -e "$_l" ] && { parent_disk_of_dev "$_l"; return 0; }
+                done
+                ;;
+        esac
+    done
+    return 0
 }
 
 # --- read cmdline overrides -------------------------------------------------
@@ -186,6 +230,12 @@ is_nonusb_media_disk() {
 }
 [ -n "$NONUSB_MEDIA_DISKS" ] && log "disks holding an NCZ-OS image on a non-USB device (never a target): $NONUSB_MEDIA_DISKS"
 
+# The disk the machine booted from (best-effort; empty when it cannot be proven).
+# Used only to LABEL the chooser so the operator can avoid wiping the running
+# disk; it changes no candidate, no default and no guard.
+BOOT_DISK=$(boot_disk_of_system)
+[ -n "$BOOT_DISK" ] && log "boot disk detected: $BOOT_DISK (labelled in the disk selector)"
+
 # Build the candidate list (whole disks, excluding the install medium).
 CANDIDATES=""
 NDISK=0
@@ -222,11 +272,21 @@ else
     # Register a cdebconf select with the candidate /dev nodes as Choices, then
     # db_input at CRITICAL so it shows even under priority=critical. A cancel /
     # go-back / template failure ABORTS — we never auto-pick a disk to erase.
+    # S2-5: the newt select must not show bare /dev nodes. Choices-C: keeps the raw
+    # device (cdebconf returns the Choices-C entry from db_get; partman/our override
+    # logic consumes it), Choices: carries the human label the operator actually reads: model + size, plus "BOOT DISK"
+    # when the running disk is known. Both lists stay in the SAME order, one entry
+    # per candidate, so they map one-to-one.
     CHOICES=""
+    LABELS=""
     LONG=""
     for d in $CANDIDATES; do
-        desc="$(disk_model "$d") $(disk_size_h "$d")"
+        _model=$(disk_model "$d"); [ -n "$_model" ] || _model="unknown model"
+        _size=$(disk_size_h "$d")
+        desc="$_model ($_size)"
+        [ -n "$BOOT_DISK" ] && [ "$d" = "$BOOT_DISK" ] && desc="$desc - BOOT DISK"
         [ -z "$CHOICES" ] && CHOICES="$d" || CHOICES="$CHOICES, $d"
+        LABELS="${LABELS:+$LABELS, }$(printf '%s' "$desc" | sed 's/,/ /g')"   # a comma would split the cdebconf Choices-C list
         LONG="${LONG:+$LONG
  }  $d - $desc"   # continuation lines need their leading space; no trailing newline (a blank line ends a template stanza)
     done
@@ -234,8 +294,9 @@ else
     cat > /tmp/ncz-disk.templates <<TPL
 Template: ncz/target-disk
 Type: select
-Choices: ${CHOICES}
-Description: $(ncz_ui_brand) - select the TARGET DISK (it will be ERASED)
+Choices-C: ${CHOICES}
+Choices: ${LABELS}
+Description: $(ncz_ui_title 6 "select the TARGET DISK (it will be ERASED)" "Choose the disk to ERASE")
  The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.
  .
  Detected disks:
@@ -286,9 +347,10 @@ if [ -z "$CHOSEN_FS" ]; then
     cat > /tmp/ncz-fs.templates <<TPL
 Template: ncz/root-fs
 Type: select
-Choices: btrfs, ext4
+Choices-C: btrfs, ext4
+Choices: btrfs (snapshots + compression), ext4 (simple, robust)
 Default: btrfs
-Description: $(ncz_ui_brand) - root (/) filesystem
+Description: $(ncz_ui_title 7 "root (/) filesystem" "Choose the file system")
  Choose the filesystem for the root (/) partition.
  .
  btrfs - snapshots + transparent compression (NCZ default).
@@ -321,22 +383,57 @@ if [ -z "$OVR_DISK" ] || [ -z "$OVR_FS" ]; then
     else
         _ncz_resc=yes
     fi
+    # Show the operator display names, not internal tokens (the record carries
+    # desktop,browsers,wallpaper-rotator — the latter two are desktop
+    # companions, so the screen promises exactly what the desktop toggle does).
+    _ncz_disp=""
+    case ",$_ncz_sel," in *",desktop,"*) _ncz_disp="Full Singularity desktop" ;; esac
+    case ",$_ncz_sel," in *",mgmt-container,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }management container" ;; esac
+    case ",$_ncz_sel," in *",rescue-partition,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }rescue partition" ;; esac
+    case ",$_ncz_sel," in *",cuda,"*) _ncz_disp="${_ncz_disp:+$_ncz_disp + }NVIDIA driver + CUDA" ;; esac
+    [ -n "$_ncz_disp" ] || _ncz_disp="no optional components"
+    if command -v ncz_ui_variant >/dev/null 2>&1 && [ "$(ncz_ui_variant)" = server ]; then
+    # Magnetar Server: no components to review (the server record is fixed), and the
+    # network requirement is stated BEFORE anything is erased: the payload download
+    # runs after partitioning, into the new root filesystem.
     cat > /tmp/ncz-confirm.templates <<TPL
 Template: ncz/confirm-erase
 Type: boolean
 Default: false
-Description: $(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
+Description: $(ncz_ui_title 8 "" "Erase disk and install?")
  Please review your choices:
  .
    Target disk:       ${CHOSEN_DISK}
    Root filesystem:   ${CHOSEN_FS}
    Rescue partition:  ${_ncz_resc}
-   Components:        ${_ncz_sel:-all}
+ .
+ This install downloads about 3 GB after the disk is erased. Keep a
+ wired network cable plugged in until it finishes. If the download
+ fails, the disk is left erased with nothing installed on it. Restart
+ from the USB stick to try again.
  .
  CONTINUING ERASES EVERYTHING ON ${CHOSEN_DISK}. This cannot be undone.
  .
  $(ncz_ui_id)
 TPL
+    else
+    cat > /tmp/ncz-confirm.templates <<TPL
+Template: ncz/confirm-erase
+Type: boolean
+Default: false
+Description: $(ncz_ui_step 8)$(ncz_ui_brand) - ERASE ${CHOSEN_DISK} and install?
+ Please review your choices:
+ .
+   Target disk:       ${CHOSEN_DISK}
+   Root filesystem:   ${CHOSEN_FS}
+   Rescue partition:  ${_ncz_resc}
+   Components:        ${_ncz_disp}
+ .
+ CONTINUING ERASES EVERYTHING ON ${CHOSEN_DISK}. This cannot be undone.
+ .
+ $(ncz_ui_id)
+TPL
+    fi
     debconf-loadtemplate ncz /tmp/ncz-confirm.templates 2>/dev/null || abort "could not load the erase-confirmation template (never erase without asking)"
     db_set   ncz/confirm-erase false 2>/dev/null || true
     db_fset  ncz/confirm-erase seen false || abort "db_fset confirm-erase seen failed"
@@ -433,7 +530,7 @@ _ncz_prog=0
 cat > /tmp/ncz-erase.templates <<TPL
 Template: ncz/erase-title
 Type: text
-Description: $(ncz_ui_brand) - erasing ${CHOSEN_DISK}
+Description: $(ncz_ui_title "" "erasing ${CHOSEN_DISK}" "Erasing ${CHOSEN_DISK}")
 
 Template: ncz/erase-info
 Type: text
@@ -452,7 +549,53 @@ ncz_step 0 "ERASING $CHOSEN_DISK: stopping swap and unmounting"
 D="$CHOSEN_DISK"; base="${D##*/}"
 awk 'NR>1{print $1}' /proc/swaps 2>/dev/null | grep "^${D}" | while read _s; do swapoff "$_s" 2>/dev/null || true; done
 awk -v dd="$D" '$1 ~ dd {print $2}' /proc/mounts 2>/dev/null | sort -r | while read _mp; do sync; umount "$_mp" 2>/dev/null || { sleep 1; umount "$_mp" 2>/dev/null || true; }; done
-ncz_step 1 "ERASING $CHOSEN_DISK: clearing the old partition table"
+ncz_step 1 "ERASING $CHOSEN_DISK: clearing old filesystem signatures and the partition table"
+# NCZ-WIPE-SIGNATURES-BEGIN
+# An unsuccessful unmount/swapoff must never be followed by raw writes.
+# Match mountinfo by device number, so aliases and bind mounts are covered;
+# active device-mapper/RAID users are represented by sysfs holders.
+if [ ! -r /proc/self/mountinfo ] || [ ! -r /proc/swaps ] || [ ! -r "/sys/block/$base/dev" ]; then
+    log "ERROR: cannot establish disk mount/swap state; refusing disk writes"
+    exit 1
+fi
+for _idle_pd in /sys/block/"$base" /sys/block/"$base"/"$base"*; do
+    [ -r "$_idle_pd/dev" ] || continue
+    _idle_mm=$(cat "$_idle_pd/dev")
+    if awk -v mm="$_idle_mm" '$3 == mm { found=1 } END { exit !found }' /proc/self/mountinfo; then
+        log "ERROR: ${_idle_pd##*/} is still mounted; refusing disk writes"
+        exit 1
+    fi
+    for _holder in "$_idle_pd"/holders/*; do
+        [ -e "$_holder" ] || continue
+        log "ERROR: ${_idle_pd##*/} has an active holder; refusing disk writes"
+        exit 1
+    done
+    for _swap in $(awk 'NR>1 { print $1 }' /proc/swaps); do
+        _swap_dev=$(readlink -f "$_swap" 2>/dev/null || printf '%s' "$_swap")
+        if [ "$_swap_dev" = "/dev/${_idle_pd##*/}" ]; then
+            log "ERROR: ${_idle_pd##*/} is still active swap; refusing disk writes"
+            exit 1
+        fi
+    done
+done
+# Old filesystem signatures inside the old partitions survive a new partition
+# table. When a new partition starts where an old one did, mkfs leaves e.g. an
+# old ext4 superblock (offset 1080) next to a new btrfs one (64 KiB): libblkid
+# then reports an ambivalent probe, udev creates no /dev/disk/by-partuuid link
+# and the installed system hangs in the initramfs (Macmini5,1 reinstall,
+# 2026-10-14). Zero the first 4 MiB and the last 1 MiB of every existing
+# partition (ext*, btrfs, xfs, swap, LUKS, md, bcache and ZFS labels live
+# there) before the table goes, then the table areas of the whole disk.
+for _pd in /sys/block/"$base"/"$base"*; do
+    [ -r "$_pd/start" ] && [ -r "$_pd/size" ] || continue
+    _pst=$(cat "$_pd/start" 2>/dev/null); _psz=$(cat "$_pd/size" 2>/dev/null)
+    case "$_pst$_psz" in ''|*[!0-9]*) continue ;; esac
+    _phead=8192; [ "$_psz" -lt 8192 ] && _phead=$_psz
+    dd if=/dev/zero of="$D" bs=512 seek="$_pst" count="$_phead" conv=notrunc 2>/dev/null || true
+    [ "$_psz" -gt 16384 ] && dd if=/dev/zero of="$D" bs=512 seek=$((_pst + _psz - 2048)) count=2048 conv=notrunc 2>/dev/null || true
+    log "cleared signatures of ${_pd##*/} (start $_pst, $_psz sectors)"
+done
+# NCZ-WIPE-SIGNATURES-END
 SZ=$(cat "/sys/block/$base/size" 2>/dev/null)
 dd if=/dev/zero of="$D" bs=1M count=16 2>/dev/null
 [ -n "$SZ" ] && dd if=/dev/zero of="$D" bs=512 seek=$((SZ-2048)) count=2048 2>/dev/null

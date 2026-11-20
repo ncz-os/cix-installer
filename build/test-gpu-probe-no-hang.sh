@@ -81,7 +81,7 @@ mkdev "$P54" 0000:01:00.0 030000 10de 1f15
 t0=$(date +%s); run54 "$P54"; dt=$(( $(date +%s) - t0 ))
 [ "$RC54" = 0 ] && ok "hook completed rc 0 in ${dt}s (GU502LV GPU set)" || { nok "hook rc=$RC54 after ${dt}s (124 = hung on lspci)"; tail -5 "$SB/out" | sed 's/^/        /'; }
 [ ! -e "$SB/bin/lspci.called" ] && ok "lspci was never invoked" || nok "lspci was invoked"
-grep -q 'GPU/accelerator wiring done (NVIDIA=1 AMD=0 Intel=1)' "$SB/out" && ok "NVIDIA + Intel detected from sysfs" || nok "wrong detection: $(grep 'wiring done' "$SB/out")"
+grep -q 'GPU/accelerator wiring done (NVIDIA=1 AMD=0 Intel=1' "$SB/out" && ok "NVIDIA + Intel detected from sysfs" || nok "wrong detection: $(grep 'wiring done' "$SB/out")"
 mkhang "$SB/bin" rocminfo
 P54A="$W/pci54a"; mkdev "$P54A" 0000:0d:00.0 030000 1002 15bf; mkdev "$P54A" 0000:0e:00.1 118000 1022 1502
 t0=$(date +%s); run54 "$P54A" NCZ_GPU_PROBE_TIMEOUT=2; dt=$(( $(date +%s) - t0 ))

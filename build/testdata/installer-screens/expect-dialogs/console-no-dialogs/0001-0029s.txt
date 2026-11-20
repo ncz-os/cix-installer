@@ -1,0 +1,2 @@
+# t=29s
+[                    (1**installer)  2 shell  3 shell  4- log

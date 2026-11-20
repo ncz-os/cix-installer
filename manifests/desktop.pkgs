@@ -1,4 +1,4 @@
-# desktop.pkgs — NCZ-OS 26.7 "Maximilian" Singularity Desktop offline closure.
+# desktop.pkgs — NCZ-OS 26.10 "Cygnus" Singularity Desktop offline closure.
 #
 # Singularity Desktop (labwc/wlroots, GTK4/Vala, GLES on CIX libmali) replaces
 # XFCE/X11. This seed is the runtime closure build-desktop-mirror.sh resolves +
@@ -193,10 +193,12 @@ vainfo
 # Both can be installed at once; vulkaninfo then enumerates each GPU that has a
 # bound kernel driver.
 mesa-vulkan-drivers
-# Mesa's OpenCL ICD is the stock-Debian rusticl path for panthor. It requires
-# RUSTICL_ENABLE=panfrost (set by 16-mesa-gpu-2613.sh); without this package
-# clinfo reports zero platforms even after Vulkan works.
-mesa-opencl-icd
+# GPU OpenCL = the vendor platform (cix-gpu-umd's ARM Platform, Mali-G720).
+# ocl-icd-libopencl1 is the ICD loader that discovers it; the vendor .deb
+# (hook 25) registers the ICD. mesa-opencl-icd (rusticl) was the Panthor/
+# panfrost OpenCL path and is gone with Panthor (order 01:35Z 2026-11-15):
+# clinfo must show the vendor platform, never a Mesa platform first.
+ocl-icd-libopencl1
 libglu1-mesa
 clinfo
 
@@ -213,6 +215,15 @@ pipewire
 pipewire-pulse
 pipewire-alsa
 wireplumber
+# PipeWire SPA plugins that wireplumber loads but the core packages do not
+# pull in (Recommends are off). Without libspa-0.2-bluetooth every login logs
+# "SPA handle 'api.bluez5.enum.dbus' could not be loaded; is it installed?"
+# and Bluetooth audio never appears; without libspa-0.2-libcamera cameras are
+# only reachable through the raw V4L2 path. libcamera-ipa carries the image
+# processing modules libcamera Recommends (soft ISP for raw sensors).
+libspa-0.2-bluetooth
+libspa-0.2-libcamera
+libcamera-ipa
 # pactl is in pulseaudio-utils, and PipeWire Pulse intentionally only
 # suggests it. The Sky1 HDMI/DP autoswitch user service needs pactl to load
 # isolated module-alsa-sink instances and set the session default sink.
@@ -226,7 +237,11 @@ pavucontrol
 gvfs
 gvfs-backends
 udisks2
-gnome-disk-utility
+# libmtp-runtime ships /usr/lib/udev/mtp-probe, which libmtp-common's
+# 69-libmtp.rules calls for every USB device; without it udev logs "Failed to
+# find and pin callout binary /usr/lib/udev/mtp-probe" for each one per boot
+# and MTP phones are not tagged for gvfs.
+libmtp-runtime
 bluez
 blueman
 # vendor cix-debian-misc's bluetooth-autoconnect script does `import dbus`
@@ -240,6 +255,12 @@ fonts-noto-core
 fonts-noto-cjk
 fonts-noto-color-emoji
 fonts-liberation
+# Inter: Singularity's design face, the default sans-serif (20-desktop.sh
+# writes the fontconfig alias); the variable build is 1.7 MB vs 21 MB static.
+fonts-inter-variable
+# Creates Documents/Downloads/Music/... at first login (systemd user unit
+# under graphical-session-pre.target, which singularity-session.target wants).
+xdg-user-dirs
 
 # --- input methods (CJK) ----------------------------------------------------
 # Sky1 is a Chinese SoC with an expected domestic user base, and this project
@@ -292,11 +313,12 @@ systemd-container
 # r201: unseeded, so its apt-get install failed rc=100 and the NPU python path was left without numpy
 python3-numpy
 
-# --- archives + PDF + image (GTK, DE-agnostic) -----------------------------
+# --- archives (GTK, DE-agnostic) ---------------------------------------------
+# PDF and image viewing are the native Singularity Reader and Photos apps
+# (papers and loupe were dropped 2026-10-26; see the stock-GNOME note below).
 xarchiver
 7zip
 unrar-free
-papers
 
 # --- offline-apt tools (usable from the desktop with no network) -----------
 synaptic
@@ -305,13 +327,13 @@ gdebi-core
 # software-properties-gtk is Ubuntu's PPA GUI.  NCZ uses its signed NCZ
 # repository plus Debian sources, so it has no role on the Debian base.
 
-# --- keyring / disk-usage ---------------------------------------------------
+# --- keyring ----------------------------------------------------------------
 # KEYRING: the NATIVE `singularity-keyring` (in /opt/singularity, D-Bus-activated
 # org.freedesktop.secrets) is THE Secret Service — gnome-keyring is NOT shipped
 # (20-desktop purges it; it would otherwise grab the secrets name first). seahorse
 # is dropped with it (seahorse depends on gnome-keyring; Singularity has its own
-# secret UI).
-baobab
+# secret UI). Disk usage is the native Singularity Disk Usage app (baobab
+# dropped 2026-10-26).
 
 # --- image editing ----------------------------------------------------------
 gimp
@@ -372,11 +394,11 @@ libdrm-etnaviv1
 flatpak
 gnome-session-canberra
 xdg-desktop-portal-gtk
-epiphany-browser
 # r181: falkon dropped — it half-configures (iF) on Sky1/qemu (its postinst was
 # the desktop apt rc=100), and its stale .desktop launcher errored like the
-# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now;
-# epiphany stays as a lightweight secondary.
+# mnemos one. Vivaldi (staged .deb, 52-vivaldi.sh) is the default browser now.
+# epiphany-browser was dropped 2026-10-26: Singularity Browser is the native
+# lightweight browser (see the stock-GNOME note below).
 # feh is X11-only and post-install/59-desktop-curate.sh deliberately purges it
 # from this Wayland-only image. Keep the manifest aligned with shipped state.
 
@@ -441,30 +463,40 @@ audacity
 
 # --- GTK4/libadwaita native-Wayland apps, hardware-accelerated via GSK's
 #     GL renderer (GSK_RENDERER=gl, already set in singularity-desktop-session).
-#     kooha fixes the earlier screen-recording bug -- goes through
-#     xdg-desktop-portal's ScreenCast interface, which singularity.portal
-#     does implement. celluloid is a native GTK4 GUI complement to the CLI
-#     mpv already above (same VAAPI hardware decode path). loupe is GNOME's
-#     GPU-accelerated image viewer. The rest are small, real desktop-
-#     completeness gaps (calc/text-editor/font-viewer/characters/calendar/
-#     weather/sound-recorder/drawing), no GNOME-shell dependency drag. ---
-kooha
+#     celluloid is a native GTK4 GUI complement to the CLI mpv already
+#     above (same VAAPI hardware decode path). drawing is a small paint app.
+#     kooha (GTK4 screen recorder) is NOT seeded (operator ruling 2026-11-07):
+#     it is in no Debian forky component, at the pinned snapshot or live
+#     (unstable carries 2.3.2-1, measured 2026-11-07), and a sid pull would
+#     break the pinned, deterministic package closure. wf-recorder (below)
+#     remains the screen recorder. ---
+#
+# Stock GNOME apps with a native Singularity twin are NOT installed (operator,
+# 2026-10-26: "We shouldn't be installing most of the gnome apps"). Dropped:
+#   gnome-calculator -> Calculator     gnome-calendar   -> Calendar
+#   gnome-characters -> Characters     gnome-weather    -> Weather
+#   gnome-text-editor-> Edit/Notes     gnome-font-viewer-> Fonts
+#   gnome-sound-recorder -> Recorder   gnome-console    -> Leafs (terminal)
+#   gnome-disk-utility -> Disks        baobab           -> Disk Usage
+#   epiphany-browser -> Browser        loupe            -> Photos
+#   papers           -> Reader
+# Nothing kept depends on them (checked against the pinned snapshot and a real
+# install). Default handlers for their types point at the Singularity apps
+# (post-install/lib/ncz-default-apps.sh, applied by 59-desktop-curate.sh).
+# Two packages that only arrived as their dependencies stay, seeded directly:
+#   geoclue-2.0          Singularity Weather, Maps and the shell ask
+#                        org.freedesktop.GeoClue2 for the location over D-Bus
+#   gnome-desktop3-data  shared GNOME desktop data, kept by operator decision
+geoclue-2.0
+gnome-desktop3-data
 celluloid
-loupe
-gnome-calculator
-gnome-text-editor
-gnome-font-viewer
-gnome-characters
-gnome-calendar
-gnome-weather
-gnome-sound-recorder
 drawing
-# Additional Wayland-first utilities: native image viewers and GNOME Console.
-# These are small, composited clients and do not pull in a second desktop
-# session or an Xorg server; Xwayland remains only for legacy applications.
+# Additional Wayland-first utilities: small native image viewers. They do not
+# pull in a second desktop session or an Xorg server; Xwayland remains only for
+# legacy applications. The terminal is Singularity Leafs (foot stays for the
+# scripted NCZ launchers).
 imv
 swayimg
-gnome-console
 
 # zstd: post-install/72-rescue-partition.sh unpacks rescue-rootfs.tar.zst on the
 # installed system and hard-requires it. The base layer is the Debian forky
@@ -516,7 +548,7 @@ python3-venv
 python3-pip
 
 # ---------------------------------------------------------------------------
-# HARDWARE EXPLOITATION AND WAYLAND/CLI TOOLING (audited on a live r239 install,
+# HARDWARE ENABLEMENT AND WAYLAND/CLI TOOLING (audited on a live r239 install,
 # 2026-08-14). Everything below was MISSING from the shipped image while the
 # hardware or the desktop stack was already capable of using it.
 #
@@ -529,6 +561,11 @@ python3-pip
 #   wl-clipboard            wl-copy/wl-paste. Baseline Wayland CLI clipboard; the
 #                           image shipped with no command-line clipboard at all.
 #   wlr-randr               Output/mode configuration from the CLI (4K, multi-head).
+#   wayvnc                  VNC server for wlroots compositors (NG-NC-28):
+#                           Wayland remote desktop against the labwc/Singularity
+#                           session. post-install/31-remote-access.sh ships a
+#                           per-user ncz-wayvnc.service unit, disabled by
+#                           default, localhost only.
 #   wf-recorder             Screen recording; can drive the Linlon H.264 encoder.
 #   wev                     Input/event debugging -- directly useful on this board,
 #                           where USB keyboards need an xhci rebind to enumerate.
@@ -561,6 +598,7 @@ python3-pip
 xdg-desktop-portal-wlr
 wl-clipboard
 wlr-randr
+wayvnc
 wf-recorder
 wev
 gstreamer1.0-tools

@@ -17,6 +17,7 @@
 #   2. replaces assets/kernel/<drv>/<kver>/ with the result (.ko files plus
 #      SOURCE.sha256);
 #   3. verify-overlay-modversions.py against that build's Module.symvers and
+#      struct module size (an in-tree .ko of the same build) and
 #      verify-dkms-deb-sources.py --overlays. Any failure exits non-zero.
 #
 # Usage:
@@ -43,6 +44,16 @@ CKDIR="/ybuild${KDIR#"$YB"}"
 TC="$CKDIR/recipe-sysroot-native/usr/bin/aarch64-nclawzero-linux"
 [ -x "$KDIR/recipe-sysroot-native/usr/bin/aarch64-nclawzero-linux/aarch64-nclawzero-linux-gcc" ] \
     || die "no OE toolchain under $KDIR/recipe-sysroot-native"
+# pahole: with CONFIG_DEBUG_INFO_BTF_MODULES=y every module link runs it
+# (scripts/gen-btf.sh). The yocto image has none; the kernel recipe builds
+# pahole-native into its own native sysroot, and that is the pahole the
+# kernel's in-tree modules were linked with. Appended after /usr/bin so it
+# shadows nothing the container already has.
+NATIVE_BIN="$CKDIR/recipe-sysroot-native/usr/bin"
+if grep -qx 'CONFIG_DEBUG_INFO_BTF_MODULES=y' "$KDIR/build/.config" 2>/dev/null; then
+    [ -x "$KDIR/recipe-sysroot-native/usr/bin/pahole" ] \
+        || die "CONFIG_DEBUG_INFO_BTF_MODULES=y but no pahole in $KDIR/recipe-sysroot-native/usr/bin"
+fi
 
 WORK="$ROOT/build/accel-overlays"
 OUT_REL="build/accel-overlays/$KVER"
@@ -52,7 +63,7 @@ mkdir -p "$WORK/tmp"
 echo "== building ${DRIVERS[*]} against $KVER ($KDIR)"
 podman run --rm --security-opt label=disable --userns=keep-id \
     -v "$YB:/ybuild" -v "$ROOT:/repo" --entrypoint /bin/bash "$IMAGE" \
-    -c "set -e; export TMPDIR=/repo/build/accel-overlays/tmp PATH=$TC:/usr/bin:/bin \
+    -c "set -e; export TMPDIR=/repo/build/accel-overlays/tmp PATH=$TC:/usr/bin:/bin:$NATIVE_BIN \
        CROSS_COMPILE=aarch64-nclawzero-linux- ARCH=arm64; cd /repo && \
      bash build/build-accel-overlays.sh $CKDIR/build $KVER /repo/$OUT_REL ${DRIVERS[*]}" \
     || die "accelerator overlay build failed (logs: $ROOT/$OUT_REL/build-<drv>.log)"
@@ -69,9 +80,16 @@ for drv in "${DRIVERS[@]}"; do
     echo "  staged $(ls "$dst"/*.ko | wc -l) module(s) -> assets/kernel/$drv/$KVER/"
 done
 
+# struct module reference: an in-tree module linked by this same kernel build.
+# assets/kernel/mainline may still pin the previous kernel at this point, so
+# its modules-cixmini.tgz is not the right reference here.
+# Any in-tree module will do: all of them are compiled against the same
+# autoconf.h, so all carry the same struct module.
+REF_KO="$(set +o pipefail; find "$KDIR/build/drivers" -type f -name '*.ko' 2>/dev/null | LC_ALL=C sort | head -1)"
+[ -n "$REF_KO" ] || die "no in-tree .ko under $KDIR/build/drivers (struct module reference)"
 python3 "$ROOT/build/verify-overlay-modversions.py" --root "$ROOT" \
-    --symvers "$KDIR/build/Module.symvers" --kver "$KVER" \
-    || die "overlay CRCs do not match $KDIR/build/Module.symvers"
+    --symvers "$KDIR/build/Module.symvers" --kver "$KVER" --ref-ko "$REF_KO" \
+    || die "overlays do not match $KDIR/build (Module.symvers CRCs or struct module size)"
 python3 "$ROOT/build/verify-dkms-deb-sources.py" --root "$ROOT" --overlays "$KVER" \
     || die "overlay SOURCE.sha256 does not match assets/kernel/<drv>"
 echo "stage-accel-overlays: OK ($KVER: ${DRIVERS[*]})"

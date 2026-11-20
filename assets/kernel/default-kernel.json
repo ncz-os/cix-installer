@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "note": "SINGLE SOURCE OF TRUTH for the default kernel of every ncz image, all architectures (operator 2026-11-16, 26.10 Cygnus PR4: 'release will use 7.4 kernel, no edge and 7.3 will be retired' -- supersedes the 2026-11-13 7.3.4 decision). Read by build/build-image.sh ncz_resolve_kver (both arches), build/check-default-kernel.sh and build/build-kernel-debs.sh. The kernel-ci registry override (NCZ_KERNEL_KVER) still wins at runtime; every committed pin must equal this file. check-default-kernel.sh FAILS any default that is not the 7.4 pin named here, so a build with a 7.3.x (or any other) kernel cannot pass the gate even when every pin agrees with it.",
+  "policy": "7.4 is the default and only kernel line on every arch (operator 2026-11-16; 26.10 Cygnus PR4, desktop and server, amd64 and arm64). The 7.4.0-rc3 base is accepted for this release and must move to the final 7.4 kernel in a later PATCH release. 7.3.x is retired everywhere: no default, no rescue, no installer, no previous-kernel entry, not in any apt component for the image. There is NO edge channel (it stays retired). Sky1 is Mali only: CONFIG_DRM_PANTHOR is off and the 7.4 kernel ships no panthor module or package.",
+  "amd64": {
+    "kver": "7.4.0-rc3-t2-ncz",
+    "pkgversion": "7.4.0-rc3-4"
+  },
+  "arm64": {
+    "kver": "7.4.0-rc3-sky1-ncz",
+    "pkgversion": "7.4.0-rc3-sky1-ncz+r303"
+  }
+}

@@ -1,0 +1,9 @@
+# t=58s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - What we found ├───────────────────┐
+  │ System   Cix Sky1 (CP8180)                                          │
+  │ Memory   8 GB                                                       │
+  │ Storage  /dev/vda 32 GB                                             │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

@@ -213,6 +213,8 @@ ncz_firstboot_gpu_notice() {
         case "$(cat "$_r/var/lib/ncz/cuda-toolkit.status" 2>/dev/null)" in
             pending:*)
                 printf '%s\n' "The NVIDIA driver could not be downloaded during the install. It is downloaded and built in the background after first boot; restart once it has finished (status: ncz-cuda-setup status)." ;;
+            failed:no-buildable-driver*)
+                printf '%s\n' "No available NVIDIA driver version builds for this kernel, so the NVIDIA GPU is not used and the display runs on the integrated GPU. ncz-cuda-setup retries automatically when a new kernel or driver version arrives (status: ncz-cuda-setup status)." ;;
         esac
     fi
     return 0

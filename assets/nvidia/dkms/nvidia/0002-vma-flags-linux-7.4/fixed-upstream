@@ -1,0 +1,2 @@
+kernel-open/nvidia-uvm/uvm_hmm.c
+vma_is_hugetlb

@@ -110,14 +110,44 @@ cat > /usr/local/sbin/ncz-recovery-netparent <<'EOF'
 #!/bin/sh
 # Set the ncz-recovery .nspawn MACVLAN= parent to the host's real uplink NIC,
 # and ensure the macvlan module is loaded before the container starts.
+#
+# FAST-BOOT SAFETY (2026-11-05): a 7.3.1 boot reached this unit before udev had
+# renamed the NIC and before any default route existed, so the fallback picked
+# eth0 -- a name udev then renamed, and nspawn failed with "No such device".
+# Settle udev first, wait for a default route, and never prefer a renameable
+# eth* name while a predictable en* one exists.
 set -eu
 modprobe macvlan 2>/dev/null || true
-NSPAWN=/etc/systemd/nspawn/ncz-recovery.nspawn
+NSPAWN=${NCZ_NSPAWN:-/etc/systemd/nspawn/ncz-recovery.nspawn}
 [ -f "$NSPAWN" ] || exit 0
-parent=$(ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')
+SYS=${NCZ_SYS_CLASS_NET:-/sys/class/net}
+WAIT=${NCZ_ROUTE_WAIT_S:-20}
+
+udevadm settle --timeout="$WAIT" 2>/dev/null || true
+
+default_dev() {
+    ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+}
+
+parent=$(default_dev)
+i=0
+while [ -z "$parent" ] && [ "$i" -lt "$WAIT" ]; do
+    sleep 1
+    i=$((i+1))
+    parent=$(default_dev)
+done
+
 if [ -z "$parent" ]; then
-    for i in $(ls /sys/class/net 2>/dev/null); do
-        case "$i" in en*|eth*) parent="$i"; break;; esac
+    for n in $(ls "$SYS" 2>/dev/null); do
+        case "$n" in
+            eth*) ;;
+            en*) parent="$n"; break ;;
+        esac
+    done
+fi
+if [ -z "$parent" ]; then
+    for n in $(ls "$SYS" 2>/dev/null); do
+        case "$n" in eth*) parent="$n"; break ;; esac
     done
 fi
 [ -n "$parent" ] || { echo "ncz-recovery-netparent: no uplink NIC found"; exit 0; }
@@ -129,9 +159,9 @@ chmod 0755 /usr/local/sbin/ncz-recovery-netparent
 cat > /etc/systemd/system/ncz-recovery-netparent.service <<'EOF'
 [Unit]
 Description=Resolve macvlan parent NIC for the ncz-recovery container
-After=network-pre.target systemd-udevd.service
+After=network-pre.target systemd-udev-settle.service
+Wants=network-pre.target systemd-udev-settle.service
 Before=systemd-nspawn@ncz-recovery.service
-Wants=network-pre.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes

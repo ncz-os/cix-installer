@@ -36,6 +36,10 @@
 #                         and not cached)
 #   fetch-cache           mirror every pinned repository into the pin cache
 #                         so check-patches works offline
+#   cache-path            print the pin cache directory (for an explicit
+#                         container mount; never derive it on the far side)
+#   reachable             preflight: fail loud, naming the URL, for any row
+#                         neither the pin cache nor the network can serve
 #   propose               print the CURRENT upstream heads as pin rows (for a
 #                         deliberate bump; writes nothing)
 #
@@ -84,10 +88,24 @@ pin_url() {
     echo "$u"
 }
 
+# Normalise a clone URL for identity comparison: the same repository can be
+# spelled with a trailing slash or a .git suffix on different pin rows.
+url_normalised() {
+    # Scheme and host are case-insensitive (RFC 3986 3.2.2); a path is not.
+    printf '%s' "$1" | sed -e 's|/*$||' -e 's|\.git$||' \
+        | sed -E 's|^([A-Za-z+]+://)([^/]*)|\L\1\2|'
+}
+
 # Patch directory name -> pinned path. The root repo's own queue applies at
 # the top level ("."), matching build-singularity.sh.
 patch_dir_path() {
-    if [ "$1" = singularity-desktop ]; then echo "."; else echo "subprojects/$1"; fi
+    # Standalone repositories are pinned under their own name (REQUIRED_PATHS);
+    # everything else is a singularity-desktop submodule.
+    case "$1" in
+        singularity-desktop) echo "." ;;
+        vetro|singularity-boot-splash) echo "$1" ;;
+        *) echo "subprojects/$1" ;;
+    esac
 }
 
 cmd_validate() {
@@ -145,20 +163,56 @@ tgit() { timeout "$GIT_TIMEOUT" git "$@"; }
 
 # Make <sha> present in repository <dir>, fetching from <url> only if needed.
 ensure_commit() {
-    local dir="$1" url="$2" sha="$3"
+    local dir="$1" url="$2" sha="$3" m
     git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null && return 0
+    # The pin cache first (mirrored by fetch-cache on the host): the build
+    # container carries no ssh credentials, so an ssh:// pin row (the
+    # singularity-desktop fork pin) can only be served from the local mirror.
+    m="$(cache_dir_for "$url")"
+    if [ -d "$m" ]; then
+        tgit -C "$dir" fetch -q "$m" "$sha" 2>/dev/null \
+            || tgit -C "$dir" fetch -q "$m" '+refs/heads/*:refs/ncz-pin/*' '+refs/pull/*:refs/ncz-pin/pull/*' --tags "$sha" 2>/dev/null \
+            || true
+        git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null && return 0
+    fi
     tgit -C "$dir" fetch -q --depth 1 "$url" "$sha" 2>/dev/null \
         || tgit -C "$dir" fetch -q "$url" "$sha" 2>/dev/null \
-        || tgit -C "$dir" fetch -q --tags "$url" '+refs/heads/*:refs/ncz-pin/*' 2>/dev/null \
+        || tgit -C "$dir" fetch -q --tags "$url" '+refs/heads/*:refs/ncz-pin/*' '+refs/pull/*:refs/ncz-pin/pull/*' "$sha" 2>/dev/null \
         || true
     git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null
 }
 
 cmd_clone() {
-    local path="$1" dest="$2" sha url
+    local path="$1" dest="$2" sha url cur norm_new norm_cur
     sha="$(pin_sha "$path")" || exit 1
     url="${NCZ_SINGULARITY_URL_OVERRIDE:-$(pin_url "$path")}" || exit 1
-    [ ! -e "$dest" ] || die "clone destination already exists: $dest"
+    if [ -e "$dest" ]; then
+        # Idempotent re-clone (2026-11-13): the same repository can appear on
+        # two pin rows under different paths (Singularity HEAD lists
+        # subprojects/vetro and vetro at one sha) and both clone to the same
+        # basename dest. Reuse an already-present dest ONLY when it is the
+        # same repository (url-normalised) already at the pinned commit --
+        # anything else is a real collision and dies.
+        if [ ! -d "$dest/.git" ]; then
+            die "clone destination already exists: $dest"
+        fi
+        cur="$(git -C "$dest" rev-parse HEAD 2>/dev/null)" || cur=""
+        if [ -z "$cur" ]; then
+            # Abandoned partial clone: git-init'd but no commit was ever
+            # fetched (a killed or failed earlier attempt at this dest).
+            # Nothing can be lost -- re-clone fresh instead of dying.
+            echo "    pinned clone: $dest is an abandoned partial clone (no HEAD) -- re-cloning"
+            rm -rf "$dest" || die "cannot clear abandoned partial clone $dest"
+        else
+            norm_new="$(url_normalised "$url")"
+            norm_cur="$(url_normalised "$(git -C "$dest" remote get-url origin 2>/dev/null || true)")"
+            if [ "$cur" = "$sha" ] && [ "$norm_new" = "$norm_cur" ]; then
+                echo "    pinned clone: $path @ $sha (reused existing $dest)"
+                return 0
+            fi
+            die "clone destination $dest exists at ${cur:0:12} from ${norm_cur:-no origin}, but '$path' pins $sha at $norm_new -- the same dest from another pin row is only reusable at an identical url+sha"
+        fi
+    fi
     git init -q "$dest" || die "git init $dest failed"
     git -C "$dest" remote add origin "$url" || die "cannot add remote $url in $dest"
     ensure_commit "$dest" "$url" "$sha" \
@@ -211,8 +265,27 @@ cmd_checkout_tree() {
         if [ "$branch" = "-" ] && [ "$gitlink" != "$sha" ]; then
             die "'$p' has no tracked branch, so the superproject gitlink ($gitlink) is authoritative, but $PINS pins $sha"
         fi
+        # Unusable leftover checkout (2026-11-13 run 6: a .git gitfile whose
+        # gitdir died with the re-cloned superproject passes -e but cannot
+        # resolve HEAD). Same class as the abandoned-partial recovery: clear
+        # it and re-clone below instead of dying.
+        if [ -e "$dir/$p" ] && ! git -C "$dir/$p" rev-parse HEAD >/dev/null 2>&1; then
+            echo "    pinned tree: $p is an abandoned partial checkout -- re-cloning"
+            rm -rf "$dir/$p" || die "cannot clear abandoned partial checkout $dir/$p"
+        fi
         if [ ! -e "$dir/$p/.git" ]; then
             tgit -C "$dir" submodule update -q --init "$p" 2>/dev/null || true
+        fi
+        if [ ! -e "$dir/$p/.git" ] || ! git -C "$dir/$p" rev-parse HEAD >/dev/null 2>&1; then
+            # submodule update could not materialise it (its failure is
+            # swallowed upstream of here): clone directly at the pin.
+            rm -rf "$dir/$p"
+            mkdir -p "$dir/$(dirname "$p")" || die "cannot create $dir/$(dirname "$p")"
+            git init -q "$dir/$p" || die "git init $dir/$p failed"
+            git -C "$dir/$p" remote add origin "$url" 2>/dev/null || true
+            ensure_commit "$dir/$p" "$url" "$sha" \
+                || die "pinned upstream commit $sha for '$p' was not found at $url"
+            git -C "$dir/$p" checkout -q --detach "$sha" || die "checkout $sha in $dir/$p failed"
         fi
         [ -e "$dir/$p/.git" ] || die "submodule '$p' could not be initialised in $dir"
         ensure_commit "$dir/$p" "$url" "$sha" \
@@ -258,6 +331,32 @@ cmd_fetch_cache() {
         git -C "$m" cat-file -e "$sha^{commit}" 2>/dev/null \
             || { echo "ERROR: pinned commit $sha for '$path' is not in $url" >&2; bad=1; continue; }
         echo "[pins] cached: $path @ ${sha:0:12} ($m)"
+    done < <(rows)
+    return "$bad"
+}
+
+# Print the host pin-cache directory (build-singularity.sh mounts exactly
+# this path into the container -- the location is computed here once and
+# passed explicitly, never derived from the tree layout on the far side).
+cmd_cache_path() { echo "$CACHE"; }
+
+# Fail LOUD when a row can be served neither by the pin cache nor by its
+# URL: the build container will clone these URLs, and a build that cannot
+# reach them dies late and expensively (2026-11-13 lane A 07:0xZ).
+cmd_reachable() {
+    local path url branch sha m bad=0
+    while IFS=$'\t' read -r path url branch sha; do
+        m="$(cache_dir_for "$url")"
+        if [ -d "$m" ] && git -C "$m" cat-file -e "$sha^{commit}" 2>/dev/null; then
+            echo "[pins] reachable via pin cache: $path @ ${sha:0:12}"
+            continue
+        fi
+        if tgit ls-remote "$url" HEAD >/dev/null 2>&1; then
+            echo "[pins] reachable: $path ($url)"
+        else
+            echo "ERROR: container cannot reach $url (pin row '$path')" >&2
+            bad=1
+        fi
     done < <(rows)
     return "$bad"
 }
@@ -413,6 +512,8 @@ case "$cmd" in
     provenance)     [ $# -ge 1 ] || die "usage: $0 provenance <dir> [vetro-dir] [boot-splash-dir]"; cmd_provenance "$@" ;;
     check-patches)  cmd_check_patches ;;
     fetch-cache)    cmd_fetch_cache ;;
+    cache-path)     cmd_cache_path ;;
+    reachable)      cmd_reachable ;;
     propose)        cmd_propose ;;
-    *) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; [ -z "$cmd" ] || exit 1 ;;
+    *) sed -n '2,49p' "$0" | sed 's/^# \{0,1\}//'; [ -z "$cmd" ] || exit 1 ;;
 esac

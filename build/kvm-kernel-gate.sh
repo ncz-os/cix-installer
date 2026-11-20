@@ -39,6 +39,21 @@ CONFIG="${2:-}"
 TIMEOUT="${GATE_TIMEOUT:-120}"
 LOG="$(mktemp "${TMPDIR:-/tmp}/kvm-kernel-gate.XXXXXX.log")"
 
+# Accelerator policy, in one place so the test suite can exercise every combination.
+# KVM only when the guest architecture matches this host: a cross-arch boot under KVM
+# fails on the accelerator and looks like a bad kernel.
+gate_accel() { # <karch> <host-arch> <kvm-readable: 1|0>
+  if [ "$3" = "1" ]; then
+    case "$1:$2" in
+      arm64:aarch64|amd64:x86_64) echo kvm; return 0 ;;
+    esac
+  fi
+  echo tcg
+}
+
+# Sourced (by build/test-kvm-gate-arch-symbols.sh): define the policy and stop.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0 2>/dev/null || exit 0; fi
+
 if [ -z "$CONFIG" ]; then
   CONFIG="$(ls "$(dirname "$IMAGE")"/config-* 2>/dev/null | head -1)"
 fi
@@ -51,6 +66,15 @@ fail() { echo "GATE: FAIL — $*" >&2; echo "  boot log: $LOG" >&2; exit 1; }
 echo "=== kvm-kernel-gate ==="
 echo "  Image : $IMAGE ($(stat -c%s "$IMAGE") bytes)"
 echo "  Config: $CONFIG"
+KARCH="${GATE_ARCH:-}"
+if [ -z "$KARCH" ]; then
+  case "$(file -b "$IMAGE" 2>/dev/null)" in
+    *ARM64*) KARCH=arm64 ;;
+    *x86*bzImage*|*x86*boot*) KARCH=amd64 ;;
+    *) if [ "$(uname -m)" = "aarch64" ]; then KARCH=arm64; else KARCH=amd64; fi ;;
+  esac
+fi
+echo "  Arch  : $KARCH ($(file -b "$IMAGE" 2>/dev/null | cut -c1-46))"
 
 # ---------------------------------------------------------------------------
 # Gate 2 first (it is instant, and a hit here means the boot gate cannot help).
@@ -66,6 +90,8 @@ echo "  Config: $CONFIG"
 # Drivers matching those IDs must not be builtin. Module is also refused: a
 # module autoloads off the PCI modalias and panics just as hard, only later.
 # ---------------------------------------------------------------------------
+lint_rc=0
+if [ "$KARCH" = arm64 ]; then
 echo "--- PCI ID collision lint ---"
 COLLIDERS=(
   USB_CDNS3_PCI_WRAP   # 17cd:0100 — bound Sky1's root ports, panicked r236
@@ -84,9 +110,16 @@ for sym in "${COLLIDERS[@]}"; do
   fi
 done
 
+fi  # Sky1 PCI lint applies to arm64 only
+
 # Positive assertions: things whose absence has already cost a release.
 echo "--- required symbols ---"
-for req in DEVTMPFS DEVTMPFS_MOUNT BLK_DEV_LOOP ISO9660_FS; do
+# Per-arch minimum. ISO9660 must be builtin on arm64 (the Sky1 installer mounts the
+# ISO before modules load); on x86 an installed T2 system legitimately carries it as a
+# module, so =y or =m both satisfy the requirement there.
+REQ="DEVTMPFS DEVTMPFS_MOUNT BLK_DEV_LOOP"
+[ "$KARCH" = arm64 ] && REQ="$REQ ISO9660_FS"
+for req in $REQ; do
   if grep -qE "^CONFIG_${req}=y" "$CONFIG"; then
     echo "  ok: CONFIG_$req=y"
   else
@@ -94,7 +127,37 @@ for req in DEVTMPFS DEVTMPFS_MOUNT BLK_DEV_LOOP ISO9660_FS; do
     lint_rc=1
   fi
 done
+if [ "$KARCH" = amd64 ]; then
+  if grep -qE "^CONFIG_ISO9660_FS=(y|m)" "$CONFIG"; then
+    echo "  ok: CONFIG_ISO9660_FS=$(grep -oE '^CONFIG_ISO9660_FS=(y|m)' "$CONFIG" | cut -d= -f2) (x86: module acceptable)"
+  else
+    echo "  MISSING: CONFIG_ISO9660_FS=y or =m"
+    lint_rc=1
+  fi
+fi
 [ "$lint_rc" -eq 0 ] || fail "config lint rejected this kernel"
+
+# KVM only when the guest architecture matches this host: cross-arch boot must use TCG,
+# otherwise an arm64 image on an x86 host fails on the accelerator and looks like a bad kernel.
+HOST_ARCH="$(uname -m)"
+KVM_READABLE=0; [ -r /dev/kvm ] && KVM_READABLE=1
+ACCEL="$(gate_accel "$KARCH" "$HOST_ARCH" "$KVM_READABLE")"
+if [ "$KARCH" = arm64 ]; then
+  QEMU=qemu-system-aarch64; MACH="-M virt"; CONSOLE="console=ttyAMA0"
+  CPU="cortex-a72"; [ "$ACCEL" = kvm ] && CPU="host"
+else
+  QEMU=qemu-system-x86_64; MACH=""; CONSOLE="console=ttyS0"
+  CPU="max"; [ "$ACCEL" = kvm ] && CPU="host"
+fi
+echo "  accel=$ACCEL cpu=$CPU qemu=$QEMU timeout=${TIMEOUT}s"
+
+# Test hook: GATE_SKIP_BOOT=1 stops after the lint so it can be proven on its own.
+# It exits **3**, never 0: this mode proves the config rules only and must not be
+# readable as a gate pass, because the kernel was never booted.
+if [ "${GATE_SKIP_BOOT:-0}" = "1" ]; then
+  echo "lint: PASS (boot gate NOT run; exit 3 is not a gate pass)"
+  exit 3
+fi
 
 # ---------------------------------------------------------------------------
 # Gate 1: boot it.
@@ -106,25 +169,27 @@ done
 # PASS marker; any other panic, oops, or internal error is a failure.
 # ---------------------------------------------------------------------------
 echo "--- boot under qemu ---"
-ACCEL="tcg"; CPU="cortex-a72"
-if [ -r /dev/kvm ] && [ "$(uname -m)" = "aarch64" ]; then
-  ACCEL="kvm"; CPU="host"
-fi
-echo "  accel=$ACCEL cpu=$CPU timeout=${TIMEOUT}s"
 
 # -nic none: the default virt NIC wants an efi-virtio.rom this host does not
 # ship, and qemu exits rc=1 before the kernel ever runs. Without it the gate
 # fails on a qemu packaging detail and reads as a kernel fault.
-timeout "$TIMEOUT" qemu-system-aarch64 \
-  -M virt -accel "$ACCEL" -cpu "$CPU" -smp 4 -m 2048 -nic none \
+# shellcheck disable=SC2086  # $MACH is intentionally word-split (empty for x86)
+timeout "$TIMEOUT" $QEMU $MACH \
+  -accel "$ACCEL" -cpu "$CPU" -smp 4 -m 2048 -nic none \
   -kernel "$IMAGE" \
-  -append "console=ttyAMA0 earlycon panic=-1 loglevel=7" \
+  -append "$CONSOLE earlycon panic=-1 loglevel=7" \
   -nographic -no-reboot \
   > "$LOG" 2>&1
 qrc=$?
 
-grep -qE "Booting Linux on physical CPU|Linux version" "$LOG" \
-  || fail "kernel never produced a boot banner (qemu rc=$qrc) — image may not be bootable"
+if [ "$KARCH" = arm64 ]; then
+  grep -qE "Booting Linux on physical CPU|Linux version" "$LOG" \
+    || fail "kernel never produced a boot banner (qemu rc=$qrc) — image may not be bootable"
+else
+  # x86 may reach the console only after early boot; require kernel-side output.
+  grep -qE "Linux version|Kernel command line|VFS: Cannot open root|Kernel panic" "$LOG" \
+    || fail "kernel never produced kernel-side output (qemu rc=$qrc) — image may not be bootable"
+fi
 
 # Ordered so a real oops is reported even when the VFS panic also appears.
 if grep -qE "Unable to handle kernel|Internal error: Oops|BUG: kernel NULL|Synchronous Exception" "$LOG"; then

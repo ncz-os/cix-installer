@@ -31,6 +31,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/verify-build-input.sh
+. "$REPO/build/lib/verify-build-input.sh"
 OUT="$REPO/assets/python311"
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
@@ -67,11 +69,25 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # ---------------------------------------------------------------- CPython ---
+# M9: a pin, when one exists, decides WHICH release to fetch. Left to "latest", the
+# version moves under us and the pin can only ever produce a warning about bytes nobody
+# reviewed - so the pin is consulted first and the network lookup is the fallback.
+PINNED_CPYTHON="$(awk -F'\t' -v t="-${PY_TRIPLE}-install_only.tar.gz" \
+    '$2 ~ /^assets\/python311\/cpython-/ && index($2, t) {print $2; exit}' \
+    "$REPO/manifests/build-inputs.tsv" 2>/dev/null)"
+if [ -n "$PINNED_CPYTHON" ]; then
+    _pbase="${PINNED_CPYTHON##*/}"
+    VERSION="${_pbase#cpython-}"; VERSION="${VERSION%%+*}"
+    TAG="${_pbase#*+}"; TAG="${TAG%%-*}"
+    echo "[py311] pinned build: cpython $VERSION from release $TAG (manifests/build-inputs.tsv)"
+fi
+
 existing=$(find "$OUT" -maxdepth 1 -type f \
     -name "cpython-${PY_SERIES}*-${PY_TRIPLE}-install_only*.tar.gz" | sort | tail -1)
 if [ -n "$existing" ] && [ "$FORCE" = 0 ]; then
     echo "[py311] already vendored: $(basename "$existing") (use --force to refresh)"
 else
+    if [ -z "${VERSION:-}" ]; then
     echo "[py311] resolving latest python-build-standalone ${PY_SERIES} ${PY_TRIPLE} build"
     curl -fsSL "$PBS_LATEST" -o "$WORK/latest.json"
     # latest-release.json carries the release tag plus the asset-url template.
@@ -98,11 +114,26 @@ PY
             | head -1 | sed -E "s/^cpython-(${PY_SERIES}\.[0-9]+)\+.*/\1/")
     fi
     [ -n "$VERSION" ] || { echo "ERROR: could not determine a ${PY_SERIES}.x version in release $TAG" >&2; exit 1; }
+    fi
 
     NAME="cpython-${VERSION}+${TAG}-${PY_TRIPLE}-install_only.tar.gz"
     URL="https://github.com/astral-sh/python-build-standalone/releases/download/${TAG}/${NAME}"
     echo "[py311] fetching $NAME"
     curl -fsSL "$URL" -o "$WORK/$NAME"
+    # M9: the pin exists in manifests/build-inputs.tsv after vendoring; consult it at
+    # DOWNLOAD time. Unpacking and running the interpreter proves the file is intact and
+    # the right architecture, not that the bytes are the reviewed ones.
+    if ncz_verify_build_input "$REPO/manifests/build-inputs.tsv" "assets/python311/$NAME" "$WORK/$NAME"; then
+        echo "[py311] $NAME verified against the pinned sha256"
+    else
+        rc=$?
+        if [ "$rc" = 2 ]; then
+            echo "[py311] WARNING: no pin for assets/python311/$NAME yet - these bytes are unverified; pin them before shipping" >&2
+        else
+            echo "ERROR: refusing an unpinned $NAME (see manifests/build-inputs.tsv)" >&2
+            exit 1
+        fi
+    fi
 
     # Verify by unpacking and running it — catches truncation and wrong arch.
     tar -C "$WORK" -xzf "$WORK/$NAME"
@@ -126,6 +157,17 @@ else
     [ -n "$UVBIN" ] || { echo "ERROR: no uv binary in $UV_URL" >&2; exit 1; }
     "$UVBIN" --version >/dev/null 2>&1 || { echo "ERROR: vendored uv does not execute on this host" >&2; exit 1; }
     install -m 0755 "$UVBIN" "$OUT/uv"
+    if ncz_verify_build_input "$REPO/manifests/build-inputs.tsv" "assets/python311/uv" "$OUT/uv"; then
+        echo "[py311] uv verified against the pinned sha256"
+    else
+        rc=$?
+        if [ "$rc" = 2 ]; then
+            echo "[py311] WARNING: no pin for assets/python311/uv yet - these bytes are unverified; pin them before shipping" >&2
+        else
+            echo "ERROR: refusing an unpinned uv (see manifests/build-inputs.tsv)" >&2
+            exit 1
+        fi
+    fi
     echo "[py311] vendored uv ($("$OUT/uv" --version 2>&1))"
 fi
 

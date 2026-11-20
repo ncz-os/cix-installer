@@ -151,7 +151,7 @@ ensure_cosign() {
 # ----------------------------------------------------------------------
 # verify-before-mount: cosign-verify the OCI image signature against the
 # pinned NCZ OTA cosign public key, then pin IMG to the EXACT digest that
-# was verified (avoids tag TOCTOU). This is the transport-layer gate; the
+# was verified so the pull uses the verified image even if the tag changes. The
 # GPG-signed apt Release inside the squashfs is verified again below.
 # ----------------------------------------------------------------------
 if [ -s "$COSIGN_PUB" ]; then

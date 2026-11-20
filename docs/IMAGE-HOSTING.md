@@ -5,7 +5,7 @@ never depends on a single host.
 
 | Where | Role | What is there |
 |---|---|---|
-| GitHub Releases (`github.com/ncz-os/cix-installer/releases`) | Main download page; the README and release notes link here | The current release as release files: per architecture its split image parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`; then `ncz-join-image.sh`, `SHA256SUMS` and `NOTES.md` |
+| GitHub Releases (`github.com/ncz-os/cix-installer/releases`) | Main download page; the README and release notes link here | The current release as release files: per architecture the desktop and server parts and checksum files, followed by `SHA256SUMS-<arch>`; then `ncz-join-image.sh`, `SHA256SUMS` and `NOTES.md` |
 | GitLab release + generic package registry (`gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest`) | Second download location; GitLab is the canonical project | The same release: the same files, stored in one generic package per architecture plus a common package, and linked from the GitLab release of the same tag in an `amd64/` and an `arm64/` folder |
 | Object storage | Fallback for heavy download traffic | The same files, linked from the release notes when used |
 
@@ -25,7 +25,8 @@ the same files (names, sizes, sha256, in the same order), the same checksum
 files and join script, and the same status wording. GitHub hosts the files
 as release assets; GitLab hosts them in the generic package registry and
 links them from the release. Apart from the release files, the GitHub
-repository is a mirror of GitLab.
+repository is a filtered copy of GitLab ([GITHUB-SYNC.md](GITHUB-SYNC.md)); GitLab
+is canonical.
 
 A preview release (a tag matching `*-preview*`, such as `v26.10-preview2`)
 is a **pre-release on GitHub**. GitHub never treats a pre-release as the
@@ -46,48 +47,55 @@ depend on older release pages.
 
 ### Release layout
 
-Releases have one folder per architecture where the forge can show one.
-GitLab can: a release link's name and direct path may contain `/`, so the
-architecture files are listed as `amd64/<file>` and `arm64/<file>`. GitHub
-cannot: release assets are one flat list and an asset name cannot hold a
-`/`. The closest equivalent on GitHub is per-architecture file names and
-checksum files, uploaded as two contiguous groups. Both pages list the same
-files in the same order:
+Preview 4 includes desktop and server images for amd64 and arm64 on one
+release page per forge. GitHub lists flat assets. GitLab uses
+`<arch>/<file>` link names and stores both flavors in `ncz-os-image-<arch>`.
+The parity check compares GitLab names with the folder removed.
 
-| # | GitHub asset | GitLab link name, direct path, link type | GitLab package |
-|---|---|---|---|
-| 1 | `ncz-os-amd64-<date>-<build>.img.zst.part-NN` (every part) | `amd64/ncz-os-amd64-<date>-<build>.img.zst.part-NN`, `/amd64/ncz-os-amd64.img.zst.part-NN`, package | `ncz-os-image-amd64` |
-| 2 | `PARTS-amd64.sha256` | `amd64/PARTS-amd64.sha256`, `/amd64/PARTS-amd64.sha256`, package | `ncz-os-image-amd64` |
-| 3 | `SHA256SUMS-amd64` | `amd64/SHA256SUMS-amd64`, `/amd64/SHA256SUMS-amd64`, package | `ncz-os-image-amd64` |
-| 4 | the same three kinds of file for arm64 | the same under `arm64/` | `ncz-os-image-arm64` |
-| 5 | `ncz-join-image.sh` | `ncz-join-image.sh`, `/ncz-join-image.sh`, other | `ncz-os-image-common` |
-| 6 | `SHA256SUMS` | `SHA256SUMS`, `/SHA256SUMS`, other | `ncz-os-image-common` |
-| 7 | `NOTES.md` | `NOTES.md`, `/NOTES.md`, other | `ncz-os-image-common` |
+Both pages use the same order. Within amd64, list the desktop parts,
+`PARTS-amd64-desktop.sha256` and `SHA256SUMS-amd64-desktop`, then the same
+files for server, then `SHA256SUMS-amd64`. Repeat the order for arm64.
+Finish with `ncz-join-image.sh`, `SHA256SUMS` and `NOTES.md` from
+`ncz-os-image-common`. Each architecture package also contains a copy
+of the join script. The release page links the common copy.
 
-* GitLab link names carry the `amd64/` or `arm64/` folder; the file names
-  inside the folders and every GitHub asset name are the same. The parity
-  check compares the GitLab names with the folder removed.
-* Each architecture package also holds a copy of `ncz-join-image.sh`, so
-  one package is a complete download for that architecture; only the
-  common copy is linked from the release.
-* `SHA256SUMS` is kept: it is exactly `SHA256SUMS-amd64` followed by
-  `SHA256SUMS-arm64`, it gives one stable address for both images, and it is
-  what the image audit file is checked against. There is no combined
-  `PARTS.sha256` any more; `ncz-join-image.sh` uses `PARTS-<arch>.sha256` and
-  `SHA256SUMS-<arch>` (and still accepts the combined files of older
-  releases).
-* A release may carry one architecture only; the other folder and its
-  files are then absent.
-* The release notes have one section per architecture, amd64 first, under
-  a heading naming the architecture, with its download table, the image
-  sha256, the `sh ncz-join-image.sh <arch>` command and its hardware list.
-  GitHub and GitLab get the same body.
+`SHA256SUMS-<arch>` concatenates that architecture's flavor files in
+desktop, server order. `SHA256SUMS` concatenates the architecture files
+in amd64, arm64 order. Each flavor file has two standard sha256sum entries
+in staging order, the raw `.img` and the unsplit `.img.zst`. The image audit
+uses the raw image hashes. A release requires all four images and their
+checksum files. The join script also reads older layouts with unflavored
+part and checksum names.
 
-The staged release folder mirrors this layout:
+Stage into a new directory with GNU coreutils and zstd:
 
-    <staged>/amd64/   ncz-os-amd64-<date>-<build>.img.zst.part-NN  PARTS-amd64.sha256  SHA256SUMS-amd64
-    <staged>/arm64/   ncz-os-arm64-<date>-<build>.img.zst.part-NN  PARTS-arm64.sha256  SHA256SUMS-arm64
-    <staged>/         ncz-join-image.sh  SHA256SUMS  NOTES.md  TITLE  PRERELEASE
+```sh
+tools/stage-release.sh --out staged-preview4 \
+  --amd64-desktop amd64-desktop.img --amd64-server amd64-server.img \
+  --arm64-desktop arm64-desktop.img --arm64-server arm64-server.img
+```
+
+Each input requires a sibling `<image>.sha256` file. Staging verifies the
+first field against the input image and ignores the build path in the
+sidecar. By default the command prints the planned files and verified
+hashes. Add `--apply` to write them. Use `--allow-partial` to stage a subset
+for testing. The script uses zstd with all
+available threads and defaults to level 10 (`--level`) and 1900 MiB parts
+(`--part-size-mib`). It takes the date and build from an input named
+`ncz-os-<arch>-<date>-<build>[-<flavor>].img`. Other names use the UTC
+staging date and the first 12 hex digits of the raw image SHA-256.
+
+    <staged>/<arch>/ncz-os-<arch>-<date>-<build>-<flavor>.img.zst.part-NN
+    <staged>/<arch>/PARTS-<arch>-<flavor>.sha256
+    <staged>/<arch>/SHA256SUMS-<arch>-<flavor>
+    <staged>/<arch>/SHA256SUMS-<arch>
+    <staged>/ncz-join-image.sh
+    <staged>/SHA256SUMS
+
+Add `NOTES.md`, `TITLE` and, where needed, `PRERELEASE` after staging.
+To join a download, put the desired parts and both flavor checksum files
+with the join script in one directory. Run `sh ncz-join-image.sh [arch] [flavor]`.
+A single architecture or flavor is auto-detected.
 
 ### Stable addresses
 
@@ -98,8 +106,8 @@ these addresses:
 |---|---|---|
 | Release page | `https://github.com/ncz-os/cix-installer/releases` (lists the one release) | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest` |
 | A small file | `https://github.com/ncz-os/cix-installer/releases/download/<current tag>/<file>` | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<file>` |
-| An architecture's checksum files | `https://github.com/ncz-os/cix-installer/releases/download/<current tag>/PARTS-<arch>.sha256` (and `SHA256SUMS-<arch>`) | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/PARTS-<arch>.sha256` (and `<arch>/SHA256SUMS-<arch>`) |
-| An image part | take the name from `PARTS-<arch>.sha256` or the page | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/ncz-os-<arch>.img.zst.part-NN` |
+| A flavor's checksum files | `https://github.com/ncz-os/cix-installer/releases/download/<current tag>/PARTS-<arch>-<flavor>.sha256` (and `SHA256SUMS-<arch>-<flavor>`) | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/PARTS-<arch>-<flavor>.sha256` (and `<arch>/SHA256SUMS-<arch>-<flavor>`) |
+| An image part | take the name from `PARTS-<arch>-<flavor>.sha256` or the page | `https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest/downloads/<arch>/ncz-os-<arch>-<flavor>.img.zst.part-NN` |
 | Screenshots | `https://raw.githubusercontent.com/ncz-os/cix-installer/main/docs/screenshots/...` | `https://gitlab.com/ncz-os/cix-installer/-/raw/main/docs/screenshots/...` |
 | Source of a release | `https://github.com/ncz-os/cix-installer/tree/<tag>` | `https://gitlab.com/ncz-os/cix-installer/-/tree/<tag>` |
 
@@ -112,14 +120,14 @@ with the release. In the release notes the tag is filled in when the notes
 are published (below), so `NOTES.md` itself has no tag.
 
 `<file>` is one of `SHA256SUMS`, `ncz-join-image.sh` and `NOTES.md`; those
-names, and `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`, never change. The
-image parts carry the build in their names
-(`ncz-os-<arch>-<date>-<build>.img.zst.part-NN`). On GitLab each part link
+names and the checksum names above are stable. GitLab also keeps the
+combined alias `/<arch>/SHA256SUMS-<arch>`. The image parts carry the build in their names
+(`ncz-os-<arch>-<date>-<build>-<flavor>.img.zst.part-NN`). On GitLab each part link
 also has a stable direct path without the build
-(`<arch>/ncz-os-<arch>.img.zst.part-NN`), so the GitLab address above never
+(`<arch>/ncz-os-<arch>-<flavor>.img.zst.part-NN`), so the GitLab address above never
 changes. GitHub has no aliases for release files: a second, stable-named copy
 of every part would double the stored bytes, so on GitHub users take the
-part names from `PARTS-<arch>.sha256` or from the page.
+part names from `PARTS-<arch>-<flavor>.sha256` or from the page.
 
 `tools/check-release-links.sh` (run by `make lint-platform`) fails, in
 `README*.md` and `docs/`, on:
@@ -135,7 +143,10 @@ part names from `PARTS-<arch>.sha256` or from the page.
 
 The staged release folder holds the notes as `NOTES.md` (start from
 [releases/release-page-template.md](releases/release-page-template.md)),
-the title as `TITLE` (one line) and the GitHub pre-release flag as
+with one section per architecture and a Desktop or Server subsection for
+each included image. Each subsection includes its raw image SHA-256 and
+`sh ncz-join-image.sh <arch> <flavor>` command. Store the title as `TITLE`
+(one line) and the GitHub pre-release flag as
 `PRERELEASE` (`yes` or `no`; optional for a preview tag, which is always a
 pre-release). `NOTES.md` uses the GitLab forms of the links above; the
 GitHub page gets the same text with those links in their GitHub form (the
@@ -178,9 +189,9 @@ Before a screenshot is committed:
 
 `tools/check-release-parity.sh` (read-only) compares the two release pages:
 
-    tools/check-release-parity.sh --tag v26.10-preview2
-    tools/check-release-parity.sh --tag v26.10-preview2 --quick       # names and sizes only
-    tools/check-release-parity.sh --tag v26.10-preview2 --release-dir <staged-folder>
+    tools/check-release-parity.sh --tag v26.10-preview4
+    tools/check-release-parity.sh --tag v26.10-preview4 --quick       # names and sizes only
+    tools/check-release-parity.sh --tag v26.10-preview4 --release-dir <staged-folder>
 
 It fails (exit 1, with a readable difference) when either forge has more
 than one release page or none for the tag; when the files are not in the
@@ -195,16 +206,16 @@ without an API digest is downloaded and hashed); when a GitLab link is not
 a package file of the project or its direct path is not the stable alias;
 when any file other than the parts differs byte for byte between the two
 pages, `SHA256SUMS` is not `SHA256SUMS-amd64` followed by `SHA256SUMS-arm64`,
-or a `PARTS-<arch>.sha256` does not list exactly that architecture's parts on
+or a `PARTS-<arch>-<flavor>.sha256` does not list exactly that flavor's parts on
 the page; when the notes lack a section per architecture (amd64 first) with
-its image sha256 and join command; or when the screenshot sets differ or a
-screenshot does not answer HTTP 200 with the sha256 of the repository file.
+the raw image sha256 and join command in each flavor subsection; or when
+the screenshot sets differ or a screenshot does not answer HTTP 200 with the sha256 of the repository file.
 
 `tools/sync-release-pages.sh` publishes a staged release folder to both
 pages and retires every other release page. It is a dry run unless given
 `--apply`, and `--apply` also needs `--operator-approved <file>` (a file
 naming the tag) and `--audit-ok <file>` (a `PASS <sha256>` line for every
-image in `SHA256SUMS`, no `FAIL` line), so it cannot publish unattended or
+raw image in `SHA256SUMS`, no `FAIL` line), so it cannot publish unattended or
 publish an image that did not pass the image audit. It never creates, moves
 or deletes git tags; the tag must exist on both forges first. A preview tag
 is published as a GitHub pre-release (`PRERELEASE` may be omitted; `no` is
@@ -213,8 +224,8 @@ After retiring, it reads both release lists back and requires exactly one
 release, the tag, on each, the GitHub pre-release flag as staged and the
 GitLab release not "upcoming".
 
-    tools/sync-release-pages.sh --dir <staged-folder> --tag v26.10-preview2
-    tools/sync-release-pages.sh --dir <staged-folder> --tag v26.10-preview2 --apply \
+    tools/sync-release-pages.sh --dir <staged-folder> --tag v26.10-preview4
+    tools/sync-release-pages.sh --dir <staged-folder> --tag v26.10-preview4 --apply \
         --operator-approved <approval-file> --audit-ok <audit-file>
 
 Order of work: local checks (the release layout, parts, names, size limits,
@@ -241,7 +252,7 @@ image source commit before publishing. Then:
    tag; GitLab: `permalink/latest` resolves to it).
 5. Refresh the documentation links:
    `tools/refresh-release-links.sh --tag <tag> --apply`, check with
-   `make lint-platform`, and commit (GitLab first, then the GitHub mirror
+   `make lint-platform`, and commit (GitLab first, then the filtered GitHub
    sync).
 
 Run `check-release-parity.sh --tag <tag>` again afterwards from any machine.
@@ -257,7 +268,7 @@ Run `check-release-parity.sh --tag <tag>` again afterwards from any machine.
    before any GitHub release step: a release created for a tag GitHub does
    not have yet makes GitHub create the tag itself, at the wrong commit.
 3. Staged folder in the release layout: `amd64/` and `arm64/` with their
-   parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`; `ncz-join-image.sh`,
+   parts, `PARTS-<arch>-<flavor>.sha256`, `SHA256SUMS-<arch>-<flavor>` and the combined `SHA256SUMS-<arch>`; `ncz-join-image.sh`,
    `SHA256SUMS`, `NOTES.md` (one section per architecture) (from the template, screenshots committed on `main` and
    checked against the privacy list), `TITLE`, `PRERELEASE`.
 4. `tools/check-release-links.sh --current-tag <tag> --files <staged-folder>/NOTES.md`
@@ -272,7 +283,7 @@ Run `check-release-parity.sh --tag <tag>` again afterwards from any machine.
 
 Open <https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest>
 and download the files in the folder of your architecture (`amd64/` or
-`arm64/`: the parts, `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>`) plus
+`arm64/`: the parts, `PARTS-<arch>-<flavor>.sha256`, `SHA256SUMS-<arch>-<flavor>` and the combined `SHA256SUMS-<arch>`) plus
 `ncz-join-image.sh`. Each file also has a stable direct
 address (see [Stable addresses](#stable-addresses)):
 
@@ -297,7 +308,7 @@ folder in the release layout and an existing tag:
 What it does, in order:
 
 1. Checks the folder against the release layout: every part against its
-   `PARTS-<arch>.sha256`, no unlisted or misplaced part, `SHA256SUMS` equal
+   `PARTS-<arch>-<flavor>.sha256`, no unlisted or misplaced part, `SHA256SUMS` equal
    to the per-architecture files, and no file over the registry's per-file
    limit (5 GiB on GitLab.com; override with `NCZ_GITLAB_MAX_FILE_BYTES`).
    Nothing is sent if a check fails.
@@ -363,12 +374,16 @@ the process list. Files are always downloaded without a token.
   split into parts; the same parts are used on GitLab.
 * GitLab.com accepts generic package files up to 5 GiB each. The package
   registry does not count toward the project repository size limit.
-* A two-architecture release is about 7 GB. With `--prune-old` and the
+* With `--prune-old` and the
   default `--keep 1`, GitLab holds only one release's worth of image files.
 * GitLab.com rate-limits package registry requests to 1,000 per minute per
   IP address; downloading one release is a handful of requests.
 
 ## Tests
+
+`build/test-stage-release.sh` stages four small images and rejoins them,
+checks both levels of combined checksums, and exercises selection,
+overwrite protection and checksum failures.
 
 `build/test-publish-release-gitlab.sh` runs the GitLab publisher against a
 mocked `curl` (no network): dry runs make no change, uploads go to one
@@ -386,7 +401,7 @@ never appears in `curl`'s arguments or in the output.
 `sync-release-pages.sh` and `check-release-links.sh` against a mocked GitHub
 and GitLab (no network): matching pages pass; a different title, body,
 file, size, sha256, small-file content, file order, GitLab folder name,
-link type or package, combined `SHA256SUMS`, `PARTS-<arch>.sha256`
+link type or package, combined `SHA256SUMS`, `PARTS-<arch>-<flavor>.sha256`
 contents, missing architecture section or join command, unexpected file,
 screenshot, extra release page, missing release, pre-release flag, link to
 another release or stable address fails with a readable difference; the GitHub check reads the releases list (one release), never

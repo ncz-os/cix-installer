@@ -7,7 +7,6 @@ manifests/desktop.pkgs:apparmor
 manifests/desktop.pkgs:apparmor-profiles
 manifests/desktop.pkgs:apparmor-utils
 manifests/desktop.pkgs:audacity
-manifests/desktop.pkgs:baobab
 manifests/desktop.pkgs:blueman
 manifests/desktop.pkgs:bluez
 manifests/desktop.pkgs:btop
@@ -21,7 +20,6 @@ manifests/desktop.pkgs:crun
 manifests/desktop.pkgs:curl
 manifests/desktop.pkgs:dosfstools
 manifests/desktop.pkgs:drawing
-manifests/desktop.pkgs:epiphany-browser
 manifests/desktop.pkgs:ethtool
 manifests/desktop.pkgs:fcitx5
 manifests/desktop.pkgs:fcitx5-chinese-addons
@@ -53,16 +51,7 @@ manifests/desktop.pkgs:glslang-dev
 manifests/desktop.pkgs:glslang-tools
 manifests/desktop.pkgs:glslc
 manifests/desktop.pkgs:glycin-loaders
-manifests/desktop.pkgs:gnome-calculator
-manifests/desktop.pkgs:gnome-calendar
-manifests/desktop.pkgs:gnome-characters
-manifests/desktop.pkgs:gnome-console
-manifests/desktop.pkgs:gnome-disk-utility
-manifests/desktop.pkgs:gnome-font-viewer
 manifests/desktop.pkgs:gnome-session-canberra
-manifests/desktop.pkgs:gnome-sound-recorder
-manifests/desktop.pkgs:gnome-text-editor
-manifests/desktop.pkgs:gnome-weather
 manifests/desktop.pkgs:google-chrome-stable
 manifests/desktop.pkgs:greetd
 manifests/desktop.pkgs:grim
@@ -79,7 +68,6 @@ manifests/desktop.pkgs:imagemagick
 manifests/desktop.pkgs:imv
 manifests/desktop.pkgs:inetutils-telnetd
 manifests/desktop.pkgs:iperf3
-manifests/desktop.pkgs:kooha
 manifests/desktop.pkgs:libadwaita-1-0
 manifests/desktop.pkgs:libdbusmenu-glib4
 manifests/desktop.pkgs:libdrm-etnaviv1
@@ -124,7 +112,6 @@ manifests/desktop.pkgs:libxcb-icccm4
 manifests/desktop.pkgs:libxcb-res0
 manifests/desktop.pkgs:libxml2-16
 manifests/desktop.pkgs:lm-sensors
-manifests/desktop.pkgs:loupe
 manifests/desktop.pkgs:mesa-opencl-icd
 manifests/desktop.pkgs:mesa-utils
 manifests/desktop.pkgs:mesa-vulkan-drivers
@@ -136,7 +123,6 @@ manifests/desktop.pkgs:nodejs
 manifests/desktop.pkgs:npm
 manifests/desktop.pkgs:nvme-cli
 manifests/desktop.pkgs:openbsd-inetd
-manifests/desktop.pkgs:papers
 manifests/desktop.pkgs:pavucontrol
 manifests/desktop.pkgs:pipewire
 manifests/desktop.pkgs:pipewire-alsa
@@ -171,6 +157,7 @@ manifests/desktop.pkgs:wev
 manifests/desktop.pkgs:wf-recorder
 manifests/desktop.pkgs:whiptail
 manifests/desktop.pkgs:wireplumber
+manifests/desktop.pkgs:wayvnc
 manifests/desktop.pkgs:wl-clipboard
 manifests/desktop.pkgs:wlr-randr
 manifests/desktop.pkgs:xarchiver

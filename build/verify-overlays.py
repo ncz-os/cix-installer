@@ -15,8 +15,9 @@ spec.loader.exec_module(_km)
 modinfo_vermagic = _km.modinfo_vermagic
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# panthor is not shipped (Mali only, operator order 2026-11-16).
 OVERLAYS = ["assets/kernel/mali", "assets/kernel/vpu",
-            "assets/kernel/npu", "assets/kernel/panthor"]
+            "assets/kernel/npu"]
 
 errors = []
 checked_modules = 0

@@ -74,6 +74,61 @@ def _read_release_conf() -> dict:
     return out
 
 
+def theme_enabled() -> bool:
+    """Whether the Cygnus rEFInd theme is staged into the installer ESP.
+
+    NCZ_REFIND_THEME is read from the environment because the ESP builder is
+    invoked from build/build-installer-image.sh (and ad-hoc by hand); the
+    Makefile/release.conf do not carry it. Default is ON for 26.10 (Cygnus is
+    the release's visual identity). The `0` path restores the pre-theme ESP
+    byte-for-byte: no themes/ tree is written and refind.conf is the exact
+    pre-change text. Anything other than an explicit "0" (the documented off
+    switch) leaves the theme on.
+    """
+    return os.environ.get("NCZ_REFIND_THEME", "1").strip() != "0"
+
+
+def theme_source_dir() -> Path:
+    """The tracked Cygnus theme directory (assets/refind/cygnus/).
+
+    Not extracted from a .deb: the theme is repo art, so there is no
+    per-arch or per-extract variant to resolve -- both arches read the same
+    tree.
+    """
+    return REPO_ROOT / "assets" / "refind" / "cygnus"
+
+
+BRAND_LIB = REPO_ROOT / "post-install" / "lib" / "ncz-brand.sh"
+
+
+def server_edition() -> str:
+    """The server edition name, read from post-install/lib/ncz-brand.sh (the one
+    place that spells it; the installer dialogs, late.sh, 50-brand.sh and the
+    installed rEFInd menu source the same file). Fails loudly when absent: a
+    Magnetar Server boot menu must never fall back to the desktop codename."""
+    import re
+
+    if not BRAND_LIB.is_file():
+        raise SystemExit(f"FATAL: {BRAND_LIB} is missing; it names the server edition")
+    m = re.search(
+        r'^NCZ_SERVER_EDITION="([^"]+)"$',
+        BRAND_LIB.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if not m:
+        raise SystemExit(f"FATAL: no NCZ_SERVER_EDITION in {BRAND_LIB}")
+    return m.group(1)
+
+
+def image_variant() -> str:
+    """NCZ_VARIANT of this image build (build/build-installer-image.sh exports it;
+    unset = desktop, the historical default)."""
+    v = os.environ.get("NCZ_VARIANT", "desktop").strip().lower() or "desktop"
+    if v not in ("desktop", "server"):
+        raise SystemExit(f"NCZ_VARIANT must be desktop or server, got {v!r}")
+    return v
+
+
 def build_info_line(arch: str) -> str:
     """Real, dynamic 'what build is this' text for the installer's own
     boot menu -- product/version/codename from release.conf, the real
@@ -108,6 +163,10 @@ def build_info_line(arch: str) -> str:
     kver_text = " / ".join(kver_bits) if kver_bits else "kernel line unknown"
 
     ident = f"{product} {version} {codename}".strip()
+    if image_variant() == "server":
+        # Magnetar Server medium: "NCZ-OS 26.10 Magnetar Server" (the edition in
+        # the codename's place, never the codename). Desktop keeps the line above.
+        ident = f"{product} {version} {server_edition()}".strip()
     return f"{ident} -- built {build_date} -- {kver_text}"
 
 
@@ -199,23 +258,16 @@ def find_refind_extract(arch: str) -> Path:
     return base
 
 
-# 2026-10-12 (unattended amd64 installer defect): every unattended installer entry
-# disables BRLTTY's d-i udev auto-start. brltty-udeb's /lib/udev/brltty.sh
-# begins with `grep -q brltty /proc/cmdline && exit 0`, so ANY cmdline token
-# containing the substring "brltty" suppresses the auto-detect that otherwise
-# starts brltty for GENERIC USB-serial ids -- FTDI 0403:6001/6010, CP210x
-# 10c4:ea60/ea80, CH341 1a86:55d3/7523, and the PL2303 067b:2303 family -- and
-# leaves /var/run/brltty-generic set. The brltty-udeb postinst then asks the
-# CRITICAL-priority question "Is the USB serial device indeed a braille
-# device?" and the unattended install (auto=true priority=critical) stops dead
-# on it. This token is deliberately NCZ-namespaced and self-documenting; it
-# satisfies the upstream substring test without passing a real `brltty=`
-# configuration (which upstream would read as "enable braille with defaults").
-# The second, d-i-level layer is the preseed answer in preseed/preseed.cfg
-# (`brltty-udeb/generic boolean false`). A genuinely braille device whose udev
-# rule is NOT the generic one never sets BRLTTY_GENERIC, so it is unaffected;
-# this entry is the unattended install path, where suppression is intended.
-NCZ_NO_BRLTTY = "ncz_no_brltty=1"
+# The installer carries no BRLTTY (patch-initrd-t2-kernel.py removes brltty-udeb
+# from the d-i initrd; docs/ACCESSIBILITY.md). No installer entry may pass a
+# cmdline token containing "brltty": brltty-udeb's startup hook S37brltty runs
+# `grep -q brltty /proc/cmdline` and STARTS brltty (driver autodetect) when it
+# matches, and its udev helper treats the same substring as "do not start". The
+# former ncz_no_brltty=1 token therefore started brltty on every boot of the
+# Install/Expert entries (observed on a MacBookPro16,1 with no braille or
+# USB-serial device attached: S37brltty started brltty, the console was clamped
+# to 80 columns and the framebuffer frontend was disabled). Checked below.
+BRLTTY_CMDLINE_FORBIDDEN = "brltty"
 
 # Match the old builder's unattended DI_OPTS for the normal Install entry.
 # auto=true makes d-i take its unattended path and apply the preseed early.
@@ -240,7 +292,6 @@ _PC_INSTALL_OPTIONS = " ".join((
     "locale=en_US.UTF-8",
     "keyboard-configuration/layoutcode=us",
     "DEBIAN_FRONTEND=newt",
-    NCZ_NO_BRLTTY,
     "quiet loglevel=3",
     "vt.global_cursor_default=0 consoleblank=0 console=tty0",
 ))
@@ -248,7 +299,6 @@ _PC_EXPERT_OPTIONS = " ".join((
     "priority=low ipv6.disable=1 interface=auto",
     "netcfg/dhcp_timeout=120",
     "DEBIAN_FRONTEND=newt",
-    NCZ_NO_BRLTTY,
     "loglevel=4",
     "vt.global_cursor_default=0 consoleblank=0 console=tty0",
 ))
@@ -422,7 +472,7 @@ menuentry "NCZ-OS Installer -- Rescue mode" {{
 menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
     disabled
 }}
-"""
+{theme_include}"""
 
 
 # arm64 netboot: same layout as amd64, EXCEPT the serial console. Sky1
@@ -557,7 +607,65 @@ menuentry "NCZ-OS Installer -- Rescue mode" {{
 menuentry "NCZ-OS Installer -- Reinstall (preserve installed system)" {{
     disabled
 }}
-"""
+{theme_include}"""
+
+
+def theme_include_block(enabled: bool) -> str:
+    """Text substituted for ``{theme_include}`` at the end of every template.
+
+    Disabled -> "" (the templates end with the Reinstall entry and a newline,
+    exactly as before the theme existed, so NCZ_REFIND_THEME=0 is
+    byte-identical output). Enabled -> the tracked refind.conf.snippet
+    verbatim (a leading blank line plus the `include themes/cygnus/theme.conf`
+    line), appended after the menu so rEFInd's last-wins parsing lets the
+    theme's banner/banner_scale override anything generated above.
+
+    The snippet is READ, not restated: assets/refind/cygnus/refind.conf.snippet
+    is the one place the include line is spelled, shared with the installed-
+    system refresh scripts' documented contract, and a missing or unreadable
+    snippet is a fatal error rather than a silently unbranded ESP.
+    """
+    if not enabled:
+        return ""
+    snippet = theme_source_dir() / "refind.conf.snippet"
+    if not snippet.is_file():
+        raise FileNotFoundError(
+            f"NCZ_REFIND_THEME is on but the theme snippet is missing: {snippet}"
+        )
+    text = snippet.read_text()
+    if "include themes/cygnus/theme.conf" not in text:
+        raise ValueError(
+            f"{snippet} does not include themes/cygnus/theme.conf; the theme "
+            f"would be staged but never loaded"
+        )
+    # The templates supply the newline before this block; the snippet carries
+    # its own leading blank line, so it is appended as-is.
+    return text if text.endswith("\n") else text + "\n"
+
+
+# Files rEFInd's theme needs at runtime, relative to assets/refind/cygnus/.
+# banner_scale fillscreen is WHY there is exactly one background (see
+# theme.conf and docs/REFIND-THEME.md): rEFInd stretches it to whatever GOP
+# mode `resolution max` selected, so a missing background would break the
+# theme's whole design premise, not just its looks.
+THEME_REQUIRED_FILES = (
+    "theme.conf",
+    "background-1920x1080.png",
+    "selection_big.png",
+    "selection_small.png",
+    "os_ncz.png",
+    "refind.conf.snippet",
+)
+
+
+# Where the theme lands inside the ESP, relative to each SelfDir. rEFInd
+# resolves `banner`, `selection_big`/`selection_small` and `include` paths
+# relative to its own directory (SelfDir), exactly like refind.conf itself,
+# so the themes/cygnus/ tree MUST be written next to refind.conf at BOTH
+# SelfDir candidates -- EFI/BOOT/ for the El Torito fallback launch and
+# EFI/REFIND/ for the installed path. The installed-system refresh scripts
+# (assets/refind/ncz-refind-refresh*.sh) use the same relative layout.
+THEME_ESP_DIR = Path("themes") / "cygnus"
 
 
 # OVMF's startup.nsh. When the firmware boots the EFI Internal Shell from
@@ -573,9 +681,21 @@ STARTUP_NSH = """\\
 """
 
 
+def assert_no_brltty_options(conf_text: str) -> None:
+    """Refuse a refind.conf whose boot options name brltty (see
+    BRLTTY_CMDLINE_FORBIDDEN): the substring alone starts brltty in d-i."""
+    for line in conf_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("options") and BRLTTY_CMDLINE_FORBIDDEN in stripped.lower():
+            raise ValueError(
+                f"refind.conf boot options contain {BRLTTY_CMDLINE_FORBIDDEN!r}, "
+                f"which makes d-i start brltty: {stripped}"
+            )
+
+
 def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
                    d_i_kernel: Path, d_i_initrd: Path, info_line: str,
-                   build_id: str = "") -> dict:
+                   build_id: str = "", theme: bool | None = None) -> dict:
     """Materialize the EFI/ tree inside esp_root/, with the d-i kernel +
     initrd embedded at the FAT image root (/linux, /initrd.gz). The kernel
     and initrd are REQUIRED: we never want a refind.conf pointing at files
@@ -583,8 +703,14 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
     ESP no longer ships a filesystem driver, so a missing /linux or
     /initrd.gz would surface as a silent boot failure at runtime).
 
+    `theme` stages the Cygnus rEFInd theme (see theme_enabled()); None means
+    decide from NCZ_REFIND_THEME, and it applies to BOTH arches -- the arm64
+    installer ESP is exactly the case that was left unbranded before.
+
     Returns a dict of file inventory (relative paths) for the receipt.
     """
+    if theme is None:
+        theme = theme_enabled()
     if not d_i_kernel.is_file():
         raise FileNotFoundError(
             f"required d-i kernel is missing or not a file: {d_i_kernel}"
@@ -610,6 +736,7 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
         # REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE for the HP OmniDesk rationale.
         conf_text = REFIND_CONF_TEXT_AMD64_GRAPHICS_TEMPLATE.format(
             info_line=info_line,
+            theme_include=theme_include_block(theme),
             install_options=options_with_build_id(AMD64_INSTALL_OPTIONS, build_id),
             expert_options=options_with_build_id(AMD64_EXPERT_OPTIONS, build_id),
             rescue_options=options_with_build_id(AMD64_RESCUE_OPTIONS, build_id),
@@ -621,11 +748,13 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
         refind_loader = "refind_aa64.efi"
         conf_text = REFIND_CONF_TEXT_ARM64_TEMPLATE.format(
             info_line=info_line,
+            theme_include=theme_include_block(theme),
             install_options=options_with_build_id(ARM64_INSTALL_OPTIONS, build_id),
             expert_options=options_with_build_id(ARM64_EXPERT_OPTIONS, build_id),
             rescue_options=options_with_build_id(ARM64_RESCUE_OPTIONS, build_id),
         )
         conf_basename = "refind.conf"
+    assert_no_brltty_options(conf_text)
 
     # Locate source files in the extracted .deb
     refind_efi_src = refind_src / f"refind_{efi_arch}.efi"
@@ -675,6 +804,35 @@ def build_esp_dir(esp_root: Path, refind_src: Path, arch: str,
     # works in both contexts.
     (boot_dir / conf_basename).write_text(conf_text)
     (refind_dir / conf_basename.upper()).write_text(conf_text)
+
+    # Cygnus theme (NCZ_REFIND_THEME, default on for 26.10). Same two SelfDir
+    # candidates as refind.conf and icons/: rEFInd resolves the `include`,
+    # `banner` and `selection_*` paths in theme.conf relative to the running
+    # binary's directory, so a themes/cygnus/ tree at only one of the two
+    # paths leaves the other launch unbranded (the El Torito fallback launch
+    # uses EFI/BOOT/, the installed path uses EFI/REFIND/). The theme is
+    # staged for arm64 as well as amd64: MINOR-004's defect was the amd64
+    # installer ESP booting stock rEFInd, and the arm64 ESP reads the same
+    # config on the same rEFInd with the same themes/ loading rules.
+    if theme:
+        theme_src = theme_source_dir()
+        missing = [n for n in THEME_REQUIRED_FILES if not (theme_src / n).is_file()]
+        if missing:
+            raise FileNotFoundError(
+                f"NCZ_REFIND_THEME is on but {theme_src} is incomplete; missing: "
+                + ", ".join(missing)
+            )
+        for dest in (boot_dir / THEME_ESP_DIR, refind_dir / THEME_ESP_DIR):
+            if dest.exists():
+                shutil.rmtree(dest)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(str(theme_src), str(dest))
+        # theme.conf's os_ncz.png is the same entry icon the installed-system
+        # refresh installs as ncz.png (assets/refind/ncz-refind-refresh*.sh);
+        # the installer entries carry no `icon` line, so nothing points at it
+        # here -- it ships because it is part of the theme directory the
+        # refresh contract describes, and because a later icon line then has
+        # the art already present.
 
     if arch == "amd64":
         # rEFInd silently forces text-only mode when it cannot find an icons
@@ -733,9 +891,14 @@ def _required_esp_mib(esp_root: Path, requested_mib: int) -> int:
     image size. 15% plus an 8 MiB floor covers that at the sizes we ship.
     """
     total = sum(f.stat().st_size for f in esp_root.rglob("*") if f.is_file())
+    # mformat only knows FAT12/FAT16/FAT32, and 1 MiB (the smallest image it
+    # will format usefully) is the floor. 15% + 8 MiB covers reserved
+    # sectors, both FAT copies and per-file cluster slack. Content-sized by
+    # default (requested_mib == 0) so the ESP is kernel + initrd + rEFInd and
+    # nothing else -- see docs/MAGNETAR-SERVER-VARIANT.md.
     needed_bytes = int(total * 1.15) + 8 * 1024 * 1024
     needed_mib = -(-needed_bytes // (1024 * 1024))  # ceil
-    return max(requested_mib, needed_mib)
+    return max(requested_mib, needed_mib, 1)
 
 
 def make_fat_image_mtools(esp_root: Path, out_img: Path, size_mib: int = 4) -> dict:
@@ -827,9 +990,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arch", required=True, choices=["amd64", "arm64"])
     ap.add_argument("--out-dir", required=True, type=Path)
-    ap.add_argument("--size-mib", type=int, default=64,
-                    help="ESP image size in MiB (default 64; must be large "
-                         "enough for the d-i kernel + initrd)")
+    ap.add_argument("--size-mib", type=int, default=0,
+                    help="ESP image FLOOR in MiB (default 0 = size the ESP to "
+                         "its content). _required_esp_mib() still grows past "
+                         "this if the staged kernel+initrd need the room; a "
+                         "fixed 256 MiB floor wasted ~200 MiB on every image "
+                         "whose initrd is small.")
     ap.add_argument("--keep-tree", action="store_true",
                     help="keep the intermediate EFI/ tree on disk")
     ap.add_argument("--d-i-kernel", required=True, type=Path,
@@ -847,9 +1013,19 @@ def main():
                          "build/build-installer-image.sh passes its "
                          "BUILD_VERSION here. Empty -> derive from git, else "
                          "omit the token (never ship a misleading empty value).")
+    ap.add_argument("--refind-theme", dest="refind_theme",
+                    choices=["1", "0"], default=None,
+                    help="stage the Cygnus rEFInd theme into the installer ESP. "
+                         "Default: NCZ_REFIND_THEME from the environment, else 1 "
+                         "(on for the 26.10 release). 0 restores the pre-theme "
+                         "ESP output: no themes/ tree, no include line.")
     args = ap.parse_args()
 
     build_id = args.build_id or _git_build_id()
+    if args.refind_theme is None:
+        refind_theme = theme_enabled()
+    else:
+        refind_theme = args.refind_theme == "1"
     refind_src = find_refind_extract(args.arch)
     esp_root = args.out_dir / "esp-tree"
     info_line = build_info_line(args.arch)
@@ -861,6 +1037,7 @@ def main():
         d_i_initrd=args.d_i_initrd,
         info_line=info_line,
         build_id=build_id,
+        theme=refind_theme,
     )
 
     esp_img = args.out_dir / "esp.img"
@@ -890,6 +1067,12 @@ def main():
         "esp_tree_inventory": build_info["inventory"],
         "d_i_payload_in_esp": build_info["d_i_payload_files"],
         "d_i_payload": payload_sha,
+        "refind_theme": {
+            "enabled": refind_theme,
+            "env": "NCZ_REFIND_THEME",
+            "dir": THEME_ESP_DIR.as_posix() if refind_theme else None,
+            "files": list(THEME_REQUIRED_FILES) if refind_theme else [],
+        },
     }
     (args.out_dir / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True))
     print(f"ESP image: {esp_img}")
@@ -897,6 +1080,9 @@ def main():
     print(f"  size:    {esp_img_size} bytes ({esp_img_size / 1024 / 1024:.2f} MiB)")
     print(f"  build:   {info['tool']} ({info.get('tool_version', '')})")
     print(f"  d-i payload embedded: {build_info['d_i_payload_files']}")
+    print("  Cygnus theme: " + (
+        f"staged at {THEME_ESP_DIR.as_posix()} (both SelfDir candidates)"
+        if refind_theme else "off (stock rEFInd output)"))
 
     if not args.keep_tree:
         shutil.rmtree(esp_root)

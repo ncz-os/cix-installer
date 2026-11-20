@@ -64,6 +64,31 @@ DEFAULT_FIRMWARE_TAR = (
 )
 
 
+
+def source_date_epoch() -> int | None:
+    """SOURCE_DATE_EPOCH from the environment, or None when unset/invalid
+    (not ASCII digits, or past 9999-12-31, which no timestamp API takes)."""
+    val = os.environ.get("SOURCE_DATE_EPOCH", "")
+    if not (val.isascii() and val.isdigit()) or int(val) > 253402300799:
+        return None
+    return int(val)
+
+
+def clamp_tree_mtimes(root: Path, epoch: int | None) -> int:
+    """Lower every mtime under (and including) root that is newer than epoch
+    to epoch (same rule as patch-initrd-t2-kernel.py). Returns the count."""
+    if epoch is None:
+        return 0
+    changed = 0
+    paths = [str(root)]
+    for dirpath, dirnames, filenames in os.walk(root):
+        paths.extend(os.path.join(dirpath, n) for n in dirnames + filenames)
+    for path in paths:
+        if os.lstat(path).st_mtime > epoch:
+            os.utime(path, (epoch, epoch), follow_symlinks=False)
+            changed += 1
+    return changed
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -105,7 +130,7 @@ def patch_initrd(
         raise RuntimeError(f"FATAL: firmware tarball missing: {firmware_tar}")
 
     canonical = canonical_encode({
-        "schema_version": "ncz-initrd-patch/v1",
+        "schema_version": "ncz-initrd-patch/v2",  # v2: reproducible repack
         "arch": arch,
         "src_initrd": _stat(src_initrd),
         "firmware_tar": _stat(firmware_tar),
@@ -174,18 +199,26 @@ def patch_initrd(
 
         out_initrd = build_dir / "initrd.gz"
         log(f"    repacking cpio+gzip -> {out_initrd}")
+        # Reproducible repack (measured 2026-11-07: two builds of one commit
+        # differed in extraction-time directory mtimes, cpio inode numbers and
+        # the gzip header time). Clamp mtimes newer than SOURCE_DATE_EPOCH,
+        # sort the members, renumber inodes, and write gzip mtime 0.
+        clamp_tree_mtimes(extract_dir, source_date_epoch())
+        # byte-sorted member list: archive order never follows readdir order
         find_proc = subprocess.Popen(
-            ["find", "."], cwd=extract_dir, stdout=subprocess.PIPE,
+            ["sh", "-c", "find . -print0 | LC_ALL=C sort -z"],
+            cwd=extract_dir, stdout=subprocess.PIPE,
         )
         cpio_proc = subprocess.Popen(
-            ["cpio", "--quiet", "-o", "-H", "newc"],
+            ["cpio", "--quiet", "--null", "-o", "-H", "newc", "--reproducible"],
             cwd=extract_dir,
             stdin=find_proc.stdout,
             stdout=subprocess.PIPE,
         )
         find_proc.stdout.close()
         with out_initrd.open("wb") as out_f:
-            with gzip.GzipFile(fileobj=out_f, mode="wb", compresslevel=9) as gz_out:
+            with gzip.GzipFile(fileobj=out_f, mode="wb", compresslevel=9,
+                               mtime=0) as gz_out:
                 shutil.copyfileobj(cpio_proc.stdout, gz_out)
         cpio_proc.wait()
         find_proc.wait()

@@ -8,10 +8,9 @@
 # preseed/late.sh writes BUILD_VARIANT=server and this hook converts the
 # install into a headless boot.
 #
-# (2026-07-27: the old "Reinhardt"/"Magnetar" per-variant codename scheme
-# was retired — the release codename from release.conf applies to BOTH
-# variants; "Desktop"/"Server" is just the qualifier. Renamed from
-# 48-magnetar-variant.sh to match.)
+# (2026-07-27: the old per-variant codename scheme was retired — the release
+# codename from release.conf applies to BOTH variants; "Desktop"/"Server" is
+# just the qualifier. Renamed from the old magnetar-variant hook to match.)
 #
 # Keeping the toggle in a separate hook makes the server-variant work
 # explicit and reversible: `ncz desktop on` after install flips the
@@ -97,6 +96,94 @@ fi
 systemctl enable getty@tty2.service 2>&1 | sed 's/^/    /' || true
 echo "[48] getty@tty2 enabled (default operator console)"
 
+# Console burn-in protection (operator 2026-11-08): a server left on a console
+# burns the panel in. The console saver (hook 61, ncz-console-saver) takes over
+# after 3 idle minutes and is the visible protection; the kernel blank is only
+# the backstop behind it, so it fires after 30 minutes (operator 2026-11-14: at
+# 5 minutes it blanked the screen over the running saver), then the panel powers
+# down after one more; any key wakes. setterm needs --term linux: under systemd
+# TERM is unset, setterm fails, and the policy never applied. The kernel cmdline
+# carries consoleblank=300 for the boot menu entries, which only covers the boot
+# console until this unit runs; the unit then sets the policy above (the blank
+# interval is kernel-wide, so it replaces the 300) on every VT and re-runs when
+# a new VT appears.
+mkdir -p /etc/ncz /etc/systemd/system /etc/udev/rules.d
+cat > /etc/ncz/console.conf <<'CONF'
+# /etc/ncz/console.conf -- server console idle policy (ncz-console-blank).
+# Sourceable by /bin/sh. NCZ_CONSOLE_BLANK=no disables everything.
+NCZ_CONSOLE_BLANK=yes
+NCZ_CONSOLE_IDLE_MIN=30
+NCZ_CONSOLE_POWERDOWN_MIN=1
+NCZ_CONSOLE_SAVER=none
+# Status banner tier: redraw the host/IP banner once a minute after 1 min idle,
+# moving it so the fixed position cannot burn the panel. yes|no.
+NCZ_CONSOLE_BANNER=yes
+CONF
+chmod 0644 /etc/ncz/console.conf
+
+# Install the helper where the unit expects it, but never hard-fail the hook
+# on an unwritable /usr/local/sbin: the hook must run unprivileged in test
+# sandboxes, and aborting half-way (target set, DM masked, no blank) is worse
+# than a loud skip. A real install chroot is root-owned, so this always runs.
+if [ -w /usr/local/sbin ]; then
+cat > /usr/local/sbin/ncz-console-blank <<'SCRIPT'
+#!/bin/bash
+# ncz-console-blank -- apply the /etc/ncz/console.conf idle policy to every VT.
+# Server consoles only; a desktop session owns DPMS itself. Idempotent: setterm
+# writes the console escape sequence, so re-running on a new VT is safe.
+set -u
+conf=/etc/ncz/console.conf
+NCZ_CONSOLE_BLANK=yes
+NCZ_CONSOLE_IDLE_MIN=30
+NCZ_CONSOLE_POWERDOWN_MIN=1
+[ -r "$conf" ] && . "$conf"
+case "${NCZ_CONSOLE_BLANK:-yes}" in
+    no|0|false|disabled) exit 0 ;;
+esac
+idle="${NCZ_CONSOLE_IDLE_MIN:-30}"; power="${NCZ_CONSOLE_POWERDOWN_MIN:-1}"
+for _t in /dev/console /dev/tty0 /dev/tty[1-9] /dev/tty1[0-9] /dev/tty2[0-9] /dev/tty3[0-9]; do
+    [ -c "$_t" ] || continue
+    setterm --term linux --blank "$idle" --powerdown "$power" > "$_t" 2>/dev/null || true
+done
+exit 0
+SCRIPT
+chmod 0755 /usr/local/sbin/ncz-console-blank
+else
+    echo "[48] WARN: /usr/local/sbin is not writable; ncz-console-blank helper not installed (non-root/sandbox run)"
+fi
+
+cat > /etc/systemd/system/ncz-console-blank.service <<'UNIT'
+[Unit]
+Description=NCZ console idle blanking (server burn-in protection)
+After=getty.target multi-user.target
+ConditionPathExists=/etc/ncz/console.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ncz-console-blank
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chmod 0644 /etc/systemd/system/ncz-console-blank.service
+
+# A VT appears later (Alt+F3 on a freshly booted server): re-apply at once.
+cat > /etc/udev/rules.d/90-ncz-console-blank.rules <<'RULES'
+ACTION=="add", SUBSYSTEM=="vtconsole", KERNEL=="vtcon*", ATTR{name}!="*dummy device", RUN+="/usr/bin/systemctl --no-block restart ncz-console-blank.service"
+RULES
+chmod 0644 /etc/udev/rules.d/90-ncz-console-blank.rules
+systemctl enable ncz-console-blank.service 2>&1 | sed 's/^/    /' || true
+echo "[48] console idle blanking installed (ncz-console-blank, /etc/ncz/console.conf)"
+
+# The console SAVER is NOT installed here (2026-11-14). post-install/61-ncz-console-saver.sh is the
+# single owner of ncz-console-saver.service, /usr/local/bin/ncz-console-saver and /etc/ncz/console-saver.conf
+# (the Rust black-hole saver). This hook used to write an older wordmark saver to the SAME unit path later
+# in the run, which overwrote hook 61 output, added Requires/After=ncz-console-blank.service, and made
+# systemd drop the unit from boot (ordering cycle: blank is After=multi-user.target) -- measured on a test machine,
+# a test machine and CIXMINI. Only the kernel idle BLANK (ncz-console-blank, above) stays here.
+rm -f /usr/local/sbin/ncz-console-saver
+
 
 
 # r76 fix #4 — issue.d pointer so the user knows where to log in.
@@ -105,29 +192,42 @@ mkdir -p /etc/issue.d
 # Pure ASCII — agetty/console may not have a font with Unicode box-draw
 # chars; broken renderings on tty2 looked worse than no border at all.
 # Classic 1970s Unix / mainframe MOTD aesthetic.
-cat > /etc/issue.d/10-ncz-server.issue <<'EOF'
-
-****************************************************************
-*                                                              *
-*      N C Z   M A X I M I L I A N   S E R V E R               *
-*                                                              *
-*--------------------------------------------------------------*
-*                                                              *
-*   THIS SYSTEM IS RUNNING IN HEADLESS SERVER MODE             *
-*                                                              *
-*   Console login is fully available on all terminals.         *
-*   Switch consoles:    Alt + F1 .. F6                         *
-*                                                              *
-*--------------------------------------------------------------*
-*                                                              *
-*   Remote access ......... ssh   port 22                      *
-*   Re-enable graphical ... sudo ncz desktop on                *
-*                                                              *
-****************************************************************
-
-   NCZ-OS  -  running kernel \r  (\m)
-
-EOF
+# MAGNETAR SERVER: an install from a Magnetar Server medium names its edition
+# (post-install/lib/ncz-brand.sh) and has no desktop to re-enable. A desktop
+# medium's console-only install keeps the block below unchanged.
+_ncz_medium=desktop
+_ncz_brand_lib="$(dirname "$0")/lib/ncz-brand.sh"
+[ -r "$_ncz_brand_lib" ] || _ncz_brand_lib=/usr/local/lib/cix-installer/post-install/lib/ncz-brand.sh
+if [ -r "$_ncz_brand_lib" ] && . "$_ncz_brand_lib"; then
+    _ncz_medium=$(ncz_brand_medium_variant /usr/local/lib/cix-installer)
+fi
+# One banner, no duplication, no codename (operator report + photo, 2026-10-28).
+# WHAT WAS WRONG: the desktop-medium branch below carried a hardcoded ASCII
+# block reading "N C Z   M A X I M I L I A N   S E R V E R" -- the 26.7 codename,
+# frozen into a shell heredoc when the codename moved to Cygnus, and shipped on
+# every console-only install from a desktop medium. /etc/issue on the same
+# screen already names the release correctly, so the block was both stale and
+# redundant, and it is what made a correct machine look like it was running a
+# two-release-old build. The identity gate never saw it: the string lived in a
+# hook's heredoc, not in a generated identity file.
+#
+# WHAT IT IS NOW: /etc/issue (50-brand.sh) owns the identity -- product,
+# version, codename, SoC, build and IP. This file adds ONLY what /etc/issue
+# cannot say: that the box is in headless mode and how to get back. No product
+# line, no kernel line, no box art, no codename. The two media differ by a
+# single hint line.
+{
+    echo
+    printf '%s\n' 'This system is running in headless server mode.'
+    printf '%s\n' 'Console login is available on all terminals; other consoles: Alt+F2 .. Alt+F6.'
+    printf '%s\n' 'Remote access: ssh port 22.'
+    # A Magnetar Server medium has no desktop to re-enable; a desktop medium
+    # installed with the desktop component off does.
+    if [ "$_ncz_medium" = desktop ]; then
+        printf '%s\n' 'Re-enable the desktop: sudo ncz desktop on'
+    fi
+    echo
+} > /etc/issue.d/10-ncz-server.issue
 chmod 0644 /etc/issue.d/10-ncz-server.issue
 echo "[48] /etc/issue.d/10-ncz-server.issue written"
 
@@ -137,10 +237,12 @@ echo "[48] /etc/issue.d/10-ncz-server.issue written"
 # gets DHCP without operator intervention.
 if command -v nmcli >/dev/null 2>&1; then
     # Find the first ethernet device (skip lo, virtual, wireless)
-    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}')
+    # nmcli has no daemon to talk to inside the install chroot and exits non-zero;
+    # under errexit + pipefail that ended the hook here (console installs).
+    ETH_DEV=$(nmcli -t -f DEVICE,TYPE device 2>/dev/null | awk -F: '$2=="ethernet"{print $1; exit}' || true)
     if [ -n "$ETH_DEV" ]; then
         # Only add a profile if there isn't one already for this device.
-        if ! nmcli -t -f NAME,DEVICE connection show 2>/dev/null | grep -q ":${ETH_DEV}$"; then
+        if ! { nmcli -t -f NAME,DEVICE connection show 2>/dev/null || true; } | grep ":${ETH_DEV}$" >/dev/null; then
             nmcli connection add type ethernet con-name "ncz-wired-${ETH_DEV}" \
                 ifname "$ETH_DEV" connection.autoconnect yes ipv4.method auto ipv6.method auto \
                 2>&1 | sed 's/^/    /' || \
@@ -160,7 +262,17 @@ fi
 echo "server" > "$VARIANT_FILE"
 
 echo
+# user@UID.service (lingering users, rootless podman, user timers) needs pam_systemd.so. The server base had no
+# libpam-systemd, so "Failed to connect to user scope bus" on every Magnetar server (2026-11-14).
+if ! dpkg -s libpam-systemd 2>/dev/null | grep -q "^Status: install ok installed"; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libpam-systemd \
+        || { echo "[48] ERROR: libpam-systemd did not install (user sessions would not work)" >&2; exit 1; }
+fi
+apt-mark manual libpam-systemd >/dev/null 2>&1 || true
+echo "[48] libpam-systemd present (user session manager)"
+
 echo "[48] Server variant applied. Boot-up will land in tty2 multi-user."
 echo "     tty1 reserved for kernel boot diag; press Alt+F2 for login prompt."
 echo "     SSH on port 22."
-echo "     Switch back to desktop with: sudo ncz desktop on"
+# A Magnetar Server medium carries no desktop layer, so there is nothing to switch back to.
+[ "$_ncz_medium" = server ] || echo "     Switch back to desktop with: sudo ncz desktop on"

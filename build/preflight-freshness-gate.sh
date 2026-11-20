@@ -241,9 +241,53 @@ fi
 # outside the pool, the WRONG class (the 2026-09-28 incident: the single
 # shipping pointer was repointed at r278 rc5, and a 7.2.8 kernel then sat
 # under "edge"), or not the newest build of its class.
+check_arm64_bom() {
+    # Prebuilt Sky1 kernel BOM (assets/kernel/mainline.debs, r297+). The
+    # kernel is pinned by sha256, not by "newest rNNN dir in the pool", and
+    # assets/kernel/mainline is the payload build/stage-arm64-kernel.sh derived
+    # from the pinned debs (build/kernel-mainline/<release>, relative link).
+    # Fresh = that payload is the pinned build: KVER and Image sha256 equal the
+    # BOM, DERIVED.sha256 verifies, and its STAMP names exactly the deb sha256s
+    # assets/kernel-manifest.json pins.
+    local lp="assets/kernel/mainline" bom="assets/kernel/mainline.debs" rel kver img real stamp
+    rel="$(sed 's/#.*//' assets/kernel/mainline.release 2>/dev/null | tr -d '[:space:]')"
+    kver="$(sed -n 's/^KVER=//p' "$bom" | tr -d '[:space:]')"
+    img="$(sed -n 's/^IMAGE_SHA256=//p' "$bom" | tr -d '[:space:]')"
+    if [ ! -L "$lp" ] || [ ! -d "$lp" ]; then
+        echo "[3] FAIL: arm64 mainline -- $lp is not a link to a derived payload (run build/stage-arm64-kernel.sh)"
+        FAIL=$((FAIL + 1)); return
+    fi
+    real="$(cd "$lp" && pwd -P)"
+    if [ "$real" != "$(cd "build/kernel-mainline/$rel" 2>/dev/null && pwd -P)" ]; then
+        echo "[3] FAIL: arm64 mainline -- $lp -> $real is not build/kernel-mainline/$rel (the pinned release)"
+        FAIL=$((FAIL + 1)); return
+    fi
+    if [ "$(tr -d '[:space:]' < "$lp/KVER" 2>/dev/null)" != "$kver" ] \
+       || [ "$(sha256sum "$lp/Image-cixmini.bin" 2>/dev/null | awk '{print $1}')" != "$img" ] \
+       || ! (cd "$lp" && sha256sum -c --quiet DERIVED.sha256 >/dev/null 2>&1); then
+        echo "[3] FAIL: arm64 mainline -- the derived payload is not the pinned $kver build (KVER, Image sha256 or DERIVED.sha256); re-run build/stage-arm64-kernel.sh"
+        FAIL=$((FAIL + 1)); return
+    fi
+    local pinned
+    stamp="$(awk 'NF == 2 && $1 ~ /^[0-9a-f]{64}$/ {print $2, $1}' "$lp/STAMP" 2>/dev/null | sort)"
+    pinned="$(python3 -I -c 'import json,sys
+for d in json.load(open(sys.argv[1]))["kernel_debs"]: print(d["file"].rsplit("/",1)[-1], d["sha256"])' assets/kernel-manifest.json 2>/dev/null | sort)"
+    # Both sides must be non-empty: a missing STAMP and an unreadable manifest
+    # would otherwise compare equal and pass.
+    if [ -z "$stamp" ] || [ -z "$pinned" ] || [ "$stamp" != "$pinned" ]; then
+        echo "[3] FAIL: arm64 mainline -- the payload was derived from other debs than assets/kernel-manifest.json pins; re-run build/stage-arm64-kernel.sh"
+        FAIL=$((FAIL + 1)); return
+    fi
+    echo "[3] OK: arm64 mainline -- prebuilt BOM $rel ($kver), payload derived from the pinned debs"
+}
+
 check_arm64_channel() {
     local local_pointer="$1" want_class="$2" required="$3"
     local label
+    if [ -f "${REPO_ROOT:-.}/assets/kernel/mainline.debs" ]; then
+        check_arm64_bom
+        return
+    fi
     label="$(basename "$local_pointer")"
     if [ ! -L "$local_pointer" ] && [ ! -e "$local_pointer" ]; then
         if [ "$required" = required ]; then
@@ -287,16 +331,17 @@ check_arm64_channel() {
     local pin_name pin_class
     pin_name="$(basename "$abs_target")"
     if is_prerelease "$pin_name"; then pin_class="prerelease"; else pin_class="stable"; fi
-    # Unified 7.3 policy (2026-10-05): there is ONE arm64 channel.
-    # want_class=unified accepts either a 7.3 -rcN or a 7.3 final pin (rc is
+    # Kernel line policy (2026-10-05 unified 7.3; line switch to 7.4 by
+    # operator 2026-11-09 22:20Z): there is ONE arm64 channel.
+    # want_class=unified accepts a 7.3 or 7.4 -rcN/final pin (rc is
     # allowed while KERNEL-POLICY RC_DEFAULT_ALLOWED=1) but refuses any other
     # series (7.2.x is retired).
     if [ "$want_class" = "unified" ]; then
         case "$pin_name" in
-            *7.3.*|*7.3-*) ;;
+            *7.3.*|*7.3-*|*7.4.*|*7.4-*) ;;
             *)
-                echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is not the unified 7.3 kernel"
-                echo "          (7.2.x is retired; policy 2026-10-05). Repoint $local_pointer at the 7.3 build."
+                echo "[3] FAIL: arm64 $label -- $local_pointer -> $pin_name is not the unified 7.3/7.4 kernel line"
+                echo "          (7.2.x is retired; 2026-11-09 line switch). Repoint $local_pointer at the 7.3/7.4 build."
                 FAIL=$((FAIL + 1))
                 return
                 ;;
@@ -320,7 +365,7 @@ check_arm64_channel() {
         mt="${line%% *}"
         mt="${mt%%.*}"
         if [ "$want_class" = "unified" ]; then
-            case "$name" in *7.3.*|*7.3-*) ;; *) continue ;; esac
+            case "$name" in *7.3.*|*7.3-*|*7.4.*|*7.4-*) ;; *) continue ;; esac
         elif is_prerelease "$name"; then
             [ "$want_class" = prerelease ] || continue
         else
@@ -388,6 +433,17 @@ check_amd64_line() {
         _pkgver=""
         [ -s assets/kernel/amd64-stable/PKGVERSION ] && _pkgver="$(tr -d '[:space:]' < assets/kernel/amd64-stable/PKGVERSION)"
         mapfile -t _cands < <(find "$KERNEL_STAGING_DIR" -maxdepth 3 -type d \( -name 'amd64-stable-*' -o -path '*/amd64-t2-*/*' \) 2>/dev/null)
+        # The manifest's staging_pool_relative names the exact pool build
+        # (stage-amd64-kernel.sh stages that dir): same-KVER+PKGVERSION dirs
+        # (7.3.1-r295: the 11-01 build, the build host build, its repack) are
+        # otherwise picked in find order. Only that dir is a candidate.
+        local _rel=""
+        if [ -s assets/kernel/amd64-stable-manifest.json ]; then
+            _rel="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("staging_pool_relative") or "")' assets/kernel/amd64-stable-manifest.json 2>/dev/null || true)"
+        fi
+        if [ -n "$_rel" ]; then
+            _cands=("$KERNEL_STAGING_DIR/${_rel#kernel-staging/}")
+        fi
         for _d in "${_cands[@]}"; do
             [ -d "$_d" ] || continue
             [ -s "$_d/KVER" ] || continue

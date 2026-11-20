@@ -1,8 +1,8 @@
 diff --git a/t2smc.c b/t2smc.c
-index 5108030..60674c2 100644
+index 207a560..21b8b39 100644
 --- a/t2smc.c
 +++ b/t2smc.c
-@@ -99,6 +99,7 @@ static const char *const fan_speed_fmt[] = {
+@@ -189,6 +189,7 @@ static const char *const fan_speed_fmt[] = {
  };
  #define FAN_MANUAL_FMT  "F%dMd"  /* T2 per-fan manual mode key */
  
@@ -10,39 +10,38 @@ index 5108030..60674c2 100644
  #define INIT_TIMEOUT_MSECS  5000
  #define INIT_WAIT_MSECS     50
  
-@@ -127,6 +128,11 @@ struct t2smc_device {
+@@ -236,6 +237,11 @@ struct t2smc_device {
+ 	struct mutex mutex;
+ 	unsigned int key_count;
  	unsigned int fan_count;
- 	unsigned int temp_count;
- 	unsigned int power_count;
 +	/*
 +	 * Factory fan envelope captured at init; the validator uses this
 +	 * instead of the live F%dMn so the min cannot ratchet upward.
 +	 */
 +	unsigned int *fan_min_factory, *fan_max_factory;
  	struct t2smc_entry *cache;
- 	char (*temp_keys)[5]; /* [temp_count] dynamically allocated */
- 	char (*power_keys)[5]; /* [power_count] dynamically allocated */
-@@ -582,6 +588,8 @@ static int t2smc_read_temp(struct t2smc_device *t2, const char *key, long *val)
- }
+ 	struct t2smc_sensors temp;
+ 	struct t2smc_sensors curr;
+@@ -848,6 +854,7 @@ static void t2smc_free_sensors(struct t2smc_device *t2)
  
  /* -- Initialization -- */
+ static void t2smc_init_charge_limit(struct t2smc_device *t2);
 +static void t2smc_capture_fan_envelope(struct t2smc_device *t2);
-+
+ 
  static int t2smc_init_keycache(struct t2smc_device *t2)
  {
- 	unsigned int count;
-@@ -610,6 +618,8 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
- 	t2->fan_count = tmp[0];
- 	if (t2->fan_count > 10)
- 		t2->fan_count = 10;
+@@ -871,6 +878,8 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
+ 	if (ret)
+ 		return ret;
+ 	t2->fan_count = min_t(unsigned int, tmp[0], T2SMC_MAX_FANS);
 +	t2->fan_min_factory = NULL;
 +	t2->fan_max_factory = NULL;
  
- 	/* Discover all power keys in the sorted P..Q range. */
- 	{
-@@ -711,6 +721,13 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
- 	if (ret)
+ 	/* Sensors by key prefix: Temperature, current (I), voltage, power */
+ 	ret = t2smc_discover_sensors(t2, "T", "U", &t2->temp);
+@@ -891,6 +900,13 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
  		return ret;
+ 	t2smc_init_charge_limit(t2);
  
 +	/*
 +	 * Snapshot the factory fan envelope now that the key cache is
@@ -51,10 +50,10 @@ index 5108030..60674c2 100644
 +	 */
 +	t2smc_capture_fan_envelope(t2);
 +
- 	dev_info(t2->dev, "initialized: keys=%u fans=%u temps=%u power=%u\n",
- 		 t2->key_count, t2->fan_count, t2->temp_count,
- 		 t2->power_count);
-@@ -817,6 +834,49 @@ static int t2smc_read_fan(struct t2smc_device *t2, int fan_idx, int option,
+ 	dev_info(t2->dev,
+ 		 "initialized: keys=%u fans=%u temps=%u currents=%u voltages=%u power=%u\n",
+ 		 t2->key_count, t2->fan_count, t2->temp.count, t2->curr.count,
+@@ -1008,6 +1024,49 @@ static int t2smc_read_fan(struct t2smc_device *t2, int fan_idx, int option,
  	return 0;
  }
  
@@ -104,7 +103,7 @@ index 5108030..60674c2 100644
  static int t2smc_write_fan(struct t2smc_device *t2, int fan_idx, int option,
  			    unsigned int speed)
  {
-@@ -874,11 +934,7 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
+@@ -1065,11 +1124,7 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
  }
  
  /* -- hwmon interface -- */
@@ -115,10 +114,10 @@ index 5108030..60674c2 100644
 -#define T2SMC_FAN_OPT_TARGET  4
 +/* T2SMC_FAN_OPT_* live in t2smc_range.h (included above). */
  
- static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
- 			     u32 attr, int channel, long *val)
-@@ -930,30 +986,99 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
- 	}
+ /* Sensor set and scale to hwmon units for a channel type */
+ static const struct t2smc_sensors *
+@@ -1150,21 +1205,72 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 	return t2smc_read_scaled(t2, set->keys[channel], scale, val);
  }
  
 +/* Adapter from the kernel fan reader to the unit-testable validator. */
@@ -193,10 +192,13 @@ index 5108030..60674c2 100644
 +			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_MIN,
 +					       (unsigned int)val);
  		case hwmon_fan_target:
--			if (val < 0)
--				return -EINVAL;
+ 			if (val < 0)
+ 				return -EINVAL;
+@@ -1173,16 +1279,37 @@ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
+ 				clear_bit(channel, &t2->fan_manual);
+ 				return t2smc_write_fan_manual(t2, channel, 0);
+ 			}
 -			speed = (unsigned int)val;
--			/* Enter manual mode before setting target speed */
 +			/*
 +			 * Validate against the factory envelope BEFORE entering
 +			 * manual mode so a rejected target cannot leave the
@@ -218,16 +220,22 @@ index 5108030..60674c2 100644
 +					     channel, val);
 +				return ret;
 +			}
+ 			/* Enter manual mode before setting target speed */
  			ret = t2smc_write_fan_manual(t2, channel, 1);
  			if (ret)
  				return ret;
--			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET, speed);
-+			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET,
-+					       (unsigned int)val);
+-			ret = t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET, speed);
++			ret = t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET,
++					      (unsigned int)val);
+ 			if (ret)
+ 				return ret;
+ 			/* Remembered to restore manual mode after resume */
+-			WRITE_ONCE(t2->fan_target[channel], speed);
++			WRITE_ONCE(t2->fan_target[channel], (unsigned int)val);
+ 			set_bit(channel, &t2->fan_manual);
+ 			return 0;
  		default:
- 			return -EOPNOTSUPP;
- 		}
-@@ -1408,6 +1533,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
+@@ -2004,6 +2131,15 @@ static int t2smc_write_rtc_key(struct t2smc_device *t2, const char *key, u64 val
  {
  	u8 buf[T2SMC_RTC_BYTES];
  
@@ -243,7 +251,7 @@ index 5108030..60674c2 100644
  	memcpy(buf, &val, T2SMC_RTC_BYTES);
  	return t2smc_write_key(t2, key, buf, T2SMC_RTC_BYTES);
  }
-@@ -1500,7 +1634,7 @@ static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
+@@ -2096,7 +2232,7 @@ static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
  {
  	int ret;
  
@@ -252,10 +260,10 @@ index 5108030..60674c2 100644
  	if (abs(off - READ_ONCE(t2->rtc_offset)) < tolerance)
  		return 0;
  
-@@ -1727,6 +1861,8 @@ static void t2smc_devm_cleanup(void *data)
+@@ -2919,6 +3055,8 @@ static void t2smc_devm_cleanup(void *data)
+ 	mutex_destroy(&t2->charge_lock);
  	kfree(t2->cache);
- 	kfree(t2->temp_keys);
- 	kfree(t2->power_keys);
+ 	t2smc_free_sensors(t2);
 +	kfree(t2->fan_min_factory);
 +	kfree(t2->fan_max_factory);
  }
@@ -263,16 +271,16 @@ index 5108030..60674c2 100644
  static void t2smc_unregister_power_notifier(void *data)
 diff --git a/t2smc_range.h b/t2smc_range.h
 new file mode 100644
-index 0000000..7ef4be6
+index 0000000..feea2c1
 --- /dev/null
 +++ b/t2smc_range.h
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,117 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +/*
 + * t2smc_range.h - side-effect-free range validation for t2smc.
 + *
-+ * The user-writable SMC surfaces (fan F%dMn/F%dTg, charge limit BCLM/CHLS/
-+ * CHWA, RTC offset CLKO) are validated here.  The helpers touch no kernel
++ * The user-writable SMC surfaces (fan F%dMn/F%dTg, RTC offset CLKO) are
++ * validated here.  The helpers touch no kernel
 + * state, so the boundary logic is unit-testable from userspace with a stub
 + * reader (tests/test_t2smc_range.c).
 + */
@@ -294,9 +302,6 @@ index 0000000..7ef4be6
 +#define T2SMC_FAN_OPT_SAFE    3
 +#define T2SMC_FAN_OPT_TARGET  4
 +
-+#ifndef T2SMC_CHWA_FIXED_LIMIT
-+#define T2SMC_CHWA_FIXED_LIMIT 80
-+#endif
 +#ifndef T2SMC_RTC_BITS
 +#define T2SMC_RTC_BITS 48
 +#endif
@@ -357,33 +362,6 @@ index 0000000..7ef4be6
 +				   is_min))
 +		return -EINVAL;
 +	return 0;
-+}
-+
-+/*
-+ * Number of slots to allocate for the T..U temperature-discovery pass.
-+ * Allocate the whole candidate range, not pass one's success count: a key
-+ * that transiently failed pass one can succeed on pass two and would
-+ * otherwise overrun a pass-one-sized array.
-+ */
-+static inline unsigned int t2smc_temp_alloc_count(unsigned int begin,
-+						  unsigned int end)
-+{
-+	return end > begin ? end - begin : 0;
-+}
-+
-+/* Only accept limits the SMC implements: CHLS keeps 0..100; CHWA-only
-+ * hardware accepts the fixed 80 or off (100) and rejects the rest; BCLM-only
-+ * hardware keeps 0..100. */
-+static inline bool t2smc_charge_limit_valid(bool has_chls, bool has_chwa,
-+					    unsigned int val)
-+{
-+	if (val > 100)
-+		return false;
-+	if (has_chls)
-+		return true;
-+	if (has_chwa)
-+		return val == T2SMC_CHWA_FIXED_LIMIT || val == 100;
-+	return true;
 +}
 +
 +/* CLKO is a signed 48-bit offset in 1/32768 s units. */

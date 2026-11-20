@@ -36,27 +36,6 @@ run means a merged PR's patch won't sit stale for days between manual passes.
 
 ## singularity-shell — active
 
-**Upstream PR:** [singularityos-lab/singularity-shell#30](https://github.com/singularityos-lab/singularity-shell/pull/30)
-— open, not yet merged. Patch `0002-choose-attribution-quadrant.patch`.
-Needs its schema companion, `singularity-desktop#262` below, or the
-Settings row this adds writes a key the shell can't read yet. Extends
-the wallpaper title/author overlay from a fixed bottom-left position to
-a user-selected quadrant.
-
-Delete this patch once PR #30 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-shell#37](https://github.com/singularityos-lab/singularity-shell/pull/37)
-— open, not yet merged. Patch `0006-dock-launch-feedback-owned-timer-captures.patch`.
-Fixes a use-after-free in `DockLaunchFeedback.stretch_dot()`: the 10 s give-up
-timer captured the dock-item wrapper and its dot with `unowned` (raw) pointers,
-so a dock rebuild/destroy inside that window made the callback call
-`g_object_get_data()` on freed memory — SIGSEGV in
-`g_type_check_instance_is_fundamentally_a` (Radxa Orion O6N arm64, core pid 2613,
-2026-10-11). The patch makes the captures owned so the objects stay valid until
-the timer fires. This is the image-blocking arm64 crash-loop fix.
-
-Delete this patch once PR #37 merges.
-
 **Not yet filed upstream** (2026-10-11). Patches
 `0013-lockscreen-honour-output-scale.patch`,
 `0014-lockscreen-host-an-out-of-process-frame-source.patch`,
@@ -145,23 +124,59 @@ upstream.
 No `**Upstream PR:**` link on purpose (nothing is filed). Real-greetd
 confirmation on hardware is still to be done.
 
-## singularity-desktop — active
+## singularity-desktop — retired 2026-11-06 (landed upstream)
 
-**Upstream PR:** [singularityos-lab/singularity-desktop#262](https://github.com/singularityos-lab/singularity-desktop/pull/262)
-— open, not yet merged. Patch
-`0001-wallpaper-attribution-position-schema.patch` (applies at the
-top level, not under `subprojects/`, per this file's own root-repo
-exception above). Adds the `wallpaper-attribution-position` gschema
-key that `singularity-shell#30` above reads. Additive only, defaults
-to bottom-left, no existing behavior changes on its own.
+Checked against `data/dev.sinty.desktop.gschema.xml` at the pin `6427e9c`,
+fetched from the superproject itself:
 
-Delete this patch once PR #262 merges.
+* PR [#267](https://github.com/singularityos-lab/singularity-desktop/pull/267),
+  patch `0002-sensors-settings-keys.patch`: all 31 added lines are present.
+* PR [#262](https://github.com/singularityos-lab/singularity-desktop/pull/262),
+  patch `0001-wallpaper-attribution-position-schema.patch`: the
+  `wallpaper-attribution-position` key is present and upstream's version is
+  stronger than ours - it declares `<choices>` for the four corners and keeps
+  the same `bottom-left` default. The only absent lines are this patch's longer
+  summary/description prose, which upstream wrote its own way.
 
-**Upstream PR:** [singularityos-lab/singularity-desktop#267](https://github.com/singularityos-lab/singularity-desktop/pull/267)
-— open. Patch `0002-sensors-settings-keys.patch`. Declares the six `sensors-*` keys the
-sensors plugin reads (interval 2 s with range 1-60, frequency, utilization, grouped,
-GPU and CPU zone). The earlier private `sensors-color-mode` key is gone: nothing in the
-pinned payload reads it. Delete this patch once PR #267 merges.
+
+
+## singularity-plugins — retired 2026-11-06 (landed upstream)
+
+  patch `0001-sensors-dpi-columns-bordered-sections.patch` (retired 2026-11-06):
+  upstream carries the structure it introduced - `MAX_DETAIL_COLUMNS`,
+  `Box[] detail_columns`, `detail_column_count`, `detail_column_rows` are all
+  present at the pin, which is why all eight of its hunks reject rather than just
+  drifting. What it asked for beyond that, recorded here so it can be re-proposed
+  deliberately if wanted: `MAX_ROWS_PER_GROUP` 6 -> 12, and a column count derived
+  from available width (slot = 2 x 340 + 18, so ~1400 px for two columns) instead of
+  upstream's fixed 1280/1920 thresholds. Adopted upstream's layout; geometry favours
+  its thresholds anyway (two 340 px columns need 698 px and fit inside 1184 at 1280).
+
+
+  patch `0005-sensors-adaptive-contrast.patch` (retired 2026-11-06): upstream
+  ships `sensors/contrast.vala` with a fuller WCAG implementation than the patch
+  added - relative_luminance, contrast_ratio, composite, mix, near_black,
+  near_white, neutral_for, ensure_contrast, best_contrast, muted_for,
+  median_by_luminance and a Palette class derived from the background luminance.
+  The patch created that same file and failed with "already exists in working
+  directory", so it could not apply at all. Retired rather than rebased: there is
+  nothing of ours left to preserve.
+
+
+Measured at the pin `ace60db`, in context rather than by ratio. Each of these
+patches adds exactly one line and that line is present inside the function the
+patch targets:
+
+* PR [#4](https://github.com/singularityos-lab/singularity-plugins/pull/4),
+  patch `0003-ocs-fetch-index.patch`: inside `Provider.choices()`,
+  `return WallpaperOcs.categories(yield command({helper, "index"}, cancel, 90), id);`
+* PR [#6](https://github.com/singularityos-lab/singularity-plugins/pull/6),
+  patch `0006-ocs-import-owner-id.patch`: on the items path after
+  `result.items = WallpaperOcs.items(...)`,
+  `foreach (var item in result.items) item.owner_id = id;`
+
+Still in review at the pin and NOT retired: 0001 (90 % of added lines present,
+needs a per-line pass), 0005 (85 %, same), 0002, 0004 and 0007 (real rebases).
 
 ## singularity-plugins — active
 
@@ -169,29 +184,11 @@ All six patches are the heads of our upstream PRs, applied in order to the pinne
 (7bc0e598), except 0004. The 2026-10-07 convergence replaced the earlier private variants
 that had drifted from what the maintainer reviewed.
 
-**Upstream PR:** [singularityos-lab/singularity-plugins#2](https://github.com/singularityos-lab/singularity-plugins/pull/2)
-— open. Patch `0001-sensors-dpi-columns-bordered-sections.patch`. Popover column
-count from the logical width only (up to 3) and the `.sensors-resource-section`
-outline, defined in the plugin own `compact_rows_provider` so libsingularity is not
-touched. Delete this patch once PR #2 merges.
-
 **Upstream PR:** [singularityos-lab/singularity-plugins#3](https://github.com/singularityos-lab/singularity-plugins/pull/3)
 — open. Patch `0002-wallpapers-bing-preferred-market.patch`. Preferred Region row:
 the market list comes from the helper `markets` command and the choice is read and
 saved through the helper `market` command (added to `assets/wallpaper/ncz-wallpaper-bing`,
 covered by `build/test-wallpaper-market.sh`). Delete this patch once PR #3 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#4](https://github.com/singularityos-lab/singularity-plugins/pull/4)
-— open. Patch `0003-ocs-fetch-index.patch`. `choices()` fetches its own index from the
-helper. Delete this patch once PR #4 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#5](https://github.com/singularityos-lab/singularity-plugins/pull/5)
-— open. Patch `0005-sensors-adaptive-contrast.patch`. WCAG contrast for the sensors chip
-and popover. Delete this patch once PR #5 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-plugins#6](https://github.com/singularityos-lab/singularity-plugins/pull/6)
-— open. Patch `0006-ocs-import-owner-id.patch`. Items carry the provider id as owner so
-imports find the provider. Delete this patch once PR #6 merges.
 
 **Not yet filed upstream.** Patch `0004-wallpapers-bing-prefetch.patch`, stacked on #3:
 runs the helper `fetch --if-stale` on activation, when the network returns and daily,
@@ -253,13 +250,6 @@ when upstream's call compiles against the distribution's vapi.
 `WriteDocView` implements `Gtk.AccessibleText` but not the five vfuncs GTK 4.22
 added, which Vala 0.56's gtk4.vapi declares abstract. Each reports "not
 supported". Delete it when upstream implements them.
-
-**Not filed upstream** (2026-10-07). Patch
-`singularity-shell/0004-wallpaper-tests-link-libm.patch`. Three wallpaper test
-executables compile `dynamic_wallpaper.vala` (which calls `sin()`) without a
-math library; Debian's linker has no implicit DT_NEEDED and stops with
-"undefined reference to symbol 'sin@@GLIBC_2.17'". Adds `cc.find_library('m')`.
-Delete it when upstream does.
 
 ## singularity-loginui — active
 
@@ -372,26 +362,24 @@ that toolbar is the static titlebar carrying minimize, maximize and close, so Le
 only app without window buttons. The patch hides the toolbar only in floating-bubbles mode.
 Not filed upstream yet (no PR link). Regression test: `build/test-titlebar-buttons.sh`.
 
+## singularity-nearby — retired 2026-11-06 (landed upstream)
+
+PR [#1](https://github.com/singularityos-lab/singularity-nearby/pull/1), patch
+`0001-fix-release-links-when-they-close.patch`, measured at the pin `c17a12a`:
+185 of 186 added lines are present across `meson.build`, `src/service.vala` and
+`tests/link_test.vala`; the test file itself is present (5309 bytes) and
+`meson.build` already declares the `nearby-link-test` target, so the regression
+test came with the fix. The one absent line is an explanatory comment, not code.
+
 ## singularity-nearby — active
 
 **Not yet filed upstream** (2026-10-13). Patch
 `0002-fix-keep-an-open-link-when-the-peer-announces-itself.patch`, stacked on
-0001 below: `LanProvider.discovered()` no longer opens a new connection for every
+0001 (now retired - landed upstream): `LanProvider.discovered()` no longer opens a new connection for every
 announcement while a link to that device is open, so links are not torn down
 and re-handshaken every 30 seconds. Incoming connections still replace the old
 link. No `**Upstream PR:**` link on purpose; it must not be retired when #1
 merges.
-
-**Upstream PR:** [singularityos-lab/singularity-nearby#1](https://github.com/singularityos-lab/singularity-nearby/pull/1)
-— open, not yet merged. Patch `0001-fix-release-links-when-they-close.patch`
-(the PR head, b2c61cf9). `Service.on_link()` connected two closures to the link's own
-`packet-received` and `closed` signals and both captured the link, so no closed
-or replaced link (with its TLS connection) was ever freed. Every desktop on the
-network announces itself every 30 seconds and each announcement replaced the
-link, so with several desktops on one network the service grew by about 10 MB a
-minute. The handlers are now disconnected when the link closes;
-`tests/link_test.vala` (`meson test nearby-link`) fails on the pinned commit and
-passes with the patch. Delete this patch once PR #1 merges.
 
 ## Previously landed
 
@@ -433,6 +421,22 @@ history begins, per the note that used to live here. Recorded now so a
 future reader isn't confused by this doc having previously described
 different code than what's actually upstream.
 
+## singularity-shell — retired 2026-11-06 (landed upstream)
+
+Both retirements were measured against the pinned commit `a175271`, not
+inferred from PR state:
+
+* PR [#30](https://github.com/singularityos-lab/singularity-shell/pull/30),
+  patch `0002-choose-attribution-quadrant.patch`: all 65 added lines are
+  present in `background.vala` and `desktop_page.vala` at the pin, including
+  the `CORNER_SAMPLE_X_LEFT` / `_RIGHT` / `_Y_TOP` / `_Y_BOTTOM` constants that
+  are only introduced by that change.
+* PR [#37](https://github.com/singularityos-lab/singularity-shell/pull/37),
+  patch `0006-dock-launch-feedback-owned-timer-captures.patch`: all 6 added
+  lines are present - `stretch_dot()` already holds an owned
+  `Gtk.Widget wrapper_ref` and `MotionBin bin_ref`. Upstream keeps both objects
+  alive until the timer callback finishes.
+
 ## singularity-shell — retired (date unclear, inherited from `master`'s `59b48a7`)
 
 **Upstream PRs:** [#25](https://github.com/singularityos-lab/singularity-shell/pull/25)
@@ -458,3 +462,27 @@ with that script rather than committing the blob), installed by
 `post-install/45-wallpaper-rotator.sh` alongside the built-in `ncz` and
 `bing` collections. See [`docs/WALLPAPER-PACKS.md`](../../../docs/WALLPAPER-PACKS.md) for the
 `.collection` format these packs, and any future third-party one, use.
+
+## singularity-boot-splash — active
+
+Patch `0001-guard-cairo-surfaces.patch`.
+The native KMS boot splash creates two Cairo surfaces and never checks their
+status: the firmware-framebuffer surface in `create_fb()` and the loop surface on
+the DRM-fallback path. A nil surface (allocation failure, or a 0-sized mode)
+reaches `cairo_create()` and the draw dereferences through it -- a test machine's 7.3.1
+boot logged a SIGSEGV in libcairo while the unit still reported
+"deactivated successfully". The patch guards all four sites: surface status in
+`create_fb()`, a NULL/status guard in `render()`, status plus `munmap` cleanup on
+the loop surface, and break-and-destroy when the loop context cannot be made.
+
+This queue patches the boot splash's OWN sources; the `singularity-loginui` queue
+is applied separately to the renderer copy that repository bundles.
+
+Patch `0026-idle-restore-the-screens-before-re-arming-the-idle-watches.patch`:
+`IdleManager.rearm()` drops every idle watch, including the resume events that
+undo a dim or blank. If any idle, blank or lock setting changed (or the charger
+state changed) while the screens were dimmed, the backlight stayed at the dim
+level (30 %) and the display stayed off; the level also survived reboots because
+systemd restores the last backlight value. `rearm()` now undoes the dim and
+the blank first. Found on two test machines and O6N after the pool awake-enforcer
+rewrote the idle settings during an idle dim.

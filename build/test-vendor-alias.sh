@@ -4,6 +4,13 @@
 # broken link of the chain. Hermetic: a local file:// repository signed by a throwaway key.
 # Also checks the committed ledgers: every alias row is recorded with the same bytes in
 # vendor-debs.tsv and build-inputs.tsv, and the builders use the pinned staged deb.
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-vendor-alias: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 PASS=0; FAIL=0

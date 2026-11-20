@@ -1,106 +1,79 @@
 {
-  "schema": 1,
-  "channel": "default",
   "arch": "arm64",
-  "kver": "7.3.0-rc7-sky1-ncz",
-  "build_rev": "r289",
-  "staged_utc": "2026-10-12",
+  "build_rev": "r303",
+  "channel": "default",
   "channel_pointer": "assets/kernel/mainline",
-  "staging_dir": "kernel-staging/r289-7.3.0-rc7-sky1-ncz-20261012",
-  "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "Sky1 arm64 DEFAULT kernel under the unified 7.3 policy: r289 = the COMPLETE v7.3-rc7 port. It is r288 (the mechanical 207-commit kernel-73rc6-port rebase onto v7.3-rc7 + the DP AUX-wedge recovery v2, now folded INTO sky1-ncz-v7.3-rc7-port.patch) PLUS everything r288 was missing because it had branched from the pre-r284 lineage: (a) the r284/r285 review-fix series 0001-0011 (trilin-dp counted OF panel; PCI cadence-sky1-cix ACPI native mode + review fixes; CIX early-boot runtime-PM gate; ACPI fixed-regulator support; ACPI pinctrl defer; cdnsp-sky1 sync_state; audss ACPI parent clocks; pwm_bl CIXH5041 backlight; linlondp DPU-warn; cpufeature SpecSEI non-strict); (b) the r287 CIX q3 vendor sync 0013-0021 (ASoC i2s_mc global-interrupt mask; cdns3/cdnsp RCU-stall, DISABLE_SLOT skip, comp_desc NULL guards; dptx out-of-bound HPD, physical dp->status/MST HPD, eDP-only PSR caps, GOP-plug-after-HDCP; typec rts5453 portX/orientation); (c) CONFIG_RT_GROUP_SCHED is no longer set (the O6N audio-cutout root fix), with the full r283/r285 defconfig set (DMABUF_DEBUG off, DEBUG_INFO_BTF, SQUASHFS_ZSTD, MT7921U/MT7925U/RTW89_8922DE, CRYPTO_ZSTD, I2C_CHARDEV, DRM_PANIC_SCREEN=kmsg). Because RT_GROUP_SCHED changes struct task_struct/sched_rt_entity layout the exported-symbol CRCs moved: ALL SIX committed accelerator overlays (mali_kbase, memory_group_manager, protected_memory_allocator, panthor, aipu, amvx) are REBUILT against the r289 Module.symvers and re-mirrored (verify-overlay-modversions: 0 CRC mismatches, 0 unresolved). Production debs produced by the cix-installer build/build-kernel-debs.sh x2 (byte-identical). The PCIe default is unchanged (sky1_pcie_native=off pcie_pnp_en). The rescue entry boots this same kernel with the arm64 accelerator blacklist. NOT published to the NCZ apt repo (publish-first rule; orchestrator decides after the hardware test). Replaced by 7.3.0 final later.",
-  "source": {
-    "base_tag": "v7.3-rc7",
-    "base_peel": "ec8bf8280261294a9b9b4520414b42704c7f9f6b",
-    "port_branch": "kernel-73rc7-port-20261011",
-    "port_branch_tip": "e53244fffc0bcea79e6d2ccd357cbb6d06a856d7",
-    "port_patch": "sky1-ncz-v7.3-rc7-port.patch",
-    "port_patch_sha256": "b782bdbe7132d4fe972f011a991d9dee6894663c386b71b236ce065546a4d60a",
-    "port_commits": {
-      "from_rc6_count": 207,
-      "from_rc6_branch": "kernel-73rc6-port",
-      "from_rc6_tip": "c3e054c7d4ea349a2c2872dafa7df9bd38b24c39",
-      "rebase_conflicts": 0,
-      "extra_commits": [
-        {
-          "sha": "e53244fffc0bcea79e6d2ccd357cbb6d06a856d7",
-          "subject": "drm/cix/dptx: recover a wedged DP AUX engine instead of stalling the modeset",
-          "source_branch": "fix/dptx-aux-wedge-recovery-v2-20261011"
-        }
-      ]
-    },
-    "build": {
-      "vmlinux_build_id": "b36e30e44e5c1405e018d6d33773a6fcf96f3062",
-      "image_sha256": "839051cc2e77d1fd51661a28d12c08d5e6e783332ec825868a74f0a21e5e5f74",
-      "modules_tgz_sha256": "6157f93bb66804b90ed70ad169aadcbc579afbada2f36f95b06a170081f2d95d",
-      "headers_tar_sha256": "b25dbeb8b938b963412a0151e3fd9ae253812ba7e357513242c2f04c8e0d19df",
-      "config_sha256": "67bb71093fb073cb3e9d64a5de42b2947df6ad9b7cc7c6f8b9c6105718b1aa97",
-      "dtb_sha256": "1aa102e7d699fc2cbdfc4cfdf44f88155e71972402eec4f4abe7d4e3d651873e",
-      "builder": "oe-user@oe-host (GCC 15.3.0, binutils 2.46.1)",
-      "kvm_kernel_gate": "PASS",
-      "dkms_abi_gate": "PASS",
-      "verify_overlay_modversions": "PASS (6 modules, 0 CRC mismatches)",
-      "config_audit": {
-        "CONFIG_MODVERSIONS": "y",
-        "CONFIG_MODULE_COMPRESS": "not set",
-        "CONFIG_RT_GROUP_SCHED": "not set",
-        "CONFIG_CGROUP_SCHED": "y",
-        "CONFIG_FAIR_GROUP_SCHED": "y",
-        "CONFIG_CFS_BANDWIDTH": "y",
-        "CONFIG_SCHED_AUTOGROUP": "y",
-        "CONFIG_DEBUG_INFO_BTF": "y",
-        "CONFIG_I2C_CHARDEV": "m"
-      },
-      "modules_count": 377,
-      "modules_compressed": 0
-    },
-    "recipe": "meta-cix linux-cix-sky1-ncz_7.3-rc7.bb (PR r2), commit 7e8c821f8c7b79309af815ae0ee243bc36befa5b, branch fix/sky1-r289-20261012",
-    "recipe_commit": "7e8c821f8c7b79309af815ae0ee243bc36befa5b",
-    "recipe_parent": "935ede59bfd546de7d5c61bc0da7164e3d4d6f1f",
-    "applied_patches": [
-      "sky1-ncz-v7.3-rc7-port.patch",
-      "0001-drm-cix-trilin-dp-drop-fwnode_drm_find_panel-use-cou.patch",
-      "0002-PCI-cadence-sky1-cix-restore-ACPI-native-mode-on-v7.3.patch",
-      "0003-PM-runtime-restore-the-CIX-Sky1-early-boot-runtime-P.patch",
-      "0004-PCI-cadence-sky1-cix-native-mode-review-fixes-clocks.patch",
-      "0005-regulator-restore-CIX-Sky1-ACPI-fixed-regulator-supp.patch",
-      "0006-pinctrl-acpi-defer-consumers-until-the-named-pin-con.patch",
-      "0007-usb-cdns3-cdnsp-sky1-hold-the-ACPI-wrapper-active-un.patch",
-      "0008-clk-cix-sky1-audss-resolve-ACPI-parent-clocks-by-con.patch",
-      "0009-backlight-pwm-restore-CIX-Sky1-ACPI-backlight-suppor.patch",
-      "0010-drm-cix-linlondp-don-t-warn-about-DPUs-the-firmware-.patch",
-      "0011-arm64-cpufeature-treat-ID_AA64MMFR1_EL1.SpecSEI-as-n.patch",
-      "0013-ASoC-cix-i2s_mc-mask-all-interrupts-CIX.patch",
-      "0014-usb-usb-cdns3-Fix-RCU-stall-in-cdnsp_thread_irq_hand.patch",
-      "0015-usb-cdnsp-skip-DISABLE_SLOT-command-if-slot-is-alrea.patch",
-      "0016-dptx-cix-Add-support-for-out-of-bound-hotplug-events.patch",
-      "0017-DRM-cix-dptx-physical-dp-status-and-MST-HPD-handling.patch",
-      "0018-restrict-psr-caps-update-conditions-CIX.patch",
-      "0019-DRM-cix-dptx-notify-GOP-plug-after-HDCP-init-CIX.patch",
-      "0020-usb-cdns3-Fix-NULL-pointer-dereference-when-comp_des.patch",
-      "0021-typec-rts5453-expose-portX-orientation-node-CIX.patch"
-    ]
-  },
   "debs": {
-    "linux-image-cixmini": {
-      "version": "7.3.0-rc7-sky1-ncz+r289",
-      "sha256": "20143493b637dbb48b7d8465011ee4237cec6b6512bdf79372e385a1e87554a9"
+    "cixmini-boot": {
+      "sha256": "e30c2fe68c8437130248c16c67bb42d4cfddf4c706126761ba2c970472c6c943",
+      "version": "1.6+r303"
     },
     "linux-headers-cixmini": {
-      "version": "7.3.0-rc7-sky1-ncz+r289",
-      "sha256": "7a788d10ea52030133949509fc056af7aeea4537b7b7f7484279c8ed120d8535"
+      "sha256": "15341713e0e75701b011dfd85dbe6784580568ced218400373a589fe1f0df589",
+      "version": "7.4.0-rc3-sky1-ncz+r303"
     },
-    "cixmini-boot": {
-      "version": "1.3+r289",
-      "sha256": "67530b1b4dce3b7699be56206290ad93fd7a0b86a6ccea7f05ca62bcdbbc9c46"
+    "linux-image-cixmini": {
+      "sha256": "6076b4063d497e389f96dcf7edaeaf61cb9bdc8ef15dabebb18705929f1fcdda",
+      "version": "7.4.0-rc3-sky1-ncz+r303"
     }
   },
+  "identity": {
+    "config_reference": "config-7.4.0-rc3-sky1-ncz in the staging dir (sha256 b7e255e75e629b94ef73d50bfb3f51fed8bff7828fd75d8dce1a5434618ee9d1); CONFIG_DRM_PANTHOR is not set (Mali only).",
+    "headers_deb_package": "linux-headers-cixmini",
+    "headers_deb_version": "7.4.0-rc3-sky1-ncz+r303",
+    "image_deb_package": "linux-image-cixmini",
+    "image_deb_version": "7.4.0-rc3-sky1-ncz+r303",
+    "kernel_release": "7.4.0-rc3-sky1-ncz",
+    "module_compression": "none (0 compressed .ko of 382)",
+    "module_count": 382,
+    "module_vermagic": "7.4.0-rc3-sky1-ncz SMP preempt mod_unload modversions",
+    "vmlinuz_sha256": "4081f44be6d3a1a9a12c4b64c810a0c7609ec483533b36f78ef03a7b2fde7caa"
+  },
+  "kver": "7.4.0-rc3-sky1-ncz",
+  "note": "Sky1 arm64 7.4.0-rc3 DEFAULT kernel -- the ONLY arm64 kernel line for 26.10 Cygnus PR4 (operator 2026-11-16: 'release will use 7.4 kernel, no edge and 7.3 will be retired'). r303 = lane A's hv/lane-a-sky1-74rc3-20261116 rebase of the r302 CIX-newest-driver line onto v7.4-rc3 (Linux v7.4-rc3, base commit aebb7274) with the three Panthor commits dropped; staged as kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115 on 2026-11-15. MALI ONLY: CONFIG_DRM_PANTHOR is not set, panthor.ko is ABSENT (asserted at staging and in the image deb), and the vendor Mali out-of-tree modules (mali_kbase, memory_group_manager, protected_memory_allocator) are rebuilt against this tree (vermagic 7.4.0-rc3-sky1-ncz). Staging gates: stage-kernel acceptance incl. KVM boot gate PASS, kernel-manifest.py check --strict, image deb 0 panthor rows + mali_kbase present, overlay ABI PASS. The 7.4.0-rc3 base is accepted for this release and moves to the final 7.4 kernel in a later PATCH release. Replaces the retired 7.3.4-sky1-ncz+r304.",
   "overlays_mirrored": {
-    "assets/kernel/mali/7.3.0-rc7-sky1-ncz/mali_kbase.ko": "41e0fe1a809820660fd9ac13514d7e98f42968639cf050c8a47f43198de2dfbe",
-    "assets/kernel/mali/7.3.0-rc7-sky1-ncz/memory_group_manager.ko": "007ba4103c004bf1922fef6f4c76eeb85b9086c34756a9c7456836422dc2a328",
-    "assets/kernel/mali/7.3.0-rc7-sky1-ncz/protected_memory_allocator.ko": "cf91495af6f63026563280d58e220b0e70bb3bdd68b274dc2cb1a2251e51898f",
-    "assets/kernel/npu/7.3.0-rc7-sky1-ncz/aipu.ko": "fd20994359e39f2344792bd66855968fd8a57d78c6ad18daf264b4d914555229",
-    "assets/kernel/panthor/7.3.0-rc7-sky1-ncz/panthor.ko": "95fff99d3c81919c119f0043d044805e1c26d669147fbc22db4810b4dbdb3473",
-    "assets/kernel/vpu/7.3.0-rc7-sky1-ncz/amvx.ko": "74a2f0bb524737ed47e8cca8c7cf5bebc312277dd606aa348befd290077a00fa"
-  }
+    "assets/kernel/mali/7.4.0-rc3-sky1-ncz/mali_kbase.ko": "fd00fb11dc54a020677e0b81e67c329bea6feb7276238908ac7207d27305eee2",
+    "assets/kernel/mali/7.4.0-rc3-sky1-ncz/memory_group_manager.ko": "053e106a00452ce7d1cffcc1e3e81537c3f6b3116eb446eb402f52e37de2a822",
+    "assets/kernel/mali/7.4.0-rc3-sky1-ncz/protected_memory_allocator.ko": "6264f97a2abbb332e5a422579278983ac646aed50fa823f2d686ca4693ccb8d2",
+    "assets/kernel/npu/7.4.0-rc3-sky1-ncz/aipu.ko": "aa3cbb96603d1752bb0c1f6ca079a4d34a48e7924dbc12412c4197e5507a55d4",
+    "assets/kernel/vpu/7.4.0-rc3-sky1-ncz/amvx.ko": "6d2402a2c933015dcfc8c73652813d078419aa1cfbf2c68c937c8038382aefd7"
+  },
+  "policy": "assets/kernel/default-kernel.json + assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.4, RC_DEFAULT_ALLOWED=1 for the accepted 7.4.0-rc3 base, EDGE_ENABLED=0 -- no edge channel; 7.3.x retired per operator 2026-11-16). Sky1 is Mali only: no panthor module or package.",
+  "schema": 1,
+  "source": {
+    "applied_patches": [
+      "lane A hv/lane-a-sky1-74rc3-20261116 a00a3186: r302 CIX-newest-driver line rebased onto v7.4-rc3 with the three Panthor commits dropped (Mali only)",
+      "one rebase conflict carried: drivers/hwmon/scmi-hwmon.c optional-config_set into the earlier-call loop",
+      "0034 SCMI mailbox alias guard re-applied at the tip"
+    ],
+    "base_peel": "aebb7274476403040d582c61478df8f4a7bf9cd3",
+    "base_tag": "v7.4-rc3",
+    "build": {
+      "builder": "podman localhost/ncz-kernel-build:forky on a build host, Debian gcc 16.2.0 -- staged 2026-11-15",
+      "config_sha256": "b7e255e75e629b94ef73d50bfb3f51fed8bff7828fd75d8dce1a5434618ee9d1",
+      "dkms_abi_gate": "PASS (GATE 2)",
+      "dtb_sha256": "see kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115 staging (sky1-orion-o6.dtb)",
+      "hardware_boot": "NOT done in this change: no kernel/image build and no host or boot-entry change (the O6N one-shot boot test is lane A's, per INSTALL-O6N.md)",
+      "headers_tar_sha256": "see kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115 SHA256SUMS",
+      "image_sha256": "4081f44be6d3a1a9a12c4b64c810a0c7609ec483533b36f78ef03a7b2fde7caa",
+      "kvm_kernel_gate": "PASS (stage-kernel acceptance gate, logs/stage-kernel-gates-r303.log)",
+      "module_abi": "PASS (5 overlay modules against vermagic 7.4.0-rc3-sky1-ncz SMP preempt mod_unload modversions aarch64)",
+      "modules_compressed": 0,
+      "modules_count": 382,
+      "modules_tgz_sha256": "see kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115 SHA256SUMS",
+      "symvers_sha256": "see kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115 staging",
+      "vmlinux_build_id": "0de1d079e92890372fe4d14c1a0d54463cc19316 (staging BUILD-IDS.txt)"
+    },
+    "build_export": "NON-GIT archive export of a00a3186e01d9e1937287d5c0b82271d7794e2e3 plus the localversion-ncz build input '-sky1-ncz'; kernel.release is exactly 7.4.0-rc3-sky1-ncz",
+    "git_form": {
+      "branch": "hv/lane-a-sky1-74rc3-20261116",
+      "repo": "linux-cix",
+      "tip": "a00a3186e01d9e1937287d5c0b82271d7794e2e3 (r302 line a2fc19de rebased onto v7.4-rc3)",
+      "tree": "see linux-cix @ a00a3186"
+    },
+    "recipe": "linux-cix branch hv/lane-a-sky1-74rc3-20261116 @ a00a3186, base Linux v7.4-rc3 aebb7274",
+    "series": "r302 CIX-newest-driver line onto v7.4-rc3, three Panthor commits dropped (Mali only), 0034 SCMI guard at tip"
+  },
+  "staged_utc": "2026-11-15",
+  "staging_dir": "kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115"
 }

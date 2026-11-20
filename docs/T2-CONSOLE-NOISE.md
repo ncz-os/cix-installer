@@ -55,13 +55,23 @@ floor**; the benign noise is fixed at its source instead (below).
 > `KERN_EMERG`, level 0, so `loglevel=3` cannot hide them and `dmesg --level=crit`
 > lists them too.)
 
+> Companion quirk, not a T2 setting: on the ASUS ROG Zephyrus M15 (GU502LV) the
+> ACPI `_OSC` reply says "platform does not support [AER]", so Linux never
+> enables AER there; the amd64 rEFInd generator now adds `pcie_ports=native` to
+> the **Default and Console** entries when DMI matches that laptop, and AER then
+> enables on all 15 AER-capable devices with no error flood. Rescue entries stay
+> minimal (no `pcie_ports=`), the decision is made on the target machine at
+> boot-menu generation time, and `build/test-amd64-pcie-native.sh` pins it.
+
 ## What actually was changed here (root-cause fixes, level 3 kept)
 
 1. **brcmfmac P2P -52** — `options brcmfmac feature_disable=0x10` (clear bit 4,
    `BRCMF_FEAT_P2P`); the BCM4364 firmware rejects `p2p_da_override` so the P2P
    Device interface can never be created. Removes the 3-line `brcmf_p2p_*`
    error cluster every boot and stops advertising a feature that does not work.
-2. **pcspkr duplicate registration** — `blacklist snd_pcsp`; the input `pcspkr`
+2. **pcspkr duplicate registration** (since 2026-11-03 also on every non-T2
+   amd64 host via `ncz-pcspkr.conf`, see `docs/AMD64-BOOT-NOISE.md`) —
+   `blacklist snd_pcsp`; the input `pcspkr`
    and ALSA `snd_pcsp` modules both register a platform driver named `pcspkr`
    (`MODULE_ALIAS platform:pcspkr`), so udev autoloads both and one fails with
    *"Error: Driver 'pcspkr' is already registered, aborting..."*.

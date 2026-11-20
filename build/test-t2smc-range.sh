@@ -4,7 +4,7 @@
 #
 # The validators are added by assets/kernel/t2smc/patches/0001-t2smc-range-checks.patch
 # (as t2smc_range.h). To test exactly what DKMS builds, reproduce the DKMS tree:
-# post-install/56-t2-dkms.sh flattens assets/kernel/t2smc/src/ into /usr/src/t2smc-0.1/,
+# post-install/56-t2-dkms.sh flattens assets/kernel/t2smc/src/ into /usr/src/t2smc-<PACKAGE_VERSION>/,
 # so the patch applies with -p1 at the module root (no src/ prefix). Apply it to a
 # scratch copy of the flattened vendored source and compile the test against that.
 #

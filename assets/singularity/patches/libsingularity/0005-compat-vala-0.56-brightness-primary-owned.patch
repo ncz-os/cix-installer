@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 18 Nov 2026 12:00:00 -0500
+Subject: [PATCH] compat: return primary brightness display as owned
+
+Vala 0.56 requires this nullable object getter to declare ownership. Return
+the selected display as owned to satisfy the getter contract.
+---
+--- a/src/system/brightness_manager.vala
++++ b/src/system/brightness_manager.vala
+@@ -210,7 +210,7 @@
+         }
+ 
+         public DisplayBrightness? primary {
+-            get { return panel ?? (_displays.size > 0 ? _displays[0] : null); }
++            owned get { return panel ?? (_displays.size > 0 ? _displays[0] : null); }
+         }
+ 
+         public void set_software_backend(owned SoftwareBrightnessFunc func) {
+-- 
+2.53.0

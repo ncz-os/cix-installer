@@ -1,0 +1,14 @@
+[Unit]
+Description=NCZ image CI poll (hourly-ish, offset from the top of the hour)
+
+[Timer]
+# 15 min after boot, then every 30 min. The randomised delay keeps several
+# build hosts from polling the same upstream endpoints in lockstep.
+OnBootSec=15min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

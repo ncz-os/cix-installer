@@ -1,29 +1,61 @@
 {
-  "schema": 1,
-  "channel": "default",
   "arch": "amd64",
-  "kver": "7.3.0-rc7-t2-ncz",
-  "package_revision": "7.3.0-rc7-2",
-  "build_rev": "amd64-t2-rc7-r2-20261012",
-  "staged_utc": "2026-10-12",
+  "artifacts": {
+    "BUILD-IDS.txt": {
+      "sha256": "39aa525c1564a8d67771841384fc09943f81419680019a08f4840c7ce10f07d2",
+      "size": 2167
+    },
+    "PROVENANCE-7.4.0-rc3-t2-ncz": {
+      "sha256": "aad01be7e26aa6228f0cc33ea62cca34b5cbf92d94596ad62af95053c0a9a5c4",
+      "size": 4457
+    },
+    "kernel_config_7.4.0-rc3-t2-ncz": {
+      "sha256": "a8bfedb6177bb03ef840df7f2d5c837004fcf54c22a69cd727d429531649b7e3",
+      "size": 312554
+    },
+    "linux-headers-7.4.0-rc3-t2-ncz_7.4.0-rc3-4_amd64.deb": {
+      "sha256": "3820e8a52199d989441773dd9c623ae26f3326da51b5f2e30f512a418ec099e4",
+      "size": 10432228
+    },
+    "linux-image-7.4.0-rc3-t2-ncz_7.4.0-rc3-4_amd64.deb": {
+      "sha256": "6a37db0b12ceed4e7d298303c5a0397b59578d389062bf6af4ae34e907e4c121",
+      "size": 110328692
+    }
+  },
+  "build_evidence": "Artifact store pool kernel-staging/amd64-stable-7.4.0-rc3-4-20261118 (artifact store; SHA256SUMS verified, PROVENANCE, VERIFY.txt 26 PASS / 0 FAIL, DKMS t2smc/t2gmux/t2thunderbolt PASS, kvm-gate.out)",
+  "build_rev": "amd64-t2-7.4.0-rc3-4-20261118",
+  "channel": "default",
   "channel_pointer": "assets/kernel/amd64-stable",
-  "staging_pool_relative": "kernel-staging/amd64-t2-rc7-r2-20261012/7.3.0-rc7-t2-ncz",
-  "staging_pool_note": "Path is relative to the shared kernel-staging export of the project artifact store; the mount root differs per build host.",
-  "policy": "assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.3, unified; no EDGE channel)",
-  "note": "amd64 DEFAULT, installer and rescue kernel under the unified 7.3 policy (2026-10-05, ported 2026-10-11 to v7.3-rc7; r2 rebuild 2026-10-12). AER: Lukas Wunner's 79c168e2aa95 'PCI/AER: Skip error recovery on false alarms' is in v7.3-rc7 base (replaces the rc6-4 plain-revert 9010), and a narrow Apple SEP ANFE quirk 9011 (DECLARE_PCI_FIXUP_EARLY(APPLE, 0x1802, quirk_no_aer_anfe)) leaves the Apple T2 Secure Enclave's ANFE bit masked. Also carried: 9013 PCI/DPC enumeration guard (dev->aer_cap), 9101 integrity T2 cert-skip info, 9102 btbcm BCM4364B3 + T2 ROM firmware info. 9012 (nouveau gcx_ready NULL gsp->rm fix) is dropped because upstream 4d0e27041185 is already in v7.3-rc7. r2 adds 2010: it restores the upstream vga_default_device boot-GPU guard that the t2linux 2009 patch dropped, scoped to T2 via apple_t2_present() (Apple T2 bridge 106b:1801). Without it a Mac whose ACPI lists APP000B but whose gmux is non-functional (e.g. Macmini5,1) deferred i915 forever: no /dev/dri, greetd skipped, headless with no error. The kernel RELEASE stays 7.3.0-rc7-t2-ncz (KVER pin stable across r1/r2); the package REVISION is 7.3.0-rc7-2 so apt/pins can tell r2 from the first rc7 build (<version>-1). The rEFInd hook's is_stable_class already accepts *-t2-ncz* so the rescue/stable classification is unchanged. Replaced by the 7.3.0 final build later.",
+  "gates": {
+    "hardware_gate": "Apple MacBookPro16,1 booted this exact build on 2026-11-18 (build id matches): DPC binds on root ports 00:1b.0 and 00:1c.0, amdgpu/i915/brcmfmac/t2bce/t2smc/hid_apple loaded, no failed units, GPU power cap range 20-50 W with 7002. NOT yet run: suspend/resume, Thunderbolt plug/unplug, soak. Hardware acceptance pending.",
+    "initramfs_check": "NOT built at kernel-build time (make deb-pkg carries none); the image build's dracut path builds it.",
+    "interrupt_transcript": "n/a",
+    "kvm_gate": "PASS on the -4 build (GATE-VERDICT PASS kver=7.4.0-rc3-t2-ncz, known t2bce_ave oops: 0), kvm-gate.out in the build evidence dir.",
+    "static_gate": "VERIFY.txt 26 PASS / 0 FAIL on the -4 build; series tests 48/59/15 pass; the series carries 7002 (Navi 14 lower power limits) and Lukas Wunner's AER/DPC series v2 (7101-7107); 9013 is dropped."
+  },
+  "hardware_note": "Apple MacBookPro16,1 booted this exact build on 2026-11-18 (running build id b6eb7bc6 matches): DPC binds on root ports 00:1b.0 and 00:1c.0, GPU power cap range 20-50 W, no failed units. Suspend/resume, Thunderbolt plug/unplug and a soak are not yet run: hardware acceptance pending.",
+  "identity": {
+    "config_reference": "kernel_config_7.4.0-rc3-t2-ncz in the staging pool (sha256 in artifacts).",
+    "headers_data_tar_sha256": "862b316c29ba7ebf6c4c91728885c94d111c6ed71ae3cf9b1caa2b9272dd7597",
+    "headers_deb_package": "linux-headers-7.4.0-rc3-t2-ncz",
+    "headers_deb_version": "7.4.0-rc3-4",
+    "image_data_tar_sha256": "f3295370069697b93af5497a546509e076821823f5c2f1bf7b7543b80db306a6",
+    "image_deb_package": "linux-image-7.4.0-rc3-t2-ncz",
+    "image_deb_version": "7.4.0-rc3-4",
+    "kernel_release": "7.4.0-rc3-t2-ncz",
+    "module_compression": "none (0 compressed .ko of 6884)",
+    "module_count": 6884,
+    "module_vermagic": "7.4.0-rc3-t2-ncz SMP preempt mod_unload modversions",
+    "vmlinux_build_id": "b6eb7bc645770de185d86873462c3d93f0966d27",
+    "vmlinuz_sha256": "bad861543b6891d03886fa87a9b18125cbbc41cc5853c4bc36be3fceecc38934"
+  },
+  "kver": "7.4.0-rc3-t2-ncz",
+  "note": "amd64 kernel repin 7.3.4-t2-ncz+r303 -> 7.4.0-rc3-t2-ncz / 7.4.0-rc3-2 (operator 2026-11-16: 'release will use 7.4 kernel, no edge and 7.3 will be retired'; 26.10 Cygnus PR4). 7.4 is the ONLY amd64 kernel line: the 7.3.x series is retired (no default, no rescue, no installer, no previous-kernel entry, no apt component for the image) and there is no edge channel. Packaging base origin/hv/lane-a-t2-9102-305b-20261116 d9d1e6b2 onto Linux v7.4-rc3 aebb7274; the release revision is 7.4.0-rc3-2, the rebuild that carries the replaced 9013 DPC patch -- the -1 debs staged 2026-11-15 are NOT the release kernel. The 7.4.0-rc3 base is accepted for this release and moves to the final 7.4 kernel in a later PATCH release. Manifest hand-authored per repo practice. Repin 7.4.0-rc3-2 -> 7.4.0-rc3-4 (operator 2026-11-18: take the Wunner AER/DPC series and the 7002 Navi 14 power-limit patch into the next image round): same v7.4-rc3 base, 32-entry series.",
+  "package_revision": "7.4.0-rc3-4",
+  "policy": "assets/kernel/default-kernel.json + assets/kernel/KERNEL-POLICY (DEFAULT_BASE=7.4, RC_DEFAULT_ALLOWED=1 for the accepted 7.4.0-rc3 base, EDGE_ENABLED=0) + assets/kernel/KERNEL-LIFECYCLE (MIN_VERSION 7.4.0-rc3; CURRENT 7.4.0-rc3-t2-ncz / 7.4.0-rc3-4)",
+  "schema": 1,
   "source": {
-    "base_tag": "v7.3-rc7",
-    "base_commit": "24a19b953e2a3d0ea5a8c4951a0ab8f32720c907",
-    "t2_repo": "amd64-kernel-t2",
-    "t2_branch": "feat/t2-7.3-rc7-r2-20261012",
-    "t2_repo_commit": "5a81280592a3bdcccb86091e4b2c8b33357bf72a",
-    "t2_aer_patch": "patches/9011-PCI-AER-skip-ANFE-unmask-on-Apple-T2-SEP.patch",
-    "t2_cyclops_patch": "patches/2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch",
-    "t2_cyclops_note": "Patch 2010 restores the upstream boot-GPU guard in vga_switcheroo_client_probe_defer() (pdev != vga_default_device()) and scopes the 2009 relaxation to T2 (apple_t2_present() = pci_get_device(PCI_VENDOR_ID_APPLE, 0x1801, NULL)). Built and verified: the vmlinux disassembly of vga_switcheroo_client_probe_defer calls both vga_default_device and pci_get_device; the staged source tree carries the guard. Hardware-proven on a Macmini5,1 test machine: i915 binds natively, /dev/dri/card0 appears, greetd starts and renders the greeter with NO ncz-vsfix workaround loaded.",
-    "applied_patch_count": 24,
-    "kernel_ref": "v7.3-rc7 (24a19b953e2a)",
-    "build_host": "amd64 build host, podman debian:trixie",
-    "built_utc": "2026-10-12T15:38:28-04:00",
+    "applied_patch_count": 32,
     "applied_patches": [
       "1001",
       "1002",
@@ -32,71 +64,51 @@
       "2009",
       "2010",
       "4001",
-      "4003",
       "4004",
-      "5001",
-      "5002",
       "6001",
       "6002",
+      "6003",
       "7001",
+      "7002",
+      "7101",
+      "7102",
+      "7103",
+      "7104",
+      "7105",
+      "7106",
+      "7107",
       "8001",
       "8002",
+      "8003",
       "9001",
       "9002",
-      "9011",
-      "9013",
+      "9014",
       "9101",
       "9102",
+      "9103",
       "9503",
-      "9504"
+      "9006",
+      "9508"
     ],
-    "held_not_applied": [
-      "9507"
-    ]
+    "base_commit": "aebb7274476403040d582c61478df8f4a7bf9cd3",
+    "base_tag": "v7.4-rc3",
+    "build_host": "Debian forky (kernel build container), gcc Debian 16.2.0, CONFIG=ubuntu, patch series 7.4",
+    "built_utc": "2026-11-18T19:02:30Z",
+    "held_not_applied": [],
+    "kernel_ref": "v7.4-rc3 (aebb7274)",
+    "kernel_tag_object": null,
+    "kernel_tarball_sha256": null,
+    "patch_list_sha256": "e70ab80e147c4050355efa68b16aa3e6046fb481fc1b0a0625ec3e94aa112db0",
+    "patch_queue_note": "7.4.0-rc3-4 patch queue, 32 entries, all applied by the build's patch -p1 -F0 with offsets only (0 dropped): the earlier 25-entry -2 queue (vs the retired 7.3.4 line it dropped 4003, 5001, 5002, 9504, 9506 and added 8003, 9006, 9014, 9103), plus 7002 (Navi 14 lower power limits on Apple Macs) and Lukas Wunner's PCI DPC/AER series v2 as 7101-7107; 9013 (portdrv DPC gate) is dropped because the series replaces it (it stays in the repo for the 7.3 line). Kernel base aebb7274 (v7.4-rc3); packaging base aa700c24 (hv/lane-a-t2-wunner-aer-20261118).",
+    "t2_aer_note": "9011's quirk_no_aer_anfe is upstream in v7.4-rc3 and is not in the 7.4 series; 9013 (portdrv DPC gate) is replaced by the 7101-7107 series, which makes DPC bind on AER-incapable ports (Cannon Lake root ports 00:1b.0/00:1c.0 on MacBookPro16,1)",
+    "t2_aer_patch": "patches/7.4/7101-7107 (Lukas Wunner PCI DPC/AER series v2, 2026-11-18); replaces 9013",
+    "t2_branch": "hv/lane-a-t2-wunner-aer-20261118",
+    "t2_cyclops_note": "Patch 2010 restores the upstream boot-GPU guard in vga_switcheroo_client_probe_defer() scoped to non-T2 Apple; carried in the 7.4 series (applied within the 25-entry list, offset -2,-2).",
+    "t2_cyclops_patch": "patches/2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch",
+    "t2_repo": "amd64-kernel-t2",
+    "t2_repo_commit": "aa700c24388c520782489b1e37b973b9d97384b2",
+    "t2_wifi_patch": "patches/9503-wifi-brcmfmac-handle-missing-D3-ACK-on-BCM4377-T2-Macs.patch + patches/9006-wifi-brcmfmac-keep-ARP-and-ND-offload-off-on-the-BCM4364.patch"
   },
-  "artifacts": {
-    "linux-image-7.3.0-rc7-t2-ncz_7.3.0-rc7-2_amd64.deb": {
-      "sha256": "36ed84e7dc47ca1334580533c716a9d17c9a05d9c6797da48b702a2429f5d7c3",
-      "size": 124339888
-    },
-    "linux-headers-7.3.0-rc7-t2-ncz_7.3.0-rc7-2_amd64.deb": {
-      "sha256": "81f1820252c40dcb2d3ea43450106fe0bdae6ae517a65ab55e3766dbaf2e8b52",
-      "size": 10762960
-    },
-    "linux-image-7.3.0-rc7-t2-ncz-dbg_7.3.0-rc7-2_amd64.deb": {
-      "sha256": "97c10e953ef38f4ab2f5f5b48bdefb77b2509c0ff4c991d349d027d7395e13cb",
-      "size": 1145108040
-    },
-    "linux-libc-dev_7.3.0-rc7-2-trixie_amd64.deb": {
-      "sha256": "7e45ac291db9534bc903bbbaeb8bf02a8bc0733ba3ffafc72773f74a3938e71b",
-      "size": 1519840
-    },
-    "kernel_config_7.3.0-rc7-t2-ncz": {
-      "sha256": "e88c4505d5c4a9fce3720eb0ba2892aede33f12080865cb45bfbee2acc09219a",
-      "size": 299457
-    },
-    "PROVENANCE-7.3.0-rc7-t2-ncz": {
-      "sha256": "1f3b503e2fa9783c3c3cdcc260212c7acd587838e77b0cdcda4c1c5155ffec55",
-      "size": 3159
-    }
-  },
-  "identity": {
-    "image_deb_package": "linux-image-7.3.0-rc7-t2-ncz",
-    "image_deb_version": "7.3.0-rc7-2",
-    "headers_deb_package": "linux-headers-7.3.0-rc7-t2-ncz",
-    "headers_deb_version": "7.3.0-rc7-2",
-    "kernel_release": "7.3.0-rc7-t2-ncz",
-    "module_vermagic": "7.3.0-rc7-t2-ncz SMP preempt mod_unload modversions",
-    "vmlinux_build_id": "6db4589c55af51aba2d30e0eee575a1bfef6d679",
-    "vmlinuz_sha256": "c688373125501e1783b5e56ca5d7244fffc5d3453d628438574a1a02cda1173f",
-    "config_reference": "amd64-kernel-t2 builds its own config from templates/default-config-debian + the series' CONFIG_* additions; reference is the FINAL .config (kernel_config_7.3.0-rc7-t2-ncz) shipped in the staging pool. The r2 config is byte-identical to the first rc7 build (config sha e88c4505...), as expected: 2010 is a source change with no Kconfig effect."
-  },
-  "gates": {
-    "static_gate": "PASS (44 PASS / 0 FAIL; 24 patches incl. 2010+9011+9013+9101+9102, no 9010/9012/9507; patch hashes == repo; depmod -e 0 unknown symbols with firing self-test; all T2 modules present; t2bce is the 2026-09-28 revision (hrtimer heartbeat); t2bce vermagic matches; 9011 quirk_no_aer_anfe compiled into vmlinux + reachable via .pci_fixup vendor 0x106b device 0x1802; 2010 verified both in the staged source tree (apple_t2_present + pdev != vga_default_device() || apple_t2_present()) and in the built vmlinux disassembly of vga_switcheroo_client_probe_defer (calls vga_default_device and pci_get_device); DKMS t2smc/t2gmux/t2smp/t2thunderbolt build against the r2 headers)",
-    "initramfs_check": "not run (DRY-RUN; installer initrd assembly is in a follow-up; only the kernel packages and config are reviewed here)",
-    "kvm_gate": "PASS (OVMF EFI boot, efivarfs 21/21 read, pstore backend efi_pstore, T2 in-tree stack loads, t2bce_vhci/t2bce_ave MODVERSIONS refuse with 517 because no T2 hardware binds, no kernel panic, known t2bce_ave oops: 0)",
-    "hardware_gate": "PASS on all five reachable test hosts (2026-10-12): Macmini5,1 (the 2010 target: native i915 bind, /dev/dri/card0, greetd + greeter, no ncz-vsfix workaround; before = native headless on the r1 release kernel, after = native GUI on r2, same host, same session); two MacBookPro16,1 T2 Macs (t2gmux/t2smc unchanged, 04:00.2 AER_COR_MASK 0x6000, suspend/resume PASS, 20-min soak PASS); ASUS GU502LV laptop + HP OmniDesk desktop (non-Apple PCs) (unaffected, 10-min soak PASS). The Dell Inspiron 5521 was skipped (not available for this run).",
-    "interrupt_transcript": "n/a"
-  },
-  "hardware_note": "Hardware-validated 2026-10-12 (this r2 build). Macmini5,1 test machine (ACPI APP000B present, non-functional gmux): the r2 kernel binds i915 natively with the ncz-vsfix workaround DISABLED — /dev/dri/card0, all 7 connectors, greetd active (ExecCondition status=0), greeter screenshot captured; the same host on the r1 release kernel (workaround disabled) reproduced the defect: i915 unbound, no /dev/dri, greetd exec-condition FAILURE, devices_deferred 0000:00:02.0 with a blank reason. MacBookPro16,1 T2 Macs: gmux/t2gmux behaviour unchanged, 04:00.2 ANFE mask 0x6000 (9011 active), suspend/resume PASS, 20-min soak PASS. GU502LV laptop / OmniDesk desktop (non-Apple): unaffected. Full evidence in the staged pool's STATIC-GATE.txt/KVM-GATE.log."
+  "staged_utc": "2026-11-18",
+  "staging_pool_relative": "kernel-staging/amd64-stable-7.4.0-rc3-4-20261118"
 }

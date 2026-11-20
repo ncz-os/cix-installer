@@ -8,6 +8,13 @@
 # can drift from the published set. Also asserts the wiring: the arm64 keep set
 # and exclude list exactly partition manifests/firmware.pkgs, and the mirror /
 # install / initrd builders and the target verifier select the arch-scoped BOM.
+
+# This suite builds .deb fixtures. If the host cannot, say so once instead of
+# letting every assertion fail on an empty archive (build/lib/deb-fixture.sh).
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "test-firmware-arch-bom: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERIFY="$ROOT/build/verify-firmware-bom.sh"

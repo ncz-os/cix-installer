@@ -56,12 +56,12 @@ set_env() {  # key value — idempotent replace-or-append
 }
 
 if [ ! -f "$SRC" ]; then
-    echo "[16] $SRC missing — using distribution Mesa for PanVK/rusticl"
+    echo "[16] $SRC missing — using distribution Mesa Vulkan"
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        mesa-vulkan-drivers mesa-opencl-icd 2>&1 | tail -6 || \
-        echo "[16] WARN: distribution Mesa Vulkan/OpenCL packages unavailable"
-    set_env RUSTICL_ENABLE panfrost
-    echo "    /etc/environment: RUSTICL_ENABLE=panfrost"
+        mesa-vulkan-drivers 2>&1 | tail -6 || \
+        echo "[16] WARN: distribution Mesa Vulkan packages unavailable"
+    # Mali-only image (order 01:35Z 2026-11-15): GPU OpenCL is the vendor
+    # platform (cix-gpu-umd via ocl-icd-libopencl1), not rusticl/panfrost.
     exit 0
 fi
 
@@ -85,47 +85,45 @@ for stock in /usr/share/vulkan/icd.d/panfrost_icd.json \
 done
 echo "    Vulkan ICD: panfrost_2613_icd.aarch64.json (panvk 26.1.3)"
 
-# --- OpenCL: install rusticl ICD (restores GPU OpenCL) ---------------------
-mkdir -p /etc/OpenCL/vendors
-echo "$RUSTICL_LIB" > /etc/OpenCL/vendors/rusticl.icd
-echo "    OpenCL ICD: /etc/OpenCL/vendors/rusticl.icd → $RUSTICL_LIB"
-
-# --- OpenCL: libclc SPIR-V (rusticl compiles OpenCL C via spirv64-mesa3d) --
-# Self-contained bundle: it carries libclang-cpp + libLLVMSPIRVLib (resolved by
-# rusticl's $ORIGIN RPATH) plus the libclc spvs. rusticl looks for the spvs in
-# /usr/lib/clc, so stage them there from the bundle.
-if [ -f "$PREFIX/lib/clc/spirv64-mesa3d-.spv" ]; then
-    mkdir -p /usr/lib/clc
-    install -m644 "$PREFIX/lib/clc/spirv-mesa3d-.spv" \
-                  "$PREFIX/lib/clc/spirv64-mesa3d-.spv" /usr/lib/clc/ 2>/dev/null \
-        && echo "    libclc: spirv-mesa3d spvs -> /usr/lib/clc (rusticl OpenCL C frontend)"
-fi
+# --- OpenCL: vendor platform only (order 01:35Z 2026-11-15) ----------------
+# rusticl/panfrost was the Panthor OpenCL path; Panthor is not shipped, so no
+# rusticl ICD is registered. GPU OpenCL = the vendor platform (cix-gpu-umd's
+# ARM Platform via ocl-icd-libopencl1) — the platform clinfo must show.
 
 # --- System-wide activation via /etc/environment ---------------------------
-set_env VK_DRIVER_FILES /usr/share/vulkan/icd.d/panfrost_2613_icd.aarch64.json
-set_env RUSTICL_ENABLE  panfrost
-echo "    /etc/environment: VK_DRIVER_FILES + RUSTICL_ENABLE=panfrost"
+# Mali-only image: pin the blob ICD. The panfrost/panvk ICD has no kernel
+# driver (panthor is not shipped) and a system-wide VK_DRIVER_FILES pointed at
+# it left vulkaninfo with zero devices on non-session logins (server acceptance:
+# "vulkaninfo first device is Mali-G720").
+set_env VK_DRIVER_FILES /etc/vulkan/icd.d/mali.json
+echo "    /etc/environment: VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json"
 
 # --- Status doc ------------------------------------------------------------
 mkdir -p /usr/share/doc/ncz
 cat > /usr/share/doc/ncz/GPU-STATUS.md <<'DOC'
-# NCZ GPU compute stack — Cix Sky1 (Mali-G720 MC10 / panthor)
+# NCZ GPU compute stack — Cix Sky1 (Mali-G720 MC10)
 
-This system ships a from-source **Mesa 26.1.3** under `/opt/mesa-26.1.3`,
-redirected to be the system **Vulkan (panvk)** and **OpenCL (rusticl)**
-provider. Desktop GL stays on the stock Sky1 Mesa.
+One GPU driver: the vendor **Mali** stack (mali_kbase + cix-gpu-umd).
+Panthor is not shipped (order 01:35Z 2026-11-15).
 
-- Vulkan: `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/panfrost_2613_icd.aarch64.json`
-- OpenCL: `/etc/OpenCL/vendors/rusticl.icd` + `RUSTICL_ENABLE=panfrost`
+- Vulkan: `VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json` (the CIX blob ICD;
+  the real device). The bundled Mesa 26.1.3 under `/opt/mesa-26.1.3` still
+  installs its panvk ICD file, but it has NO kernel driver on a Mali-only
+  image and is not pinned — do not point VK_DRIVER_FILES at it.
+- OpenCL: the vendor platform — `clinfo -l` must read
+  `Platform #0: ARM Platform / Device #0: Mali-G720-Immortalis`
+  (cix-gpu-umd's ICD via ocl-icd-libopencl1). No rusticl ICD is registered;
+  mesa-opencl-icd was the Panthor/panfrost OpenCL path and is gone with it.
 
 Verify:
 ```
-vulkaninfo | grep -E 'deviceName|driverInfo'   # Mali-G720 / Mesa 26.1.3
-clinfo     | grep -E 'Device Name|Driver Ver'  # Mali-G720 (Panfrost) / 26.1.3
+vulkaninfo --summary | grep -E 'deviceName|driverName'  # Mali-G720 first
+clinfo -l                                              # ARM Platform first
 ```
 
-Measured (vs stock 26.0.3): panvk +20.6% prefill / +12.9% decode (llama.cpp
-Vulkan); rusticl clpeak FP16 ~3.6 TFLOPS, FP32 ~1.98 TFLOPS, INT ~313 GIOPS.
+Historical (Panthor era, vs stock 26.0.3): panvk +20.6% prefill / +12.9%
+decode (llama.cpp Vulkan); rusticl clpeak FP16 ~3.6 TFLOPS, FP32 ~1.98
+TFLOPS, INT ~313 GIOPS. Kept for reference only.
 
 **Teflon is NOT enabled.** Mesa's TFLite delegate only targets
 Ethos-U / VeriSilicon / Rockchip NPUs — it cannot drive the Mali GPU or the
@@ -133,5 +131,5 @@ Zhouyi NPU. Use the Zhouyi/libnoe path for NPU inference instead.
 See `AI-ML-STACK.md` for engine routing.
 DOC
 
-echo "[16] Mesa 26.1.3 GPU compute stack installed (panvk + rusticl). Teflon shipped but not enabled (no Sky1 backend)."
+echo "[16] GPU stack set for vendor Mali (VK_DRIVER_FILES=mali.json). Teflon shipped but not enabled (no Sky1 backend)."
 exit 0

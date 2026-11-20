@@ -236,6 +236,16 @@ envrun() {   # sysroot hwstub [VAR=val ...] -> prints NCZ_GPU_BACKEND and LIBGL_
 r=$(envrun none hw-no);  case "$r" in *"backend=software sw=1 pixman=pixman"*) PASS=$((PASS+1)); echo "ok   env: no GPU -> software branch (KVM keeps working)";; *) FAILS=$((FAILS+1)); echo "FAIL env: no GPU gave: $r";; esac
 r=$(envrun none hw-yes); case "$r" in *"backend=failed sw= pixman="*) PASS=$((PASS+1)); echo "ok   env: GPU + no usable stack -> REFUSED, no software variables";; *) FAILS=$((FAILS+1)); echo "FAIL env: GPU present gave: $r";; esac
 grep -q 'software rendering REFUSED' "$T/env-health.log" 2>/dev/null && { PASS=$((PASS+1)); echo "ok   env: refusal is written to the health log"; } || { FAILS=$((FAILS+1)); echo "FAIL env: refusal not in the health log"; }
+# the greeter user (_greetd) cannot write /var/log: the refusal must not add a shell error to the console
+mkdir -p "$T/ro-log"; chmod 0555 "$T/ro-log"
+e=$(env -i PATH="$PATH" NCZ_SYSROOT="$T/none" NCZ_GPU_HW_PRESENT_CMD="$T/stub/hw-yes" NCZ_GPU_HEALTH_LOG="$T/ro-log/ncz-gpu-health.log" NCZ_GPU_ENV_NO_IMPORT=1 \
+    sh -c ". '$T/ncz-gpu-env'; echo backend=\${NCZ_GPU_BACKEND:-}" 2>&1)
+case "$e" in
+    *"cannot create"*|*"Permission denied"*) FAILS=$((FAILS+1)); echo "FAIL env: unwritable health log leaks a shell error: $e" ;;
+    *"backend=failed"*"software rendering REFUSED"*|*"software rendering REFUSED"*"backend=failed"*) PASS=$((PASS+1)); echo "ok   env: unwritable health log -> still REFUSED, no shell error" ;;
+    *) FAILS=$((FAILS+1)); echo "FAIL env: unwritable health log gave: $e" ;;
+esac
+chmod 0755 "$T/ro-log"
 r=$(envrun none hw-yes NCZ_ALLOW_SOFTWARE_FALLBACK=1); case "$r" in *"backend=software sw=1"*) PASS=$((PASS+1)); echo "ok   env: NCZ_ALLOW_SOFTWARE_FALLBACK=1 opts back in";; *) FAILS=$((FAILS+1)); echo "FAIL env: opt-in gave: $r";; esac
 mkdir -p "$T/mali2/dev" "$T/mali2/proc"; : > "$T/mali2/dev/mali0"; echo 'mali_kbase 1 0 - Live 0x0' > "$T/mali2/proc/modules"
 r=$(envrun mali2 hw-yes); case "$r" in *"backend=mali sw="*) PASS=$((PASS+1)); echo "ok   env: a live Mali stack selects mali (no software)";; *) FAILS=$((FAILS+1)); echo "FAIL env: mali gave: $r";; esac
@@ -257,6 +267,58 @@ if [ -f "$PATCH" ]; then
 else
     FAILS=$((FAILS+1)); echo "FAIL session overlay patch missing: $PATCH"
 fi
+
+# ---- session render device + GPU settle (T2 MacBookPro16,1, 2026-10-26): the session runs on the AMD GPU
+#      (WLR_DRM_DEVICES=/dev/dri/card2) while the check, run early in boot, saw only the Intel iGPU.
+mkroot mbp; render_node mbp renderD128 i915
+mkpci() {   # root bdf driver card [render]
+    local d="$T/$1/sys/devices/pci0000:00/$2"
+    mkdir -p "$d/drm/$4" "$T/$1/sys/bus/pci/devices" "$T/$1/sys/drivers/$3"
+    echo 0x030000 > "$d/class"; echo "pci:v00001002d00007340sv0000106Bsd0000020Ebc03sc00i00" > "$d/modalias"
+    ln -sfn "$d" "$T/$1/sys/bus/pci/devices/$2"
+    ln -sfn "$T/$1/sys/drivers/$3" "$d/driver"
+    mkdir -p "$T/$1/sys/class/drm/$4"; ln -sfn "$d" "$T/$1/sys/class/drm/$4/device"
+    [ -n "${5:-}" ] && mkdir -p "$d/drm/$5"
+}
+mkpci mbp 0000:03:00.0 amdgpu card2 renderD129
+PIN_S='echo "GBM platform:"; echo "OpenGL core profile renderer: AMD Radeon (pin=$DRI_PRIME)"'
+PIN_B='echo "GBM platform:"; echo "OpenGL core profile renderer: Intel UHD 630 (pin=${DRI_PRIME:-none})"'
+rm -f "$T/health.log"
+EGL_S="$PIN_S" EGL_B="$PIN_B" VK_S='echo "deviceName = AMD (pin=$DRI_PRIME)"' \
+    expect "status: session probes pinned to the compositor's PCI GPU pass" 0 st mbp NCZ_GPU_SESSION_DRM=/dev/dri/card2 NCZ_GPU_SETTLE_SECS=0
+grep -q 'session render device: /dev/dri/card2 (amdgpu, PCI 0000:03:00.0); session probes run with DRI_PRIME=pci-0000_03_00_0' "$T/health.log" \
+    && { PASS=$((PASS+1)); echo "ok   status: log names the session render device and the pin"; } || { FAILS=$((FAILS+1)); echo "FAIL status: session device not logged"; sed 's/^/     /' "$T/health.log"; }
+grep -q 'AMD Radeon (pin=pci-0000_03_00_0)' "$T/health.log" && grep -q 'deviceName = AMD (pin=pci-0000_03_00_0)' "$T/health.log" \
+    && { PASS=$((PASS+1)); echo "ok   status: EGL and Vulkan session probes ran with DRI_PRIME=pci-0000_03_00_0"; } || { FAILS=$((FAILS+1)); echo "FAIL status: session probes not pinned"; }
+grep -q 'Intel UHD 630 (pin=none)' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: the bare probe is never pinned"; } || { FAILS=$((FAILS+1)); echo "FAIL status: bare probe was pinned"; }
+rm -f "$T/health.log"
+EGL_S='echo "GBM platform:"; echo "OpenGL core profile renderer: llvmpipe (LLVM 21.1.8, 256 bits) pin=$DRI_PRIME"' EGL_B="$PIN_B" \
+    expect "status: llvmpipe on the PINNED session device still FAILS (policy kept)" 1 st mbp NCZ_GPU_SESSION_DRM=/dev/dri/card2 NCZ_GPU_SETTLE_SECS=0
+mkdir -p "$T/mbp/sys/devices/platform/simple-framebuffer.0" "$T/mbp/sys/class/drm/card0"; ln -sfn "$T/mbp/sys/devices/platform/simple-framebuffer.0" "$T/mbp/sys/class/drm/card0/device"
+rm -f "$T/health.log"
+EGL_S="$PIN_B" EGL_B="$PIN_B" expect "status: a non-PCI session device (simpledrm/Sky1) is not pinned" 0 st mbp NCZ_GPU_SESSION_DRM=/dev/dri/card0 NCZ_GPU_SETTLE_SECS=0
+grep -q 'session render device: /dev/dri/card0 (no driver, not a PCI GPU); session probes use the default device' "$T/health.log" && ! grep -q 'pin=pci-' "$T/health.log" \
+    && { PASS=$((PASS+1)); echo "ok   status: non-PCI session device logged, probes unpinned"; } || { FAILS=$((FAILS+1)); echo "FAIL status: non-PCI device handling"; sed 's/^/     /' "$T/health.log"; }
+rm -f "$T/health.log"
+EGL_S="$PIN_B" EGL_B="$PIN_B" expect "status: no session device found is logged, probes unpinned" 0 st mbp NCZ_GPU_SETTLE_SECS=0
+grep -q 'session render device: none found' "$T/health.log" && { PASS=$((PASS+1)); echo "ok   status: missing session device is logged"; } || { FAILS=$((FAILS+1)); echo "FAIL status: missing session device not logged"; }
+# settle: an AMD GPU whose driver module exists but whose render node is not there yet is waited for (bounded)
+mkroot late; render_node late renderD128 i915; mkpci late 0000:03:00.0 amdgpu card2
+for m in amdgpu ast; do printf '#!/bin/sh\necho %s\n' "$m" > "$T/modres-$m"; chmod +x "$T/modres-$m"; done   # stands in for modprobe -R
+rm -f "$T/health.log"
+EGL_S="$PIN_B" EGL_B="$PIN_B" expect "status: late GPU, bounded wait, then the check still runs" 0 st late NCZ_GPU_SETTLE_SECS=2 "NCZ_GPU_MODALIAS_CMD=$T/modres-amdgpu"
+grep -q 'GPU settle: still no render node after 2s for: 0000:03:00.0(amdgpu)' "$T/health.log" \
+    && { PASS=$((PASS+1)); echo "ok   status: the settle timeout is logged with the missing GPU"; } || { FAILS=$((FAILS+1)); echo "FAIL status: settle timeout not logged"; sed 's/^/     /' "$T/health.log"; }
+rm -f "$T/health.log"
+EGL_S="$PIN_B" EGL_B="$PIN_B" expect "status: a display-only driver (ast) is not waited for" 0 st late NCZ_GPU_SETTLE_SECS=30 "NCZ_GPU_MODALIAS_CMD=$T/modres-ast"
+grep -q 'GPU settle' "$T/health.log" && { FAILS=$((FAILS+1)); echo "FAIL status: waited for a display-only driver"; } || { PASS=$((PASS+1)); echo "ok   status: no settle wait for display-only/virtual drivers"; }
+rm -f "$T/health.log"
+EGL_S="$PIN_B" EGL_B="$PIN_B" expect "status: a GPU with no driver module is not waited for" 0 st late NCZ_GPU_SETTLE_SECS=30 "NCZ_GPU_MODALIAS_CMD=true"
+grep -q 'GPU settle' "$T/health.log" && { FAILS=$((FAILS+1)); echo "FAIL status: waited for a GPU without a driver"; } || { PASS=$((PASS+1)); echo "ok   status: no settle wait without a driver module"; }
+mkdir -p "$T/late/sys/devices/pci0000:00/0000:03:00.0/drm/renderD129"
+rm -f "$T/health.log"
+EGL_S="$PIN_B" EGL_B="$PIN_B" expect "status: all render nodes present, no wait" 0 st late NCZ_GPU_SETTLE_SECS=30 "NCZ_GPU_MODALIAS_CMD=$T/modres-amdgpu"
+grep -q 'GPU settle' "$T/health.log" && { FAILS=$((FAILS+1)); echo "FAIL status: waited although every render node exists"; } || { PASS=$((PASS+1)); echo "ok   status: no settle wait once every GPU has its render node"; }
 
 # ---- switcher: EGL vendor link only while Mali is selected
 sw_src() { sed -n '/^EGL_SRC=/,/^egl_vendor_off/p' "$ROOT/assets/gpu/ncz-gpu-switcher.sh"; }

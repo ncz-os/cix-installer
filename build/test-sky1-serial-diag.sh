@@ -83,7 +83,8 @@ for name in ("install", "expert"):
 check("console=ttyAMA0,115200" in arm["rescue"].split(), "arm64 rescue lost console=ttyAMA0,115200")
 # Rendered refind.conf: all three arm64 menu entries carry the token.
 conf = m.REFIND_CONF_TEXT_ARM64_TEMPLATE.format(
-    info_line="x", install_options=m.ARM64_INSTALL_OPTIONS,
+    info_line="x", theme_include=m.theme_include_block(False),
+    install_options=m.ARM64_INSTALL_OPTIONS,
     expert_options=m.ARM64_EXPERT_OPTIONS, rescue_options=m.ARM64_RESCUE_OPTIONS)
 opts_lines = [l for l in conf.splitlines() if l.strip().startswith("options ")]
 check(len(opts_lines) == 3, f"arm64 refind.conf has {len(opts_lines)} options lines, want 3")
@@ -96,20 +97,18 @@ check(all(all(t in l.split() or t + '"' in l.split() for t in TOKENS) for l in o
 #     on Install/Expert only -- Rescue deliberately keeps full modeset for
 #     diagnosis. The old baseline pinned the shared strings and stripped only
 #     nouveau.runpm=0, so it had been RED since 5a21d5cb added nomodeset.
-#   * ncz_no_brltty=1  (2026-10-12 installer fix) on Install/Expert only:
-#     a USB-UART must never raise the brltty-udeb braille question on the
-#     unattended path (the token satisfies brltty-udeb's
-#     `grep -q brltty /proc/cmdline` autodetect guard).
+#   * no token containing "brltty" on any entry: brltty-udeb's S37brltty
+#     startup hook starts brltty when the substring is on the cmdline (the
+#     ncz_no_brltty=1 regression, 2026-10-14); the installer carries no brltty.
 # Any drift on any of the three, or any Sky1 token, is still a failure.
 AMD64 = {
     "install": "auto=true priority=critical "
                "ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 locale=en_US.UTF-8 "
                "keyboard-configuration/layoutcode=us DEBIAN_FRONTEND=newt "
-               "ncz_no_brltty=1 "
                "quiet loglevel=3 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
                "nouveau.runpm=0 nomodeset",
     "expert": "priority=low ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "
-              "DEBIAN_FRONTEND=newt ncz_no_brltty=1 "
+              "DEBIAN_FRONTEND=newt "
               "loglevel=4 vt.global_cursor_default=0 consoleblank=0 console=tty0 "
               "nouveau.runpm=0 nomodeset",
     "rescue": "rescue/enable=true ipv6.disable=1 interface=auto netcfg/dhcp_timeout=120 "

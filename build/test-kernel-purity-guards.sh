@@ -39,11 +39,16 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  PASS  $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL  $1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; }
 
-# Extract the first `case "$KVER_NEXT" in` / `case "$KVER_STABLE" in` block
-# (a whole case...esac) from a refresh script.
+# Extract the first guard `case` block (a whole case...esac) for $var from a
+# refresh script. Accepts the three spellings the shipped scripts use:
+#   case "$VAR" in            -- plain (arm64: ncz-refind-refresh.sh)
+#   case "${VAR}" in           -- brace form
+#   case "${VAR:-}" in         -- set -u safe (amd64: ncz-refind-refresh-amd64.sh)
+# The regex is anchored and variable-bound, so unrelated case blocks in the
+# same script (e.g. case "$ROOT_PARTUUID" in, case "${1:-}" in) do not match.
 extract_guard() {  # script varname
     awk -v v="$2" '
-        $0 ~ ("^case \"\\$" v "\" in") { inblk=1 }
+        $0 ~ ("^case \"(\\$" v "|\\$\\{" v "\\}|\\$\\{" v ":-\\})\" in") { inblk=1 }
         inblk { print }
         inblk && /^esac/ { exit }
     ' "$1"
@@ -69,8 +74,46 @@ run_guard "$ARM64" KVER_NEXT "7.3.0-rc6-sky1-ncz" >/dev/null
 echo "=== amd64 refresh script guard (ncz-refind-refresh-amd64.sh) ==="
 snippet="$(extract_guard "$AMD64" KVER_STABLE)"
 [ -n "$snippet" ] && ok "KVER_STABLE guard block present" || bad "no KVER_STABLE guard block found"
-[ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc7-t2-ncz)" = 0 ] && ok "accepts the NCZ 7.3.0-rc7 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.3.0-rc7 T2 KVER"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.3.0-rc7-t2-ncz)" != 0 ] && ok "rejects the retired NCZ 7.3.0-rc7 T2 KVER (line moved to 7.4)" || bad "accepted the retired NCZ 7.3.0-rc7 T2 KVER"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.3.4-t2-ncz)" != 0 ] && ok "rejects the retired NCZ 7.3.4 T2 KVER (the whole 7.3 series is retired)" || bad "accepted the retired NCZ 7.3.4 T2 KVER"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.3-rc5)" != 0 ] && ok "rejects a retired 7.3-rc KVER shape" || bad "accepted a retired 7.3-rc KVER shape"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.4.0-rc2-t2-ncz)" = 0 ] && ok "accepts the NCZ 7.4.0-rc2 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.4.0-rc2 T2 KVER"
+[ "$(run_guard "$AMD64" KVER_STABLE 7.4.0-rc3-t2-ncz)" = 0 ] && ok "accepts the NCZ 7.4.0-rc3 T2 KVER (rc default allowed)" || bad "rejected the NCZ 7.4.0-rc3 T2 KVER"
 [ "$(run_guard "$AMD64" KVER_STABLE 7.1.10-1-amd64)" != 0 ] && ok "rejects Debian 7.1.10-1-amd64" || bad "accepted Debian 7.1.10-1-amd64"
+
+echo "=== extractor recognizes all three guard-block shapes ==="
+# Feed a synthetic script containing an unrelated case block plus one guard
+# block in each spelling; the extractor must return exactly the KVER_STABLE
+# block (case...esac) and must not capture the OTHER_VAR block.
+syn_dir="$(mktemp -d)"
+cleanup_syn() { rm -rf "$syn_dir"; }
+trap cleanup_syn EXIT
+write_synthetic() {  # shape -> writes guard-test.sh with $shape guard block
+    local shape="$1" f="$syn_dir/guard-test.sh"
+    cat > "$f" <<'SYN'
+case "$OTHER_VAR" in
+    *
+        exit 1
+        ;;
+esac
+
+SYN
+    printf 'case "%s" in\n    bad*\n        exit 1\n        ;;\nesac\n' "$shape" >> "$f"
+}
+for shape in '$KVER_STABLE' '${KVER_STABLE}' '${KVER_STABLE:-}'; do
+    write_synthetic "$shape"
+    got="$(extract_guard "$syn_dir/guard-test.sh" KVER_STABLE)"
+    first="$(printf '%s\n' "$got" | head -1)"
+    last="$(printf '%s\n' "$got" | tail -1)"
+    if [ "$first" = "case \"$shape\" in" ] && [ "$last" = "esac" ] \
+        && ! printf '%s\n' "$got" | grep -q "OTHER_VAR"; then
+        ok "extractor matches the $shape shape and stops at esac"
+    else
+        bad "extractor failed on shape: $shape" "got: $(printf '%s' "$got" | head -3)"
+    fi
+done
+rm -rf "$syn_dir"
+trap - EXIT
 
 echo "=== raw GPT image build: amd64 installer boots our kernel, not Debian's ==="
 # The kernel/initrd step must have an explicit arm64 branch and an else
@@ -130,9 +173,20 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 p = d["source"]["t2_cyclops_patch"]
 assert p.endswith("2010-vga-switcheroo-keep-boot-gpu-guard-on-non-t2-apple.patch"), p
-assert d["identity"]["vmlinuz_sha256"], "no vmlinuz_sha256 pin"
+# A pin whose build is not staged yet (the 2026-11-16 7.4.0-rc3-2 rebuild)
+# carries no vmlinuz sha256 on purpose: the manifest must SAY why
+# (notes_missing_hashes), and build-installer-image.sh then refuses to build
+# because it reads identity.vmlinuz_sha256 unconditionally and fails closed on
+# the empty value. A pin that silently drops the hash without that note is
+# still a failure.
+v = d["identity"].get("vmlinuz_sha256")
+if not v:
+    assert d.get("notes_missing_hashes"), "no vmlinuz_sha256 pin and no notes_missing_hashes"
+    assert "vmlinuz_sha256" in d["notes_missing_hashes"], "notes_missing_hashes does not name vmlinuz_sha256"
+else:
+    assert len(v) == 64, v
 PY
-then ok "manifest pins the 2010 boot-GPU patch and a vmlinuz sha256"; else bad "manifest does not pin the 2010 boot-GPU patch"; fi
+then ok "manifest pins the 2010 boot-GPU patch and a vmlinuz sha256 (or records why it is not staged yet)"; else bad "manifest does not pin the 2010 boot-GPU patch, or drops the vmlinuz sha256 without a note"; fi
 if grep -q 'vmlinuz_sha256' "$IMGBUILD" && grep -q 't2_cyclops_patch' "$IMGBUILD" \
    && grep -q 'installer kernel' "$IMGBUILD"; then
     ok "build-installer-image.sh asserts the installer kernel == the pinned r2 vmlinuz (2010)"

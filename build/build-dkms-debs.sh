@@ -39,7 +39,7 @@ umask 022   # reproducible file modes (the version gate compares content)
 . "$ROOT/release.conf"
 OUT="$ROOT/build/dkms-debs"
 DRIVERS=("$@")
-[ ${#DRIVERS[@]} -eq 0 ] && DRIVERS=(mali panthor vpu npu)
+[ ${#DRIVERS[@]} -eq 0 ] && DRIVERS=(mali vpu npu)
 
 conf_get() {  # conf_get <file> <key>
     sed -n "s/^$2=\"\{0,1\}\([^\"]*\)\"\{0,1\}[[:space:]]*$/\1/p" "$1" | head -1
@@ -56,6 +56,8 @@ built=0
 case "${NCZ_DKMS_DEB_EPOCH:-}" in
     '') case "$NCZ_DKMS_DEB_REV" in
             3) DKMS_DEB_EPOCH=1791921600 ;;   # 2026-10-13T20:00:00Z, when +ncz3 was cut
+            4) DKMS_DEB_EPOCH=1794530400 ;;   # 2026-11-13T00:40:00Z, fixed epoch for +ncz4
+            5) DKMS_DEB_EPOCH=1794598200 ;;   # 2026-11-13T19:30:00Z, fixed epoch for +ncz5
             *) DKMS_DEB_EPOCH="" ;;
         esac ;;
     *[!0-9]*) echo "ERROR: NCZ_DKMS_DEB_EPOCH must be an integer" >&2; exit 1 ;;
@@ -82,29 +84,20 @@ for drv in "${DRIVERS[@]}"; do
     SRCDIR="$WORK/usr/src/${NAME}-${VER}"
     install -d "$WORK/DEBIAN" "$SRCDIR" "$WORK/usr/share/doc/${NAME}"
 
-    # Mirror the hook's staging rule for this driver.
-    case "$drv" in
-        panthor)
-            cp -a "$ASSET"/. "$SRCDIR"/
-            rm -f  "$SRCDIR"/*.o "$SRCDIR"/*.ko "$SRCDIR"/*.mod* \
-                   "$SRCDIR"/Module.symvers "$SRCDIR"/modules.order 2>/dev/null || true
-            rm -rf "$SRCDIR"/patches 2>/dev/null || true
-            # The <kver>/panthor.ko dirs are prebuilt overlays, not DKMS
-            # source; DKMS never reads them and they only made the package
-            # look like it carried a module for kernels it did not.
-            find "$SRCDIR" -mindepth 1 -maxdepth 1 -type d \
-                -name "[0-9]*.[0-9]*-*" -exec rm -rf {} +
-            ;;
-        *)
-            if [ -d "$ASSET/src" ] && [ -n "$(ls -A "$ASSET/src" 2>/dev/null)" ]; then
-                cp -a "$ASSET/src"/. "$SRCDIR"/
-            else
-                echo "SKIP $drv: $ASSET/src is empty and no special rule applies" >&2
-                rm -rf "$WORK"; continue
-            fi
-            cp -a "$CONF" "$SRCDIR/dkms.conf"
-            ;;
-    esac
+    # Mirror the hook's staging rule for this driver. (The panthor-cix
+    # special case is GONE: Panthor is not shipped, order 01:35Z 2026-11-15.
+    # Sources may stay in the repo tree but are never packaged.)
+    if [ "$drv" = panthor ]; then
+        echo "SKIP panthor: Panthor is not shipped (Mali is the only GPU driver)" >&2
+        rm -rf "$WORK"; continue
+    fi
+    if [ -d "$ASSET/src" ] && [ -n "$(ls -A "$ASSET/src" 2>/dev/null)" ]; then
+        cp -a "$ASSET/src"/. "$SRCDIR"/
+    else
+        echo "SKIP $drv: $ASSET/src is empty and no special rule applies" >&2
+        rm -rf "$WORK"; continue
+    fi
+    cp -a "$CONF" "$SRCDIR/dkms.conf"
 
     # A DKMS package with no buildable source is worse than no package: it
     # installs clean and then fails at module build time on the target.

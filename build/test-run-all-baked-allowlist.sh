@@ -47,6 +47,10 @@ mkfix() {
     sed "s#\[ -f /etc/ncz-baked \]#[ -f $d/ncz-baked ]#" "$RUNALL" > "$d/hooks/run-all.sh"
     grep -qF "[ -f $d/ncz-baked ]" "$d/hooks/run-all.sh" || { echo "FAIL $RUNALL has no /etc/ncz-baked check to redirect"; exit 1; }
     : > "$d/ncz-baked"
+    # Hermetic component state: all toggles ON, so no component-skip filter can
+    # drop a hook the fixture expects to run (the host's COMPONENTS record must
+    # not leak in -- see run-all.sh NCZ_COMP_FILE).
+    echo "desktop,browsers,mgmt-container,rescue-partition,wallpaper-rotator" > "$d/COMPONENTS"
     cp "$list" "$d/hooks/$(basename "$list")"
     for h in $(grep -vE '^[[:space:]]*(#|$)' "$list" | awk '{print $1}') ${3:-}; do
         printf '#!/bin/bash\necho "stub %s ran"\n' "$h" > "$d/hooks/$h"
@@ -57,6 +61,7 @@ mkfix() {
 runfix() {
     env NCZ_HOOK_DIR="$1/hooks" NCZ_LOGDIR="$1/log" NCZ_TTY=/dev/null NCZ_APT_SHIM_DIR="$1/shim" \
         NCZ_DISABLE_APT_SHIM=1 NCZ_TARGET_ARCH="$2" NCZ_OPT_HOOK_TIMEOUT=60 \
+        NCZ_COMP_FILE="$1/COMPONENTS" \
         timeout -k 5 300 bash "$1/hooks/run-all.sh" 2>&1
 }
 

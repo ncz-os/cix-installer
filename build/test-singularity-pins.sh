@@ -140,11 +140,42 @@ out="$(pins check-patches 2>&1)"; rc=$?
 [ "$rc" = 2 ] && grep -q 'WARN: cannot verify' <<<"$out" && ok "offline and uncached -> rc=2 (WARN, not a false OK)" || nok "uncached offline not reported (rc=$rc): $out"
 mv "$T/up.away" "$U"
 
+echo "== clone from the pin cache (URL unreachable: the ssh-less container) =="
+# Regression 2026-11-13: the fork-sync pin edit points the '.' row at the
+# fork's ssh:// URL, and build-singularity clones it INSIDE the build
+# container, which carries no ssh credentials. fetch-cache runs on the host;
+# a clone must then serve the pinned bytes from the local mirror even with
+# the upstream URL unreachable.
+writepins "$LIB1"
+W="$T/work"; mkdir -p "$W"
+q pins fetch-cache || nok "fetch-cache failed (needed for the cache-clone probe)"
+mv "$U" "$T/up.away"
+rm -rf "$W"; mkdir -p "$W"
+( cd "$W" && pins clone vetro v >/dev/null 2>&1 ) \
+    && ok "clone succeeds from the pin cache with the URL unreachable" \
+    || nok "clone does not fall back to the pin cache (ssh-less container breaks)"
+[ "$(git -C "$W/v" rev-parse HEAD 2>/dev/null)" = "$VE1" ] \
+    && ok "cache-served clone is checked out at the pinned commit" || nok "cache-served clone is not at the pin"
+mv "$T/up.away" "$U"
+
 echo "== checkout-tree / clone =="
 writepins "$LIB1"
 W="$T/work"; mkdir -p "$W"
 ( cd "$W" && pins clone . sd >/dev/null 2>&1 && pins checkout-tree sd >/dev/null 2>&1 ) && ok "superproject cloned and tree checked out at pins" || nok "pinned checkout failed"
 [ "$(git -C "$W/sd/subprojects/lib" rev-parse HEAD 2>/dev/null)" = "$LIB1" ] && ok "submodule at its pin, not its branch head" || nok "submodule not at pin"
+
+# Regression 2026-11-13 14:20Z (Track A run 6): a wedged submodule checkout
+# (a .git gitfile whose gitdir died with the re-cloned superproject) passes
+# the -e .git test but cannot resolve HEAD -> "fatal: cannot change to ..." ->
+# "is not at its pin after checkout". checkout-tree must self-heal: clear the
+# wedge and materialise the submodule at the pin again.
+rm -rf "$W/sd/subprojects/lib/.git"
+printf 'gitdir: %s\n' "$T/nowhere-gone" > "$W/sd/subprojects/lib/.git"
+out="$(cd "$W" && pins checkout-tree sd 2>&1)"; rc=$?
+[ "$rc" = 0 ] && ok "wedged submodule checkout (dead gitdir gitfile) is self-healed" \
+    || nok "wedged submodule checkout hard-dies (the 14:20Z Track A failure): $out"
+[ "$(git -C "$W/sd/subprojects/lib" rev-parse HEAD 2>/dev/null)" = "$LIB1" ] \
+    && ok "self-healed submodule is back at its pin" || nok "self-healed submodule is not at the pin"
 out="$(pins provenance "$W/sd" 2>&1)"
 grep -qx "subprojects/lib $LIB1" <<<"$out" && ok "provenance records the pinned commit" || nok "provenance wrong: $out"
 ( cd "$W" && pins clone singularity-boot-splash bs >/dev/null 2>&1 ) && [ -f "$W/bs/subprojects/singularity-loginui/file.txt" ] \
@@ -169,6 +200,25 @@ rm -rf "$W"; mkdir -p "$W"
 out="$(cd "$W" && pins clone . sd >/dev/null 2>&1 && pins checkout-tree sd 2>&1)"; rc=$?
 [ "$rc" != 0 ] && grep -q 'gitlink' <<<"$out" && ok "branchless pin disagreeing with the superproject gitlink -> refused" || nok "gitlink mismatch not refused (rc=$rc): $out"
 
+echo "== duplicate-basename pin rows (Singularity HEAD lists vetro twice) =="
+# Regression 2026-11-13 (INBOX lane A 05:5xZ): the refreshed pin file froze
+# TWO rows with the same url+sha under different paths (subprojects/vetro and
+# vetro); both clone to the same basename dest and the second cmd_clone died
+# on "clone destination already exists", failing the payload build. An
+# already-present dest at the same url-normalised origin and pinned commit is
+# reusable; anything else must still die.
+writepins "$LIB1" "$(printf 'subprojects/vetro\tfile://%s/\tmain\t%s' "$U/vetro" "$VE1")"
+rm -rf "$W"; mkdir -p "$W"
+( cd "$W" && pins clone vetro v >/dev/null 2>&1 && pins clone subprojects/vetro v >/dev/null 2>&1 ) \
+    && ok "duplicate basename at the same url+sha -> second clone reuses the dest" \
+    || nok "duplicate-basename pin rows are not idempotent (2026-11-13 payload build failure)"
+[ "$(git -C "$W/v" rev-parse HEAD 2>/dev/null)" = "$VE1" ] \
+    && ok "reused dest is checked out at the pinned commit" || nok "reused dest is not at the pin"
+out="$(cd "$W" && pins clone singularity-boot-splash v 2>&1)"; rc=$?
+[ "$rc" != 0 ] && grep -q 'clone destination' <<<"$out" \
+    && ok "different repository at the same dest -> still refused" || nok "different repo at an occupied dest not refused (rc=$rc): $out"
+writepins "$LIB1"
+
 echo "== validate =="
 writepins "$LIB1"
 mkdir -p "$P/orphan" && echo x > "$P/orphan/0001-x.patch"
@@ -184,6 +234,100 @@ out="$(pins validate 2>&1)"; rc=$?
 printf 'subprojects/x\tfile:///x\tmain\tabc123\n' >> "$T/pins.tsv"
 out="$(pins validate 2>&1)"; rc=$?
 [ "$rc" != 0 ] && grep -q 'not a full 40-hex commit' <<<"$out" && ok "abbreviated sha -> refused" || nok "abbreviated sha accepted (rc=$rc)"
+
+echo "== pin cache: fix-forward for the zoder review of 2726efcb =="
+# Finding 1: ensure_commit's fallback fetch walked only heads+tags and omitted
+# the target sha, so a pinned commit advertised only via a forge pseudo-ref
+# (GitHub refs/pull/*, GitLab refs/merge-requests/*) could not land on a
+# transport that refuses want-by-sha. The gap is NOT behaviourally reachable
+# on git >= 2.5x defaults (verified 2026-11-13: local paths, file:// and a
+# git daemon all accept want-by-sha), so the fallback SHAPE is asserted
+# white-box here and the behavioural case below guards the end-to-end
+# property (a refs/pull-only pin must land) against older/restricted servers.
+grep -q "fetch -q \"\$m\" '+refs/heads/\*:refs/ncz-pin/\*' '+refs/pull/\*:refs/ncz-pin/pull/\*' --tags \"\$sha\"" "$PINS_SH" \
+    && ok "cache fallback walks forge pseudo-refs and retries the target sha (review finding 1)" \
+    || nok "cache fallback omits pseudo-refs or the target sha (review finding 1)"
+grep -q "fetch -q --tags \"\$url\" '+refs/heads/\*:refs/ncz-pin/\*' '+refs/pull/\*:refs/ncz-pin/pull/\*' \"\$sha\"" "$PINS_SH" \
+    && ok "network fallback walks forge pseudo-refs and retries the target sha (review finding 1)" \
+    || nok "network fallback omits pseudo-refs or the target sha (review finding 1)"
+git init -q "$T/pr" && echo pr > "$T/pr/f" && git -C "$T/pr" add -A && git -C "$T/pr" commit -qm pr
+PR1="$(git -C "$T/pr" rev-parse HEAD)"
+git -C "$T/pr" update-ref refs/pull/1/head "$PR1"
+git -C "$T/pr" checkout -q --detach "$PR1"
+git -C "$T/pr" update-ref -d refs/heads/main
+printf 'subprojects/pr\tfile://%s\t-\t%s\n' "$T/pr" "$PR1" > "$T/pr-pins.tsv"
+rm -rf "$W"; mkdir -p "$W"
+out="$(cd "$W" && NCZ_SINGULARITY_PINS="$T/pr-pins.tsv" bash "$PINS_SH" clone subprojects/pr pr 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(git -C "$W/pr" rev-parse HEAD 2>/dev/null)" = "$PR1" ] \
+    && ok "pinned commit advertised only via refs/pull lands through the fallback" \
+    || nok "refs/pull-only pinned commit not fetched (review finding 1, rc=$rc): $out"
+# ...and an unreachable URL must still fail closed when nothing can serve it.
+printf 'subprojects/pr\tfile://%s/absent\t-\t%s\n' "$T" "$PR1" > "$T/pr-gone.tsv"
+rm -rf "$W"; mkdir -p "$W"
+out="$(cd "$W" && NCZ_SINGULARITY_PINS="$T/pr-gone.tsv" bash "$PINS_SH" clone subprojects/pr pr 2>&1)"; rc=$?
+[ "$rc" != 0 ] && grep -q 'pinned upstream commit' <<<"$out" \
+    && ok "unservable pin still fails closed" || nok "unservable pin not refused (rc=$rc): $out"
+
+# Finding 3: the container needs the host cache location passed explicitly,
+# not derived from the tree layout (build/.singularity-pin-cache assumed).
+out="$(pins cache-path)"
+[ "$out" = "$T/cache" ] && ok "cache-path prints the configured pin cache ($out)" || nok "cache-path wrong: $out"
+
+# 07:0xZ preflight: fail LOUD naming the URL when the container could not
+# reach it; rows the pin cache can serve need no network at all.
+writepins "$LIB1"
+q pins fetch-cache || nok "fetch-cache failed (needed for the reachability probe)"
+mv "$U" "$T/up.away"
+out="$(pins reachable 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q 'pin cache' <<<"$out" \
+    && ok "reachable: cache-served rows need no network" || nok "cache-served rows not recognised (rc=$rc): $out"
+out="$(NCZ_SINGULARITY_PIN_CACHE="$T/cold-cache" pins reachable 2>&1)"; rc=$?
+[ "$rc" != 0 ] && grep -q 'container cannot reach' <<<"$out" \
+    && ok "reachable fails loud naming the URL" || nok "dead URL not reported loud (rc=$rc): $out"
+mv "$T/up.away" "$U"
+
+echo "== build-singularity.sh hardening (review findings 2+3 + 07:0xZ preflight) =="
+grep -q 'WARN: pin cache refresh incomplete' "$B" \
+    && nok "build-singularity still downgrades a pin-cache failure to a warning (review finding 2)" \
+    || ok "pin-cache failure is no longer warn-only"
+grep -q 'singularity-pins.sh" fetch-cache || {' "$B" \
+    && ok "build-singularity hard-fails when the pin cache cannot be refreshed" || nok "no hard fail after fetch-cache"
+grep -q 'singularity-pins.sh" reachable' "$B" \
+    && ok "build-singularity runs the container-reachability preflight" || nok "no reachability preflight in build-singularity"
+grep -q 'NCZ_SINGULARITY_PIN_CACHE=/ncz-pin-cache' "$B" \
+    && ok "container pin cache is an explicit mount, not tree-relative" || nok "container cache path still derives from the tree layout (review finding 3)"
+grep -q 'NCZ_SINGULARITY_PIN_CACHE=/ncz-build/.singularity-pin-cache' "$B" \
+    && nok "old tree-relative cache env is still wired" || ok "tree-relative cache env removed"
+echo "== abandoned partial clone + the real two-row vetro shape (lane A #11) =="
+# The delivered pins list vetro TWICE -- subprojects/vetro (.../vetro.git,
+# gitlink row) and vetro (.../vetro, standalone row) -- at one sha. And the
+# 2026-11-13 12:55Z Track A payload build died on "existing vetro is not a
+# usable git checkout": a killed earlier attempt had left a git-init'd dest
+# with no HEAD. Both shapes must clone cleanly; a same-url+sha dest is
+# reused (HEAD == sha, real .git), an abandoned partial is re-cloned.
+printf 'subprojects/vetro\tfile://%s.git\t-\t%s\nvetro\tfile://%s\tmain\t%s\n' \
+    "$U/vetro" "$VE1" "$U/vetro" "$VE1" > "$T/pins.tsv"
+rm -rf "$W"; mkdir -p "$W"
+( cd "$W" && pins clone vetro v >/dev/null 2>&1 && pins clone subprojects/vetro v >/dev/null 2>&1 ) \
+    && ok "real two-row vetro shape (.git vs bare url) -> second clone reuses the dest" \
+    || nok "real two-row vetro shape (.git vs bare url) is not idempotent"
+[ "$(git -C "$W/v" rev-parse HEAD 2>/dev/null)" = "$VE1" ] \
+    && ok "two-row reused dest is checked out at the pinned commit" || nok "two-row reused dest is not at the pin"
+rm -rf "$W"; mkdir -p "$W"
+git init -q "$W/v"
+( cd "$W" && pins clone vetro v >/dev/null 2>&1 ) \
+    && ok "abandoned partial clone (git-init'd, no HEAD) is re-cloned at the pin" \
+    || nok "abandoned partial clone hard-dies (the 12:55Z Track A failure)"
+[ "$(git -C "$W/v" rev-parse HEAD 2>/dev/null)" = "$VE1" ] \
+    && ok "recovered dest is checked out at the pinned commit" || nok "recovered dest is not at the pin"
+printf 'subprojects/vetro\tFILE://%s\t-\t%s\nvetro\tfile://%s\tmain\t%s\n' \
+    "$U/vetro" "$VE1" "$U/vetro" "$VE1" > "$T/pins.tsv"
+rm -rf "$W"; mkdir -p "$W"
+( cd "$W" && pins clone vetro v >/dev/null 2>&1 && pins clone subprojects/vetro v >/dev/null 2>&1 ) \
+    && ok "scheme-case url pair (FILE:// vs file://) -> same repo, dest reused" \
+    || nok "scheme-case url pair treated as different repos"
+[ "$(git -C "$W/v" rev-parse HEAD 2>/dev/null)" = "$VE1" ] \
+    && ok "scheme-case reused dest is checked out at the pinned commit" || nok "scheme-case reused dest is not at the pin"
 
 echo "== $PASS passed, $FAIL failed =="
 [ "$FAIL" = 0 ]

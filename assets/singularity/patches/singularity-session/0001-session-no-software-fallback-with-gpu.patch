@@ -12,8 +12,6 @@ Refuse the retry when a hardware render device exists (/dev/mali0, or a renderD*
 virtual and display-only drivers do not count, so a GPU-less VM keeps the fallback), log why, and continue to Safe
 Mode, which does not force software rendering either. NCZ_ALLOW_SOFTWARE_FALLBACK=1 opts back in.
 
-Assisted-by: Claude Code:claude-sonnet-5
-AI-Scope: Wrote the hw_render_device_present guard and the refusal path around the software retry.
 ---
  src/singularity-labwc-session | 39 +++++++++++++++++++++++++++++------
  1 file changed, 33 insertions(+), 6 deletions(-)

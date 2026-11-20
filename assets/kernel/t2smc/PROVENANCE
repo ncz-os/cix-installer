@@ -1,96 +1,161 @@
-Module: t2smc (Apple T2 SMC: fans, temperatures, power rails, battery charge limit, RTC)
+Module: t2smc (Apple T2 SMC: fans, temperatures, power rails, battery charge limit, RTC, watchdog, /dev/smc)
 Source: https://github.com/kaiT2en/KaiT2en-Fedora
 Module path: modules/t2smc
-Upstream commit: a88f36f452676bdcf840a5d958478e49d221c384
-Upstream commit date: 2026-10-06T00:38:31+02:00
-Upstream subject: Merge pull request #93 from turannul/patch-1
+Upstream commit: 8c7f72585d1aa3df8c115721cbfe3d35673481ff
+Upstream commit date: 2026-11-12T21:11:08+01:00
+Upstream subject: t2-fan-control: kill idle activity in smc mode
+Last upstream commit touching modules/t2smc: eb11bfe (2026-11-08) "t2smc: shorten README and tighten comments"
 SPDX-License-Identifier: GPL-2.0-only
 Copyright: 2026 Andre Eikmeyer <andre.eikmeyer@kait2en.org> (src/t2smc.c)
-Vendored: 2026-10-05
+Vendored: 2026-11-14 (previous vendoring 2026-10-05 from a88f36f452676bdcf840a5d958478e49d221c384)
+Upstream version: T2SMC_VERSION 0.0.4 (was 0.0.2); upstream dkms.conf PACKAGE_VERSION is still 0.1
+(upstream does not bump PACKAGE_VERSION on content change; we diverge deliberately — see the rule below)
+DKMS PACKAGE_VERSION: 0.2 (bumped from 0.1 for the 2026-11-14 re-vendor.  Rule: PACKAGE_VERSION
+  tracks the VENDORED CONTENT, not upstream tags — any change to src/** or patches/*.patch MUST
+  bump PACKAGE_VERSION (monotonic) and record the new content identity in the ledger below.
+  Rationale: without the bump a stale dkms cache re-ships the previous module build — observed on
+  a test machine 2026-11-14 (old bent-patch module reloaded after re-vendor because both trees claimed
+  PACKAGE_VERSION 0.1).  Guard: tests/test_t2_pkgver_guard_20261114.py.)
 
 Vendored layout:
   upstream modules/t2smc/t2smc.c    -> src/t2smc.c
   upstream modules/t2smc/Makefile   -> src/Makefile
   upstream modules/t2smc/README.md  -> README.upstream.md
-  upstream modules/t2smc/dkms.conf  -> dkms.conf  (module root)
-  upstream tools/t2smc-rtc-client.c and other tools/ are NOT vendored.
-  upstream scripts/fedora/install-rtc-sync.sh (chrony integration) is NOT vendored
-  and is NOT installed by post-install/56-t2-dkms.sh; see "Upstream services" below.
+  upstream modules/t2smc/dkms.conf  -> dkms.conf  (module root; locally extended, see below)
+  upstream modules/t2smc/tools/t2smc-rtc-client.c and other tools/ are NOT vendored.
+  upstream scripts/ (chrony RTC integration, t2-fan-control, t2-zone-power, ...) are NOT vendored
+  and are NOT installed by post-install/56-t2-dkms.sh.
 
 Upstream-derived file hashes (sha256) as vendored (pre-local-edit):
-  src/t2smc.c  9342e75f4db5d29a6649b60f37bfdc8f951edede0a66c008c583fa3eba39d3c5  (pristine, matches upstream commit)
-  src/Makefile 82bb2ec00f86022f953980e7f010298e2e5f713b88fcdaefd81dc21ddc67c685  (pristine, matches upstream commit)
-  README.upstream.md 5b33c6316dc0f3a5072545ad91388680b3783aa8a13b6e1d425d67b1d921b6ce  (pristine copy of upstream README.md)
-  dkms.conf    a6aef06ec86e8ab2eeb09976ad455399c86cda4ba3766f3dba1d72ecc7291ff7  (upstream; locally extended, see below)
+  src/t2smc.c  3cbe6a2cb282f6d3a320e763780bc6eb12402da549aaf349a89b2baa3dc4fc91  (pristine, matches upstream commit)
+  src/Makefile 82bb2ec00f86022f953980e7f010298e2e5f713b88fcdaefd81dc21ddc67c685  (pristine, matches upstream commit; unchanged since a88f36f)
+  README.upstream.md 93b906a43a4745676e3c7d04cf6aa3d6eff3c88b05b64fc508554ffb152073f9  (pristine copy of upstream README.md)
+  upstream dkms.conf at that commit a6aef06ec86e8ab2eeb09976ad455399c86cda4ba3766f3dba1d72ecc7291ff7  (unchanged since a88f36f; dkms.conf here = this file + the PATCH[] block, see below)
 Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
-  bc94f5766a371a470112483251af4bb742e350a8618218ae44043979690edbfd
+  fa609165297e7488b91ce343bbb4b19824da365649eee3d9e7e32cb85cdcc384
 
-What changed since the previously vendored commit (6715ce6..a88f36f; RTC rework only,
-all 2026-10-05):
-  a299672  t2smc: read the RTC through the CLKL latch and CLKR rate like AppleSMCRTC
-  ef538f9  t2smc: only write CLKO when the RTC offset changed like AppleSMCRTC
-  0137d29  t2smc: synchronize CLKO with the system clock before sleep and at shutdown
-  3772fcc  rtc-sync: let chrony maintain the SMC RTC with rtcfile and rtcautotrim
-  598fe57  rtc-sync: restore the boot-time hwclock sync, chrony rtcfile needs RTC interrupts
-  Also: T2SMC_VERSION 0.0.1 -> 0.0.2, new CLKL/CLKR keys, new suspend/shutdown PM
-  ops, README and tools/t2smc-rtc-client.c additions. No fan or charge-limit changes.
-  Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/6715ce6...a88f36f
-
-Upstream services (not shipped here):
-  scripts/fedora/install-rtc-sync.sh is a Fedora-only installer that writes a
-  systemd unit running `chronyc waitsync 180 && hwclock --systohc --utc` against
-  the t2smc RTC. It is not part of the DKMS module and is not installed by our
-  image.
+What changed since the previously vendored commit (a88f36f..8c7f725; 14 upstream commits touch
+modules/t2smc, 2026-10-06 .. 2026-11-08; t2smc.c 1737 insertions / 295 deletions, 47532 -> 91839 bytes):
+  b55b562 aef1f9d    copyright/name header (2026-10-06)
+  0a1cbb1            implement latest patches, add shutdown cause / panic logging (2026-10-06)
+  14c4eb7            emulate long watchdog timeouts, log watchdog state and previous x86 state (2026-10-06)
+  9af323e            fix driver not loading when NTOK is not available (2026-10-07)
+  3deea3b            set the charge limit through CHLS like powerd (2026-10-13); BCLM/CHWA path removed
+  513a82d            /dev/smc key ioctls (raw read/write with a write denylist), hand fans back to the
+                     SMC on target 0 (2026-10-19)
+  497badc            report the charge limit the SMC holds, skip unchanged writes (2026-10-26)
+  eb11bfe            shorten README, tighten comments (2026-11-08)
+  Also touching this tree: t2-smc-control / t2-zone-power / t2-fan-control userspace commits (not vendored).
+  Structural changes relevant to the local patches: temperature discovery became a single-pass
+  t2smc_discover_sensors() over four sensor classes (temp/current/voltage/power); the charge limit
+  moved to CHLS-only with a charge_lock mutex; fan target 0 now means "hand the fan back to the SMC".
+  Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/a88f36f...8c7f725
 
 Local modifications:
-  - dkms.conf: adds PATCH[0..4]/PATCH_MATCH[0..4] to apply the local hardening
+  - dkms.conf: adds PATCH[0..2]/PATCH_MATCH[0..2] to apply the local hardening
     patches during the DKMS build (see patches/). DKMS 3.2.2 resolves the
     PATCH[] value below its patches/ directory, so the value is the bare file
-    name (e.g. 0001-t2smc-range-checks.patch).  The C source stays pristine so
-    upstream re-syncs remain byte-diffable.
+    name (e.g. 0001-t2smc-range-checks.patch).  Patch numbers 0002 and 0004 are
+    intentionally absent (dropped, upstream fixed them; see the disposition table).
+    The C source stays pristine so upstream re-syncs remain byte-diffable.
   - patches/0001-t2smc-range-checks.patch: local hardening (fan min/target range
-    checks against the factory F%dMn/F%dMx envelope captured at probe, battery
-    charge-limit value validation, RTC offset range check, modulo-and-sign-extend
-    fold).  Adds t2smc_range.h at the DKMS module root at build time only
-    (56-t2-dkms.sh flattens src/ into /usr/src/t2smc-0.1/, so the patch is
-    written with -p1 paths at the module root).  The rework keeps the pinned
-    modulo behaviour for the RTC offset (no upstream semantics change) but
-    rejects writes outside the signed 48-bit register range; the fan validator
-    captures the factory envelope so the min cannot ratchet upward, validates
-    the 64-bit hwmon long before narrowing it to unsigned int, and does not
-    read F%dTg for a target write (irrelevant there; a stale/zero or
-    unreadable target would otherwise reject an otherwise-valid write).  The
-    envelope capture is non-fatal: if the SMC cannot report the limits the
-    write path falls back to the live F%dMn/F%dMx.
-  - patches/0002-t2smc-temp-discovery-idx.patch: bound temperature-discovery
-    idx by the T..U candidate range, not pass-1's success count.  Pass one
-    allocates only for successful sp78 entries and skips transient lookups,
-    but pass two retries without checking idx; the fix allocates the full
-    candidate range and updates temp_count to the actual populated count.
+    checks against the factory F%dMn/F%dMx envelope captured at probe, RTC offset
+    range check, modulo-and-sign-extend fold).  Adds t2smc_range.h at the DKMS
+    module root at build time only (56-t2-dkms.sh flattens src/ into
+    /usr/src/t2smc-0.2/, so the patch is written with -p1 paths at the module
+    root).  The fan validator captures the factory envelope so the min cannot
+    ratchet upward, validates the 64-bit hwmon long before narrowing it to
+    unsigned int, and does not read F%dTg for a target write.  The envelope
+    capture is non-fatal: if the SMC cannot report the limits the write path
+    falls back to the live F%dMn/F%dMx.  A fan target of 0 is NOT range-checked:
+    it skips the range check and takes upstream's own hand-back path
+    (clear fan_manual, F%dMd = 0), because upstream now defines target 0 as
+    "return the fan to SMC control" (513a82d); no speed is written for it.
+    The charge-limit and temperature-allocation validators that earlier versions
+    of this patch carried were removed with the dropped patches 0004/0002
+    (and from tests/test_t2smc_range.c).
   - patches/0003-t2smc-cache-init.patch: initialise the cache-fill return
     value in t2smc_get_entry_by_index() so the locked goto-out does not
     read an uninitialised int when a second caller observes the cache
     already populated.
-  - patches/0004-t2smc-charge-limit-atomic.patch: validate the charge limit
-    before the first write and reject values the CHWA-only binary flag cannot
-    represent; serialise the full BCLM + CHLS/CHWA transaction under a
-    dedicated charge_lock so another setter cannot interleave between the two
-    writes.  charge_lock is deliberately not the SMC mailbox mutex: each
-    t2smc_write_key() still takes that internally, so holding it across the
-    transaction would self-deadlock.  get_charge_limit() takes the same lock
-    so it cannot observe BCLM mid-transaction.
   - patches/0005-t2smc-telemetry-robust.patch: saturate the float-telemetry
-    shift before it overflows u64, and stop reading from an uninitialised
-    value16/signed16 in t2smc_power_show() (the read-failure path returns
-    ret without exposing val).
+    shift before it exceeds the 64-bit range (t2smc_read_scaled), and stop reading from an
+    uninitialised value16/signed16/val in t2smc_power_show() (every read-failure
+    path now returns before the value is used; upstream's trailing common
+    `if (ret)` check stays for the cases that do not touch val first).
+  - tests/test_t2smc_range.c: userspace tests for t2smc_range.h (see
+    build/test-t2smc-range.sh).
   - PROVENANCE: packaging metadata, not an upstream file.
+
+Per-patch disposition against 8c7f725 (2026-11-14 refresh):
+  0001-t2smc-range-checks         KEPT, REBASED.  6 of 11 hunks did not apply (struct
+                                  t2smc_device, init_keycache, hwmon_write, devm cleanup, ...);
+                                  merged by hand onto the new structure.  Upstream still has
+                                  no fan range validation (hwmon_write only rejects val < 0).
+                                  Single behaviour adaptation: target 0 skips the range check
+                                  (see above), since the old patch's "reject below factory min"
+                                  would have blocked upstream's new hand-back-to-SMC feature.
+                                  Dead helpers t2smc_temp_alloc_count and t2smc_charge_limit_valid
+                                  removed from t2smc_range.h with their patches.
+  0002-t2smc-temp-discovery-idx   DROPPED, upstream contains the fix.  Defect was: pass one
+                                  sized temp_keys by its success count while pass two could
+                                  index past it.  Upstream rewrote discovery as
+                                  t2smc_discover_sensors(): ONE pass, kcalloc(end - begin)
+                                  (the whole candidate range, what the patch added), and
+                                  set->count = n written after the loop (the patch's
+                                  temp_count = idx).  The two-pass code the patch edited no
+                                  longer exists (`grep -n "temp_count"` finds nothing).
+  0003-t2smc-cache-init           KEPT, applies unchanged.  Upstream
+                                  t2smc_get_entry_by_index() still declares `int ret;` and
+                                  reaches `goto out` -> `if (ret)` with it unset when the
+                                  entry became valid while waiting for the mutex.
+  0004-t2smc-charge-limit-atomic  DROPPED, upstream contains the fix by a rewrite (3deea3b +
+                                  497badc).  Patch goals and where upstream meets each:
+                                  (a) validate before the first write: t2smc_set_charge_limit()
+                                  returns -EINVAL for val < 1 || val > 100 before any SMC
+                                  access; (b) reject values CHWA-only hardware cannot
+                                  represent: the CHWA/BCLM write path is gone (the key CHWA does
+                                  not occur in the source); the only write is CHLS;
+                                  (c) serialise the BCLM+CHLS/CHWA transaction under a
+                                  dedicated charge_lock: the transaction no longer exists
+                                  (single CHLS write) and t2smc_set_charge_limit(),
+                                  t2smc_write_chls(), t2smc_read_charge_limit() and the
+                                  suspended-store path all run under charge_lock
+                                  (lockdep_assert_held in the helpers); (d) the getter takes
+                                  the same lock: charge_limit_show() does.  Behavioural
+                                  difference vs the old driver (upstream's choice): limit 0 is
+                                  now rejected, 1..100 accepted.
+  0005-t2smc-telemetry-robust     KEPT, hunk 1 (read_scaled float shift) applies unchanged
+                                  (code identical upstream); hunk 2 (power_show) REBASED by hand:
+                                  upstream added cases, so every original case plus the
+                                  new BATTERY_POWER negation (`val = -val`) and the
+                                  TIME_TO_EMPTY/FULL conversion now return on error before
+                                  touching val/value16.  Residual note: the saturation path
+                                  returns the most negative value for an out-of-range negative
+                                  exponent and upstream's BATTERY_POWER then negates it (the
+                                  kernel build wraps this; only out-of-range input reaches it).
+  Verified: GNU patch 2.8.1 applies 0001, 0003, 0005 (dkms.conf order) to the pristine
+  src/t2smc.c with no offset/fuzz; the result compiles against 7.3.4-t2-ncz (r303 headers)
+  and bash build/test-t2smc-range.sh passes.
+
+Not covered by the local patches (new upstream surface since a88f36f, FYI):
+  /dev/smc (misc device, mode 0600) writes arbitrary SMC keys except a small denylist
+  (CH0*, CHLS, BCLM, CLKL/CLKO, OSWD, NAT*, NTOK/NTAP, F0/F1 Tg+Md, ...); F%dMn/F%dMx
+  and fans beyond 0/1 are not on it, so the range checks do not apply there.  Root only.
+
+Content-Identity Ledger (sha256 over sorted "<relpath> <file-sha256>\n" lines for
+src/** and patches/*.patch, relpaths relative to assets/kernel/t2smc; see
+tests/test_t2_pkgver_guard_20261114.py, which enforces bijection and that the
+current content digest matches the entry for the PACKAGE_VERSION in dkms.conf):
+  PACKAGE_VERSION 0.1  c33c546475061bd76cc1f7bb4b0ebce3efcf3633a90a28142a681904dc1898c8  (pre-2026-11-14, commit 28d1f1ad)
+  PACKAGE_VERSION 0.2  79b9907d627e3d59b86953ff14776255a2a523a56092e00700098d1ae65cd786  (2026-11-14 re-vendor from 8c7f725)
 
 Re-sync:
   git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
-  git -C KaiT2en-Fedora checkout a88f36f452676bdcf840a5d958478e49d221c384
+  git -C KaiT2en-Fedora checkout 8c7f72585d1aa3df8c115721cbfe3d35673481ff
   cp modules/t2smc/t2smc.c    assets/kernel/t2smc/src/t2smc.c
   cp modules/t2smc/Makefile   assets/kernel/t2smc/src/Makefile
   cp modules/t2smc/README.md  assets/kernel/t2smc/README.upstream.md
-  git show a88f36f452676bdcf840a5d958478e49d221c384:modules/t2smc/dkms.conf > assets/kernel/t2smc/dkms.conf
-  # then re-add the PATCH[0]/PATCH_MATCH[0] lines and keep patches/*.patch
+  git show 8c7f72585d1aa3df8c115721cbfe3d35673481ff:modules/t2smc/dkms.conf > assets/kernel/t2smc/dkms.conf
+  # then re-add the PATCH[0..2]/PATCH_MATCH[0..2] block and rebase patches/*.patch
   # verify: build/test-t2-dkms-provenance.sh and build/test-t2smc-range.sh

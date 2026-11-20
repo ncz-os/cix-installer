@@ -398,6 +398,67 @@ Environment=NM_ONLINE_TIMEOUT=15
 NMWAIT
 chmod 0644 /etc/systemd/system/NetworkManager-wait-online.service.d/10-ncz-bounded.conf
 echo "[33-network] NetworkManager-wait-online bounded at NM_ONLINE_TIMEOUT=15"
+
+# (d4) wpa_supplicant boot-ordering fix (2026-11-14, O6N .3 on
+# 7.3.4-sky1-ncz). wpa_supplicant.service starts in the wireless.target
+# transaction, but the wireless stack (cfg80211 -> nl80211) may load only
+# seconds later via systemd-modules-load.service (or later still for a
+# built-in kernel). On the failing boot cfg80211 arrived ~6 s after the
+# unit started, so wpa_supplicant died immediately with
+# "nl80211 generic netlink not found"; on 7.3.3 the module loaded first
+# and the unit started clean. The stock unit carries no After=/Wants=
+# on module load, so systemd does not wait.
+#
+# (d5) hardware-less guests must SKIP the unit, never fail it (2026-11-15,
+# kvm-gate first boot, 7.3.4-r2 amd64 desktop): with the (d4) drop-in
+# installed, a KVM guest with no WiFi PHY boots into
+# "wpa_supplicant.service loaded failed failed" (nothing can ever create
+# the nl80211 socket there) and the gate correctly refuses the image.
+# Same class of bug as ncz-gpu-switcher.service at r287: on machines
+# without the hardware the unit must end "inactive (dead)", not "failed".
+# ExecCondition= is the systemd-native form of that fix -- BUT note the
+# semantics (systemd.service(5), verified on systemd 259): ExecCondition=
+# runs BEFORE ExecStartPre=, so the wait for a late-binding WiFi driver
+# must live INSIDE the condition, not in the settle. The condition polls
+# /sys/class/ieee80211 for up to 10 s (bounded; r287-style skip):
+# real hardware (O6N) -- cfg80211/driver bind lands in the window, the
+# condition exits 0 and the unit starts as (d4) intended; guests / non-wifi
+# machines -- exit 1 skips the unit (result success, inactive) and
+# NetworkManager simply has no supplicant to talk to, same as the
+# pre-wpasupplicant images. The ExecStartPre settle stays (non-fatal) for
+# net udev state, and can never fail the unit.
+#
+# Drop-in: After=systemd-modules-load.service (the unit that processes
+# /etc/modules-load.d/*) + Wants= (pull it in even if nothing else does).
+# If cfg80211 is built into the kernel the socket already exists and the
+# ordering is a harmless no-op. Written on the NM fallback path where
+# wpasupplicant is present; harmless on the sinty-nmd path (iwd, not
+# wpa_supplicant, is the WiFi backend there).
+install -d -m0755 /etc/systemd/system/wpa_supplicant.service.d
+cat > /etc/systemd/system/wpa_supplicant.service.d/ncz-ordering.conf <<'WPADROPIN'
+# NCZ-OS: order wpa_supplicant after kernel module load (cfg80211/nl80211)
+# and settle the net udev state, so the nl80211 generic socket exists
+# before the daemon starts. Root cause: O6N .3 (7.3.4-sky1-ncz) started
+# wpa_supplicant ~6 s before cfg80211 loaded and failed with
+# "nl80211 generic netlink not found" (7.3.3 booted fine; see
+# build/test-wpa-cfg80211-order.sh). Second cause (kvm-gate first boot,
+# 2026-11-15): on machines with no WiFi PHY there is no nl80211 socket
+# ever, so the unit must be SKIPPED (inactive) rather than failed.
+# ExecCondition= runs BEFORE ExecStartPre= (systemd.service(5)), so the
+# bounded wait for a late-binding driver lives INSIDE the condition:
+# poll /sys/class/ieee80211 up to ~10 s, skip (exit 1) when there is no
+# WiFi PHY at all (r287 ncz-gpu-switcher precedent).
+[Unit]
+After=systemd-modules-load.service
+Wants=systemd-modules-load.service
+
+[Service]
+ExecStartPre=/bin/sh -c '/usr/bin/udevadm settle --timeout=10 --type=net || true'
+ExecCondition=/bin/sh -c 'for i in $(seq 1 50); do test -d /sys/class/ieee80211 && exit 0; sleep 0.2; done; exit 1'
+WPADROPIN
+chmod 0644 /etc/systemd/system/wpa_supplicant.service.d/ncz-ordering.conf
+echo "[33-network] wpa_supplicant ordered after module load + net udev settle"
+
 # Don't try to start NM in the chroot — the host has no live network
 # stack to manage. First boot will pick it up via the enable.
 

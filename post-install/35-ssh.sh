@@ -59,6 +59,56 @@ cat > /etc/systemd/system/systemd-networkd.service.d/run-in-rescue.conf <<'EOF'
 [Install]
 WantedBy=rescue.target
 EOF
+
+# ---- native Sinty network manager rescue activation ------------------
+# On Sinty SKUs the actual network owner is /usr/bin/sinty-nmd (or a
+# local build under /usr/local/bin/sinty-nmd), shipped as a native unit
+# (e.g. sinty-nm.service) whose [Install] is WantedBy=multi-user.target
+# only. 19-sinty-nm purges/masks NetworkManager and systemd-networkd on
+# those SKUs, so the NM/networkd rescue drop-ins above are inert there:
+# rescue.target would come up with sshd but no network owner, and the
+# box would be unreachable. Detect the native owner and add a rescue
+# drop-in for its unit. Preserve the normal multi-user enablement (do
+# not touch the unit's own [Install]); only add WantedBy=rescue.target.
+#
+# If the native daemon is absent (non-Sinty SKU), skip silently and let
+# the NM/networkd fallback above do its job. Never unmask an inactive
+# fallback manager on a native SKU.
+SINTY_NM_UNIT=""
+if [ -x /usr/bin/sinty-nmd ] || [ -x /usr/local/bin/sinty-nmd ]; then
+    # Canonical unit filename is sinty-nm.service. Probe the standard
+    # unit search paths directly instead of piping list-unit-files
+    # through awk|grep -q, which under `set -o pipefail` can SIGPIPE
+    # the producer and silently mask the real owner.
+    for cand in sinty-nm.service; do
+        for d in /usr/lib/systemd/system /lib/systemd/system /etc/systemd/system; do
+            if [ -f "$d/$cand" ]; then
+                SINTY_NM_UNIT="$cand"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$SINTY_NM_UNIT" ]; then
+        echo "ERROR: native Sinty daemon present but canonical unit sinty-nm.service not found in /usr/lib/systemd/system, /lib/systemd/system, or /etc/systemd/system" >&2
+        exit 1
+    fi
+fi
+
+if [ -n "$SINTY_NM_UNIT" ]; then
+    echo "  native Sinty network manager detected: $SINTY_NM_UNIT"
+    mkdir -p "/etc/systemd/system/${SINTY_NM_UNIT}.d"
+    cat > "/etc/systemd/system/${SINTY_NM_UNIT}.d/run-in-rescue.conf" <<'EOF'
+[Install]
+WantedBy=rescue.target
+EOF
+    # Fail loud: if the native owner cannot be enabled for rescue, the
+    # rescue boot will be unreachable. Do not silently continue.
+    if ! systemctl reenable "$SINTY_NM_UNIT"; then
+        echo "ERROR: failed to reenable $SINTY_NM_UNIT for rescue.target" >&2
+        exit 1
+    fi
+fi
+
 # Re-trigger preset so the drop-in WantedBy gets symlink-installed
 systemctl reenable ssh || true
 systemctl reenable NetworkManager 2>/dev/null || true

@@ -12,6 +12,17 @@ are not maintained.
 
 ---
 
+## 26.10 "Cygnus" Preview 4 (2026-11-19)
+
+Tag `v26.10-preview4`, build `2026.11.19-4b51adc1`. Four Debian Testing
+(Forky) images cover Desktop and Magnetar Server on amd64 and arm64.
+Server downloads a SHA-256-verified system payload over wired Ethernet.
+All four use the Linux 7.4 kernel line. amd64 ships `7.4.0-rc3-t2-ncz`
+(package `7.4.0-rc3-4`) and arm64 ships `7.4.0-rc3-sky1-ncz` (+r303).
+Desktop includes the 2026-11-18 Singularity snapshot with the NCZ-OS patch
+set, NCZ Screensavers 0.8.22 and settings plugin 0.3.27.
+See the [Preview 4 release notes](releases/26.10-cygnus-preview4.md).
+
 ## 26.10 "Cygnus" (images of 2026-10-13)
 
 Images `ncz-os-arm64-20261013-d395bb2d` and `ncz-os-amd64-20261013-d395bb2d`,
@@ -67,7 +78,7 @@ What changed since the r147 baseline:
   documented "`apt upgrade` pulls new kernels, no reinstall" — true of the
   *design*, but not of what actually happened on a running system: the
   installer staged the kernel by raw-copying files (`install -D` + `tar
-  xzf`) straight into `/boot` and `/usr/lib/modules`, completely bypassing
+  xzf`) straight into `/boot` and `/usr/lib/modules`, without registering the files with
   dpkg. `apt-cache policy linux-image-cixmini-lts` showed `Installed:
   (none)` even on a box actively running that exact kernel, so `apt
   upgrade` had nothing it thought needed upgrading — confirmed live on
@@ -91,17 +102,7 @@ What changed since the r147 baseline:
   never run at all (a hook-ordering gap in `run-all.sh`), plus two races
   in a combined multi-kernel/multi-package apt transaction — all fixed and
   re-verified before this release.
-- **r194 — apt repository migrated to Cloudflare R2; NoMachine removed;
-  quieter boot.** A community member on real hardware hit a hard install
-  failure — `apt-get update` returned `403 Forbidden` fetching the kernel
-  package repository (a required step). Root cause: the private Buildkite
-  registry's auth file used a malformed hostname pattern, so the read token
-  never actually attached to requests; making the registry public to work
-  around that instead tripped a resource-limit wall on the plan tier,
-  blocking downloads either way. Fixed by migrating kernel builds + CIX
-  proprietary userspace to a public Cloudflare R2 bucket — no client-side
-  auth, no plan-tier limits, verified end-to-end on a fresh install. Also
-  this release: IPv6 nameserver fallbacks added to the installer's
+- **r194 — package downloads and remote access.** Kernel and CIX packages moved to a public apt repository. Other changes included IPv6 nameserver fallbacks added to the installer's
   install-time DNS config (IPv4-only before); NoMachine removed entirely
   (its first-boot network install was unreliable, confirmed failing on a
   fresh install) with xrdp as the sole graphical remote-access path; and
@@ -158,8 +159,7 @@ What changed since the r147 baseline:
 - **r124 — agents are opt-in; NPU gating hardened.** All agents (including
   `zeroclaw`) now install on demand via `ncz agent install` (desktop icon +
   first-login notice) instead of auto-activating, removing the first-boot
-  crash-loop. NPU SSDT injection gating was tightened so it no longer misfires
-  on unidentified boards.
+  crash-loop. The NPU SSDT override is applied only on identified boards.
 - **r113 — first full release** with the Mesa 26.1.3 GPU compute stack
   (panvk + rusticl), validated NPU embeddings, and the A/B kernel program
   (6.18 LTS default + 7.0.x edge).

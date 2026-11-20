@@ -1,0 +1,7 @@
+# t=50s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - Step 3 of 7: Choose a password ├──┐
+  │ Type a password for the administrator account.                      │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

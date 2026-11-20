@@ -1,77 +1,68 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Sun, 11 Oct 2026 11:47:48 -0400
-Subject: [PATCH] greeter: cancel the failed session before creating a new one
+Date: Wed, 18 Nov 2026 12:00:00 -0500
+Subject: [PATCH] fix: cancel the failed session before creating a new one
 
-After a rejected password the greeter called create_session again while
-greetd still held the previous session under configuration, so greetd
-answered "a session is already being configured" and the prompt looped.
-Cancel the session first and re-create it only once greetd acknowledges
-the cancel; a pending cancel is counted so its success reply is not
-mistaken for a completed login.
-
-Assisted-by: opencode:deepseek-flash
-AI-Scope: generated the cancel_session acknowledgement counter and the cancel-before-recreate retry in greeter_main.c
+greetd keeps a session under configuration after a rejected password, so
+the next create_session failed with "a session is already being configured".
+Cancel it first and restart authentication after the ordered cancel reply.
 ---
- src/greeter_main.c | 27 +++++++++++++++++++++++++--
- 1 file changed, 25 insertions(+), 2 deletions(-)
-
-diff --git a/src/greeter_main.c b/src/greeter_main.c
-index 3e0ff3e..b5a8c26 100644
 --- a/src/greeter_main.c
 +++ b/src/greeter_main.c
-@@ -65,6 +65,11 @@ static bool status_error = false;
+@@ -68,6 +68,8 @@
  static bool awaiting_auth = false;
  static bool auth_prompt_waiting = false;
  static bool auth_restart_pending = false;
-+/* Number of cancel_session requests we have sent that greetd has not yet
-+ * acknowledged. greetd answers a cancel with the same "success" response it
-+ * uses to signal a completed authentication, so without this counter the
-+ * greeter would treat a cancel acknowledgement as a successful login. */
-+static int cancels_in_flight = 0;
++static int requests_in_flight = 0;
++static int replies_until_cancel_ack = 0;
  
  static int greetd_fd = -1;
  static bool preview = false;
-@@ -462,6 +467,7 @@ static void greetd_cancel_session(void) {
+@@ -562,7 +564,7 @@
+     json_generator_set_root(g, json_builder_get_root(b));
+     gsize jlen = 0;
+     char *json = json_generator_to_data(g, &jlen);
+-    greetd_send(json);
++    if (greetd_send(json)) requests_in_flight++;
+     g_free(json);
+     g_object_unref(g);
+     g_object_unref(b);
+@@ -603,6 +605,7 @@
      json_builder_begin_object(b);
      json_builder_set_member_name(b, "type"); json_builder_add_string_value(b, "cancel_session");
      greetd_send_object(b);
-+    cancels_in_flight++;
++    replies_until_cancel_ack = requests_in_flight;
  }
  
- static void begin_authentication(void) {
-@@ -633,7 +639,16 @@ static void greetd_handle(void) {
-                     render_all();
-                 }
-             } else if (g_strcmp0(type, "success") == 0) {
--                if (awaiting_auth) {
-+                if (cancels_in_flight > 0) {
-+                    /* This is greetd acknowledging a cancel_session, not a
-+                     * completed login. Re-create the session now that the old
-+                     * one is torn down, so the prompt stays live. */
-+                    cancels_in_flight--;
-+                    if (auth_restart_pending) {
-+                        auth_restart_pending = false;
-+                        begin_authentication();
-+                    }
-+                } else if (awaiting_auth) {
-                     awaiting_auth = false;
-                     auth_prompt_waiting = false;
-                     remember_login();
-@@ -660,7 +675,15 @@ static void greetd_handle(void) {
-                     snprintf(status_text, sizeof status_text, "%s", desc);
+ static bool sinty_tier_tpm(void) {
+@@ -786,6 +789,16 @@
+     if (!payload) return;
+     if (!read_exact(greetd_fd, payload, len)) { free(payload); running = false; return; }
+     payload[len] = '\0';
++    if (requests_in_flight > 0) requests_in_flight--;
++    if (replies_until_cancel_ack > 0) {
++        if (--replies_until_cancel_ack == 0) {
++            awaiting_auth = false;
++            auth_prompt_waiting = false;
++            if (auth_restart_pending && !recovery_mode) begin_authentication();
++        }
++        free(payload);
++        return;
++    }
+ 
+     JsonParser *p = json_parser_new();
+     if (json_parser_load_from_data(p, payload, len, NULL)) {
+@@ -865,7 +878,10 @@
                      status_error = true;
                  }
+                 bool failed = status_error;
 -                if (was_authenticating && !recovery_mode) begin_authentication();
 +                if (was_authenticating && !recovery_mode) {
-+                    /* greetd keeps the failed session under configuration until
-+                     * it is cancelled. Creating a new one without cancelling
-+                     * fails with "a session is already being configured" and
-+                     * loops forever. Cancel it; the cancel acknowledgement
-+                     * re-creates the session (see the success branch). */
 +                    auth_restart_pending = true;
 +                    greetd_cancel_session();
 +                }
+                 status_error = failed;
                  render_all();
              }
-         }
+-- 
+2.53.0

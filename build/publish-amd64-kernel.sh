@@ -59,8 +59,8 @@ KVER="$(dpkg-deb -f "$IMG" Package 2>/dev/null | sed 's/^linux-image-//')"
 [ -n "$KVER" ] || { echo "ERROR: could not read KVER from $IMG" >&2; exit 1; }
 
 case "$KVER" in
-    7.3.*|7.3-*) ;;
-    *) echo "ERROR: built KVER '$KVER' is not the unified 7.3 series (policy 2026-10-05)" >&2; exit 1 ;;
+    7.3.*|7.3-*|7.4.*|7.4-*) ;;
+    *) echo "ERROR: built KVER '$KVER' is not the unified 7.3/7.4 kernel line (2026-11-09 line switch)" >&2; exit 1 ;;
 esac
 
 # The publication is pinned: publishing something other than the committed

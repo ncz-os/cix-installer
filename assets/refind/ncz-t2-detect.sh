@@ -31,6 +31,11 @@
 # The DMI root is overridable for tests via NCZ_DMI_ROOT, pointing at a fake
 # /sys/class/dmi/id tree (see build/test-amd64-t2-detect.sh).
 #
+# The same file also carries the per-laptop DMI quirk helper used for the
+# `pcie_ports=native` boot option (ncz_dmi_quirk_matches / the table that
+# ncz_dmi_quirk_table prints), below the T2 detector. It uses the identical
+# NCZ_DMI_ROOT override and the identical fail-closed rule.
+#
 # ncz_t2_pci_bridge_present() is a belt-and-braces secondary probe: it scans
 # /sys/bus/pci/devices for the Apple T2 bridge [106b:1801] or the T2 NHI
 # [106b:2005] using pure sysfs reads (no lspci, no pciutils). Linux sysfs
@@ -72,6 +77,62 @@ ncz_is_t2_hardware() {
             return 0 ;;
     esac
     return 1
+}
+
+# ---------------------------------------------------------------------------
+# DMI quirks for individual x86 laptops (2026-11-18). Same source-me/don't-run
+# contract, same NCZ_DMI_ROOT override and the same fail-CLOSED rule as the T2
+# detection above: a missing or unreadable DMI value never selects a quirk.
+#
+# ncz_dmi_quirk_table() prints the quirks as one "<quirk>|<vendor>|<product
+# prefix>" row per line, so adding a laptop later is one row here and nothing
+# else. A row matches when sys_vendor is EXACTLY <vendor> AND product_name
+# BEGINS with <product prefix> -- firmware appends the chassis/part suffix
+# ("ROG Zephyrus M15 GU502LV_GU502LV", "..._GU502LV_..."), so the prefix is the
+# stable part of the identity.
+#
+#   pcie_native -- force the OS to own PCIe native features (AER/DPC). On the
+#   ASUS ROG Zephyrus M15 (GU502LV) the ACPI _OSC reply says "platform does not
+#   support [AER]", so Linux never enables AER; `pcie_ports=native` makes the
+#   OS ignore the firmware's _OSC answer for the native features, AER then
+#   enables on all 15 AER-capable devices with no error flood and the machine
+#   boots normally. Evidence and the boot-menu rule: build/test-amd64-pcie-
+#   native.sh and docs/T2-CONSOLE-NOISE.md.
+# ---------------------------------------------------------------------------
+ncz_dmi_quirk_table() {
+    printf '%s|%s|%s\n' \
+        pcie_native "ASUSTeK COMPUTER INC." "ROG Zephyrus M15 GU502LV"
+}
+
+# ncz_dmi_quirk_matches <quirk> -- 0 when this machine's DMI selects <quirk>.
+# Fail CLOSED: unreadable/missing DMI or an unknown quirk name is a no-match.
+ncz_dmi_quirk_matches() {
+    local want="$1" root="${NCZ_DMI_ROOT:-/sys/class/dmi/id}"
+    local vendor product q qv qp
+    [ -n "$want" ] || return 1
+    vendor="$(ncz_dmi_read "$root" sys_vendor)" || return 1
+    product="$(ncz_dmi_read "$root" product_name)" || return 1
+    while IFS='|' read -r q qv qp; do
+        [ -n "$q" ] || continue
+        [ "$q" = "$want" ] || continue
+        [ "$vendor" = "$qv" ] || continue
+        case "$product" in
+            "$qp"*) return 0 ;;
+        esac
+    done <<EOF
+$(ncz_dmi_quirk_table)
+EOF
+    return 1
+}
+
+# ncz_dmi_quirk_detail -- human-readable one-liner for the quirk log line;
+# diagnostic only, never parsed.
+ncz_dmi_quirk_detail() {
+    local root="${NCZ_DMI_ROOT:-/sys/class/dmi/id}"
+    local vendor product
+    vendor="$(ncz_dmi_read "$root" sys_vendor 2>/dev/null)" || vendor="?"
+    product="$(ncz_dmi_read "$root" product_name 2>/dev/null)" || product="?"
+    printf 'DMI: sys_vendor=%s product_name=%s' "$vendor" "$product"
 }
 
 # ncz_t2_pci_bridge_present -- advisory: 0 if a T2 PCI bridge/NHI is visible.

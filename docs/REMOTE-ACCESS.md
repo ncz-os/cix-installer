@@ -21,6 +21,11 @@ exactly what is enabled, why, and how to disable each part.
 
 ## What is enabled by default
 
+The failsafe console and the `ncz-recovery` container are installed only when
+the **ncz-recovery management container** option is ticked in the installer's
+optional-components screen; the rescue partition only when the **NCZRESCUE
+partition** option is ticked. OpenSSH and telnetd are on every install.
+
 | Service | Port | Auth | Notes |
 |---|---|---|---|
 | **OpenSSH** | 22 | password, or a key **you** install | `PermitRootLogin yes`, `PasswordAuthentication yes`; no vendor key installed |

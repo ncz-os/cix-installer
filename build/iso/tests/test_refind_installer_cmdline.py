@@ -1,19 +1,14 @@
-"""Installer cmdline: every entry carries the build id, unattended entries stop brltty.
+"""Installer cmdline: every entry carries the build id, no entry names brltty.
 
-HP OmniDesk test desktop, 2026-10-12, unattended amd64 install:
-
-  1. A Prolific PL2303 USB-serial adapter (067b:2303) was plugged in. BRLTTY's
-     d-i udev rules start brltty for GENERIC USB-serial ids (FTDI 0403:6001,
-     0403:6010, CP210x 10c4:ea60/ea80, CH341 1a86:55d3/7523; QEMU's emulated
-     usb-serial is 0403:6001) and set /var/run/brltty-generic, so the
-     brltty-udeb postinst asked the CRITICAL question "Is the USB serial
-     device indeed a braille device?" and the install stopped dead.
-     Fix (this test): every unattended Install/Expert entry carries a cmdline
-     token that makes brltty-udeb's /lib/udev/brltty.sh exit before it starts
-     brltty (`grep -q brltty /proc/cmdline && exit 0`). The d-i-level answer
-     lives in preseed/preseed.cfg (`brltty-udeb/generic boolean false`).
-     Rescue is deliberately left alone (it is the interactive path, and the
-     preseed answer covers it anyway).
+  1. No installer entry may carry a cmdline token containing "brltty".
+     brltty-udeb's d-i startup hook S37brltty runs `grep -q brltty
+     /proc/cmdline` and STARTS brltty when it matches. The earlier
+     ncz_no_brltty=1 token (meant for the udev helper, which treats the same
+     substring as "do not start") therefore started brltty on every boot of
+     the Install/Expert entries: 80-column console clamp and no framebuffer
+     frontend, with no braille or USB-serial device attached (MacBookPro16,1,
+     2026-10-14). The installer now carries no brltty at all
+     (patch-initrd-t2-kernel.py); this test keeps the token from coming back.
 
   2. The boot banner showed "==== NCZ-OS INSTALLER unknown ====" because the
      installer cmdline never carried ncz_rev=. Fix: build-refind-esp.py gains
@@ -38,9 +33,6 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 BUILD_ID = "2026.10.12-07c0644"
-# Any cmdline token containing the substring "brltty" satisfies the upstream
-# /lib/udev/brltty.sh guard; we just require that SOME token does.
-BRLTTY_TOKEN = MODULE.NCZ_NO_BRLTTY
 
 
 def _fake_refind(root: Path) -> Path:
@@ -114,36 +106,27 @@ class BuildIdOnEveryEntry(unittest.TestCase):
             self.assertEqual(o.split().count("ncz_rev=2026.10.12-xy"), 1, o)
 
 
-class BrlttyAutodetectDisabled(unittest.TestCase):
-    def _check_arch(self, arch: str):
-        opts = entries(build_conf(arch))
-        for title in ("NCZ-OS Installer -- Install",
-                      "NCZ-OS Installer -- Install (expert)"):
-            self.assertIn(title, opts, opts.keys())
-            tokens = opts[title].split()
-            # Exactly one token, and it satisfies the upstream substring guard.
-            hits = [t for t in tokens if "brltty" in t]
-            self.assertEqual(hits, [BRLTTY_TOKEN], f"{arch} {title}: {tokens}")
-
-    def test_amd64_install_and_expert_disable_brltty(self):
-        self._check_arch("amd64")
-
-    def test_arm64_install_and_expert_disable_brltty(self):
-        self._check_arch("arm64")
-
-    def test_rescue_entry_is_left_alone(self):
-        # Rescue is the interactive/diagnostic path; the preseed answer covers
-        # the generic-US-serial question there. Only Install/Expert carry the
-        # autodetect-disable token.
+class NoBrlttyOnTheCmdline(unittest.TestCase):
+    def test_no_entry_names_brltty(self):
         for arch in ("amd64", "arm64"):
-            o = entries(build_conf(arch))["NCZ-OS Installer -- Rescue mode"]
-            self.assertNotIn("brltty", o, f"{arch} rescue: {o}")
+            opts = entries(build_conf(arch))
+            self.assertGreaterEqual(len(opts), 3, opts)
+            for title, o in opts.items():
+                self.assertNotIn("brltty", o.lower(), f"{arch} {title}: {o}")
 
-    def test_token_matches_the_upstream_udev_guard(self):
-        # /lib/udev/brltty.sh: `grep -q brltty /proc/cmdline && exit 0` -- the
-        # substring must be present for the guard to fire.
-        self.assertIn("brltty", BRLTTY_TOKEN)
-        self.assertNotIn(" ", BRLTTY_TOKEN)
+    def test_no_module_option_string_names_brltty(self):
+        for name in dir(MODULE):
+            if name.endswith("_OPTIONS"):
+                value = getattr(MODULE, name)
+                if isinstance(value, str):
+                    self.assertNotIn("brltty", value.lower(), name)
+
+    def test_builder_refuses_a_brltty_token(self):
+        bad = 'menuentry "x" {\n    options "auto=true ncz_no_brltty=1"\n}\n'
+        with self.assertRaises(ValueError):
+            MODULE.assert_no_brltty_options(bad)
+        # Comments and other lines are not boot options.
+        MODULE.assert_no_brltty_options("# brltty is not shipped\n")
 
 
 if __name__ == "__main__":

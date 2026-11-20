@@ -78,7 +78,7 @@ out=$("$T/ncz" version 2>&1); rc=$?
 
 out=$("$T/ncz" help 2>&1); rc=$?
 [ "$rc" = "0" ] && ok "help exits 0" || bad "help exit=$rc"
-echo "$out" | grep -q "ncz — nclawzero operator CLI" && ok "help prints the brand banner" || bad "help banner missing"
+echo "$out" | grep -q "ncz — NCZ-OS operator CLI" && ok "help prints the brand banner" || bad "help banner missing"
 for sub in "desktop on" "desktop off" "desktop status" "install mnemos" "install nemoclaw" "agent install" "agent ..." "status" "version" "help"; do
     echo "$out" | grep -q "$sub" && ok "help mentions subcommand '$sub'" || bad "help missing subcommand '$sub'"
 done
@@ -91,7 +91,7 @@ echo "$out" | grep -q "systemctl disable" && ok "install help documents the stop
 
 out=$("$T/ncz" 2>&1); rc=$?
 [ "$rc" = "0" ] && ok "bare ncz (no args) exits 0 and shows help" || bad "bare ncz exit=$rc"
-echo "$out" | grep -q "ncz — nclawzero operator CLI" && ok "bare ncz shows help banner" || bad "bare ncz did not show help"
+echo "$out" | grep -q "ncz — NCZ-OS operator CLI" && ok "bare ncz shows help banner" || bad "bare ncz did not show help"
 
 # unknown subcommand should exit non-zero and name the bad arg
 out=$("$T/ncz" totally-not-a-subcommand 2>&1); rc=$?

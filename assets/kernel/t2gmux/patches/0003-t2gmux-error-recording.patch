@@ -1,8 +1,8 @@
 diff --git a/t2gmux.c b/t2gmux.c
-index ddc651e..ff31a8e 100644
+index 58f581d..8d65ab4 100644
 --- a/t2gmux.c
 +++ b/t2gmux.c
-@@ -72,6 +72,15 @@ struct apple_gmux_data {
+@@ -73,6 +73,15 @@ struct apple_gmux_data {
  	acpi_handle dhandle;
  	int gpe;
  	bool gpe_enabled;
@@ -16,9 +16,9 @@ index ddc651e..ff31a8e 100644
 +	 */
 +	int last_mmio_error;
  	/*
- 	 * Serializes complete power transitions including the wait for the gmux
- 	 * power interrupt, like the AGC command gate that sleeps on it.
-@@ -556,18 +565,25 @@ static u32 gmux_mmio_read(struct apple_gmux_data *gmux_data, int port,
+ 	 * Set by suspend/shutdown before gmux_stop_interrupts() so the
+ 	 * interrupt worker can refuse to touch the mailbox once we begin
+@@ -685,18 +694,25 @@ static u32 gmux_mmio_read(struct apple_gmux_data *gmux_data, int port,
  	u32 val = GMUX_MMIO_BUSY_VALUE;
  
  	mutex_lock(&gmux_data->index_lock);
@@ -51,7 +51,7 @@ index ddc651e..ff31a8e 100644
  	mutex_unlock(&gmux_data->index_lock);
  
  	return val;
-@@ -577,18 +593,25 @@ static void gmux_mmio_write(struct apple_gmux_data *gmux_data, int port,
+@@ -706,18 +722,25 @@ static void gmux_mmio_write(struct apple_gmux_data *gmux_data, int port,
  			    u32 val, int size)
  {
  	mutex_lock(&gmux_data->index_lock);
@@ -88,7 +88,7 @@ index ddc651e..ff31a8e 100644
  	mutex_unlock(&gmux_data->index_lock);
  }
  
-@@ -849,6 +872,7 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+@@ -1011,6 +1034,7 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
  
  	mutex_lock(&gmux_data->power_lock);
  	reinit_completion(&gmux_data->powerchange_done);
@@ -96,7 +96,7 @@ index ddc651e..ff31a8e 100644
  
  	if (state == VGA_SWITCHEROO_ON) {
  		if (gmux_data->use_pwrd_power_sequence &&
-@@ -950,6 +974,19 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+@@ -1076,6 +1100,19 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
  	}
  
  	gmux_data->power_state = state;
@@ -116,16 +116,16 @@ index ddc651e..ff31a8e 100644
  	mutex_unlock(&gmux_data->power_lock);
  
  	pr_debug("power: waiting for gmux completion\n");
-@@ -963,7 +1000,7 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
- 	gmux_dump_power(gmux_data, state == VGA_SWITCHEROO_ON ?
- 			"power up: done" : "power down: done", false);
+@@ -1087,7 +1124,7 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+ 	}
+ 	pr_debug("power: gmux switch done\n");
  
 -	return 0;
 +	return ret;
  
  out_unlock:
  	gmux_unlock_dgpu_cfg(&cfg_locks);
-@@ -1475,6 +1512,7 @@ get_version:
+@@ -1652,6 +1689,7 @@ get_version:
  	mutex_init(&gmux_data->transition_lock);
  	mutex_init(&gmux_data->power_lock);
  	INIT_WORK(&gmux_data->interrupt_work, gmux_interrupt_work);
@@ -133,6 +133,3 @@ index ddc651e..ff31a8e 100644
  	gmux_disable_interrupts(gmux_data);
  
  	status = acpi_evaluate_integer(gmux_data->dhandle, "GMGP", NULL, &gpe);
--- 
-2.50.1 (Apple Git-155)
-

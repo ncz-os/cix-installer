@@ -23,23 +23,22 @@
 #     "latest" on GitHub, so /releases/latest is not used), on GitLab
 #     gitlab.com/<p>/-/releases/permalink/latest resolves to TAG.
 #   * assets (release layout, docs/IMAGE-HOSTING.md): the same files in the
-#     same canonical order on both pages: every amd64 file (parts,
-#     PARTS-amd64.sha256, SHA256SUMS-amd64), every arm64 file, then
+#     same canonical order on both pages: every amd64 file, then every arm64 file
+#     (both desktop and server images with their checksum files), then
 #     ncz-join-image.sh, SHA256SUMS, NOTES.md; nothing else. Equal sizes and
 #     sha256: GitHub sizes and digests come from the API (a file without an
 #     API digest is downloaded and hashed); GitLab assets must be links into
 #     the project's generic packages <package>-amd64, -arm64 and -common,
 #     named <arch>/<file> for architecture files (link type package) and
 #     <file> for common files (link type other), with the stable direct path
-#     (/<arch>/ncz-os-<arch>.img.zst.part-NN, /<arch>/<file>, /<file>);
+#     (/<arch>/ncz-os-<arch>-<flavor>.img.zst.part-NN, /<arch>/<file>, /<file>);
 #     sizes and sha256 come from the registry.
 #   * every file but the parts is downloaded anonymously from both pages and
 #     must be byte-equal; SHA256SUMS must be SHA256SUMS-amd64 followed by
-#     SHA256SUMS-arm64; each PARTS-<arch>.sha256 must list exactly the parts
-#     of that architecture on the page, with their sha256.
+#     SHA256SUMS-arm64. Each architecture checksum file combines its flavor
+#     checksums, and each PARTS file lists the parts with their sha256.
 #   * notes: one section heading (## or deeper) per architecture, amd64
-#     first, each containing the sha256 of its images and the
-#     "ncz-join-image.sh <arch>" command.
+#     first, with the image sha256 and join command in each flavor subsection.
 #   * screenshots: both bodies reference the same images; every image is an
 #     absolute raw URL on main of the forge's own repository, answers HTTP 200
 #     and has the sha256 of the same file in --repo-root.
@@ -100,7 +99,6 @@ printf '%s' "$GH_REPO" | grep >/dev/null -E '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' 
 for t in jq curl python3; do command -v "$t" >/dev/null 2>&1 || udie "$t is required"; done
 [ -n "$REPO_ROOT" ] || REPO_ROOT=$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || (cd "$HERE/.." && pwd))
 
-rf_load_token github; rf_load_token gitlab
 W=$(mktemp -d "${TMPDIR:-/tmp}/relparity.XXXXXX"); trap 'rm -rf "$W"' EXIT
 
 DIFFS=0
@@ -108,6 +106,12 @@ ok()   { echo "ok    $*"; }
 diff_() { echo "DIFF  $*"; DIFFS=$((DIFFS+1)); }
 info() { echo "info  $*"; }
 apierr() { echo "ERROR: $*" >&2; exit 3; }
+
+if [ -n "$RDIR" ] && ! rf_layout "$RDIR" > "$W/local-layout.tsv"; then
+  diff_ "the staged folder $RDIR does not match the release layout"
+  exit 1
+fi
+rf_load_token github; rf_load_token gitlab
 
 # ---- release lists: one release page per forge ---------------------------------
 GL_PID=$(rf_project_id "$GL_PROJECT" "$W") || apierr "cannot resolve GitLab project $GL_PROJECT"
@@ -253,20 +257,47 @@ for forge in gh gl; do
   fi
 done
 ARCHES_ON=()
+declare -A IMAGE_PARTS=()
 for a in "${RF_ARCHES[@]}"; do
-  if grep -q "^ncz-os-$a-.*\.img\.zst\.part-" "$W/gh-names"; then
+  for suffix in "" "${RF_FLAVOR_SUFFIXES[@]}"; do
+    key=$a$suffix
+    parts=$(rf_image_parts "$a" "$suffix" < "$W/gh-names" || true)
+    if [ -n "$parts" ]; then
+      IMAGE_PARTS[$key]=$parts
+      for f in "PARTS-$key.sha256" "SHA256SUMS-$key"; do
+        grep -qxF "$f" "$W/gh-names" || diff_ "$f is missing ($key parts are on the page)"
+      done
+      stem=${parts%%$'\n'*}; stem=${stem%.zst.part-*}
+      while IFS= read -r f; do
+        [ "${f%.zst.part-*}" = "$stem" ] || diff_ "$key has parts from more than one image"
+      done <<<"$parts"
+    else
+      [ -z "$suffix" ] || diff_ "missing required image: $key (no parts on the GitHub page)"
+      grep -qxF "PARTS-$key.sha256" "$W/gh-names" && diff_ "PARTS-$key.sha256 is on the page but there are no $key parts"
+      if [ -n "$suffix" ]; then
+        grep -qxF "SHA256SUMS-$key" "$W/gh-names" && diff_ "SHA256SUMS-$key is on the page but there are no $key parts"
+      fi
+    fi
+  done
+  if [ -n "${IMAGE_PARTS[$a-desktop]:-}${IMAGE_PARTS[$a-server]:-}" ]; then
+    [ -z "${IMAGE_PARTS[$a]:-}" ] || diff_ "$a has both legacy and flavored parts"
+  fi
+  if [ -n "${IMAGE_PARTS[$a]:-}${IMAGE_PARTS[$a-desktop]:-}${IMAGE_PARTS[$a-server]:-}" ]; then
     ARCHES_ON+=("$a")
-    for f in "PARTS-$a.sha256" "SHA256SUMS-$a"; do grep -qxF "$f" "$W/gh-names" || diff_ "$f is missing ($a parts are on the page)"; done
+    grep -qxF "SHA256SUMS-$a" "$W/gh-names" || diff_ "SHA256SUMS-$a is missing ($a parts are on the page)"
   else
-    for f in "PARTS-$a.sha256" "SHA256SUMS-$a"; do grep -qxF "$f" "$W/gh-names" && diff_ "$f is on the page but there are no $a parts"; done
+    grep -qxF "SHA256SUMS-$a" "$W/gh-names" && diff_ "SHA256SUMS-$a is on the page but there are no $a parts"
   fi
 done
 [ "${#ARCHES_ON[@]}" -gt 0 ] || diff_ "no image parts on the GitHub page"
 for f in "${RF_COMMON_FILES[@]}"; do grep -qxF "$f" "$W/gh-names" || grep >/dev/null -xF "$f" "$W/gl-names" || diff_ "$f is on neither release page"; done
 while IFS= read -r n; do
-  case "$n" in ncz-os-amd64-*.img.zst.part-*|ncz-os-arm64-*.img.zst.part-*|PARTS-amd64.sha256|PARTS-arm64.sha256|SHA256SUMS-amd64|SHA256SUMS-arm64|ncz-join-image.sh|SHA256SUMS|NOTES.md) ;;
-    *) diff_ "unexpected file on a release page: $n (not part of the release layout)" ;;
-  esac
+  if ! [[ $n =~ ^(ncz-os-(amd64|arm64)-[A-Za-z0-9._+~-]+\.img\.zst\.part-[0-9]+|PARTS-(amd64|arm64)(-desktop|-server)?\.sha256|SHA256SUMS(-(amd64|arm64)(-desktop|-server)?)?|ncz-join-image\.sh|NOTES\.md)$ ]]; then
+    diff_ "unexpected file on a release page: $n (not part of the release layout)"
+  elif [[ $n =~ ^ncz-os-(amd64|arm64)-.*-(desktop|server)\.img\.zst\.part- ]] &&
+       ! rf_image_parts "${BASH_REMATCH[1]}" "-${BASH_REMATCH[2]}" <<<"$n" >/dev/null; then
+    diff_ "invalid flavored part name: $n"
+  fi
 done < <(sort -u "$W/gh-names" "$W/gl-names")
 [ "${#ARCHES_ON[@]}" -eq 0 ] || ok "file set: ${ARCHES_ON[*]} with their PARTS and SHA256SUMS files, plus the common files"
 
@@ -309,15 +340,34 @@ if [ -f "$W/gh-SHA256SUMS" ] && [ "${#ARCHES_ON[@]}" -gt 0 ]; then
   else diff_ "SHA256SUMS is not $(printf 'SHA256SUMS-%s ' "${ARCHES_ON[@]}")in that order"; fi
 fi
 for a in "${ARCHES_ON[@]}"; do
-  pf="$W/gh-PARTS-$a.sha256"; [ -f "$pf" ] || continue
-  listed=$(awk '{ n = $2; sub(/^\*/, "", n); print n }' "$pf")
-  onpage=$(grep "^ncz-os-$a-.*\.img\.zst\.part-" "$W/gh-names")
-  if [ "$listed" != "$onpage" ]; then diff_ "PARTS-$a.sha256 does not list exactly the $a parts on the page, in order"; continue; fi
-  bad=0
-  if [ "$QUICK" -eq 0 ]; then
-    while read -r want n; do n=${n#\*}; [ "${GHS[$n]:-}" = "$want" ] || { diff_ "PARTS-$a.sha256 has $want for $n, the page has ${GHS[$n]:-none}"; bad=1; }; done < "$pf"
+  flavor_sums=()
+  for suffix in "" "${RF_FLAVOR_SUFFIXES[@]}"; do
+    key=$a$suffix
+    onpage=${IMAGE_PARTS[$key]:-}; [ -n "$onpage" ] || continue
+    pf="$W/gh-PARTS-$key.sha256"
+    if [ -n "$suffix" ]; then
+      sf="$W/gh-SHA256SUMS-$key"
+      flavor_sums+=("$sf")
+      stem=${onpage%%$'\n'*}; stem=${stem%.zst.part-*}
+      if [ -f "$sf" ] && ! awk -v img="$stem" '
+          { sub(/^\*/, "", $2); if (length($1) != 64 || $1 ~ /[^0-9a-f]/) exit 1
+            if ($2 == img) raw++; else if ($2 == img ".zst") zipped++; else exit 1 }
+          END { if (raw != 1 || zipped != 1) exit 1 }' "$sf"; then
+        diff_ "SHA256SUMS-$key must list one image and one compressed image checksum for $stem"
+      fi
+    fi
+    [ -f "$pf" ] || continue
+    listed=$(awk '{ n = $2; sub(/^\*/, "", n); print n }' "$pf")
+    if [ "$listed" != "$onpage" ]; then diff_ "PARTS-$key.sha256 does not list exactly the $key parts on the page, in order"; continue; fi
+    bad=0
+    if [ "$QUICK" -eq 0 ]; then
+      while read -r want n; do n=${n#\*}; [ "${GHS[$n]:-}" = "$want" ] || { diff_ "PARTS-$key.sha256 has $want for $n, the page has ${GHS[$n]:-none}"; bad=1; }; done < "$pf"
+    fi
+    [ "$bad" -eq 1 ] || ok "PARTS-$key.sha256 lists the $key parts on the page"
+  done
+  if [ "${#flavor_sums[@]}" -gt 0 ] && ! cmp -s "$W/gh-SHA256SUMS-$a" <(cat "${flavor_sums[@]}"); then
+    diff_ "SHA256SUMS-$a is not the concatenation of its flavor checksums"
   fi
-  [ "$bad" -eq 1 ] || ok "PARTS-$a.sha256 lists the $a parts on the page"
 done
 
 # ---- notes: one section per architecture ------------------------------------------------------------
@@ -364,19 +414,16 @@ fi
 # ---- staged folder --------------------------------------------------------------------------------
 if [ -n "$RDIR" ]; then
   d0=$DIFFS
-  if ! rf_layout "$RDIR" > "$W/local-layout.tsv"; then diff_ "the staged folder $RDIR does not match the release layout"
-  else
-    : > "$W/local-names"
-    while IFS=$'\t' read -r _ rel n; do
-      echo "$n" >> "$W/local-names"
-      if [ -z "${GHZ[$n]:-}" ]; then diff_ "staged $n is not on the GitHub page"; continue; fi
-      if [ "$(rf_size "$RDIR/$rel")" != "${GHZ[$n]}" ]; then diff_ "staged $n size $(rf_size "$RDIR/$rel") vs pages ${GHZ[$n]}"; continue; fi
-      if [ "$QUICK" -eq 0 ] && [ "${GHS[$n]:-}" != "$(rf_sha "$RDIR/$rel")" ]; then diff_ "staged $n sha256 differs from the GitHub page"; fi
-    done < "$W/local-layout.tsv"
-    cmp -s "$W/local-names" "$W/gh-names" || [ "$DIFFS" -gt "$d0" ] || diff_ "the page order differs from the staged canonical order"
-    unstaged=$(LC_ALL=C sort "$W/local-names" | LC_ALL=C comm -13 - <(LC_ALL=C sort "$W/gh-names"))
-    [ -z "$unstaged" ] || diff_ "on the pages but not staged: $(echo "$unstaged" | tr '\n' ' ')"
-  fi
+  : > "$W/local-names"
+  while IFS=$'\t' read -r _ rel n; do
+    echo "$n" >> "$W/local-names"
+    if [ -z "${GHZ[$n]:-}" ]; then diff_ "staged $n is not on the GitHub page"; continue; fi
+    if [ "$(rf_size "$RDIR/$rel")" != "${GHZ[$n]}" ]; then diff_ "staged $n size $(rf_size "$RDIR/$rel") vs pages ${GHZ[$n]}"; continue; fi
+    if [ "$QUICK" -eq 0 ] && [ "${GHS[$n]:-}" != "$(rf_sha "$RDIR/$rel")" ]; then diff_ "staged $n sha256 differs from the GitHub page"; fi
+  done < "$W/local-layout.tsv"
+  cmp -s "$W/local-names" "$W/gh-names" || [ "$DIFFS" -gt "$d0" ] || diff_ "the page order differs from the staged canonical order"
+  unstaged=$(LC_ALL=C sort "$W/local-names" | LC_ALL=C comm -13 - <(LC_ALL=C sort "$W/gh-names"))
+  [ -z "$unstaged" ] || diff_ "on the pages but not staged: $(echo "$unstaged" | tr '\n' ' ')"
   [ "$DIFFS" -gt "$d0" ] || ok "pages equal the staged folder $RDIR"
 fi
 

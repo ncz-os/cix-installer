@@ -121,8 +121,21 @@ mkdir -p "$CHROOT" "$(dirname "$OUT")"
 # minbase keeps it lean; rescue.pkgs pulls everything we actually need.
 # ----------------------------------------------------------------------
 echo "[rescue-rootfs] debootstrap $SUITE..."
-debootstrap --arch="$ARCH" --variant=minbase \
-    --include=ca-certificates,apt-utils "$SUITE" "$CHROOT" "$MIRROR"
+DEBOOTSTRAP_ARGS=(--arch="$ARCH" --variant=minbase --include=ca-certificates,apt-utils)
+# Optional persistent .deb cache.  debootstrap never retries a package it
+# failed to fetch, so against a flaky mirror (snapshot.debian.org answers
+# 503/504 on pool objects while its index listing still works) every retry
+# restarts from zero and can never converge.  With a cache directory the
+# retries are monotonic: each run keeps what it downloaded and only the
+# missing packages are fetched again.  Off by default, so the default build
+# path is byte-for-byte unchanged.  debootstrap verifies every cached .deb
+# against the signed Packages index, so a corrupt entry is rejected, never
+# trusted.
+if [ -n "${NCZ_DEBOOTSTRAP_CACHE:-}" ]; then
+    mkdir -p "$NCZ_DEBOOTSTRAP_CACHE"
+    DEBOOTSTRAP_ARGS+=(--cache-dir "$NCZ_DEBOOTSTRAP_CACHE")
+fi
+debootstrap "${DEBOOTSTRAP_ARGS[@]}" "$SUITE" "$CHROOT" "$MIRROR"
 
 # debootstrap writes its own sources.list with no deb options. Rewrite it
 # so a pinned snapshot (NCZ_BASE_MIRROR_APT_OPTS=check-valid-until=no) is

@@ -1758,7 +1758,8 @@ void kbase_free_phy_pages_helper_locked(struct kbase_mem_phy_alloc *alloc,
 
 static inline void kbase_set_dma_addr_as_priv(struct page *p, dma_addr_t dma_addr)
 {
-	SetPagePrivate(p);
+	/* PG_private flag was removed in Linux 7.4; the non-NULL page
+	 * private data is the marker now (driver never tests the flag). */
 	if (sizeof(dma_addr_t) > sizeof(p->private)) {
 		/* on 32-bit ARM with LPAE dma_addr_t becomes larger, but the
 		 * private field stays the same. So we have to be clever and
@@ -1782,7 +1783,8 @@ static inline dma_addr_t kbase_dma_addr_as_priv(struct page *p)
 
 static inline void kbase_clear_dma_addr_as_priv(struct page *p)
 {
-	ClearPagePrivate(p);
+	/* PG_private flag was removed in Linux 7.4; see above. */
+	set_page_private(p, 0);
 }
 
 static inline struct kbase_page_metadata *kbase_page_private(struct page *p)

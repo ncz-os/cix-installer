@@ -13,7 +13,9 @@
 # Sources, in order (the first that yields the pinned sha256 wins):
 #   1. assets/cix-debs/<file> already present with the pinned sha256;
 #   2. NCZ_SINGULARITY_PAYLOAD_DIR/<file> (optional local directory);
-#   3. the NCZ apt repository: NCZ_APT_BASE (default
+#   3. the artifact store: NCZ_PAYLOAD_SRC_ROOT (default the site projects dir)
+#      ncz-singularity-debs/<label>/<arch>/<file>, newest label first, sha-checked;
+#   4. the NCZ apt repository: NCZ_APT_BASE (default
 #      https://packages.buildkite.com/ncz-os/ncz/any). The index row for <file>
 #      must carry the pinned SHA256 before anything is downloaded, and the
 #      downloaded bytes are checked again.
@@ -91,6 +93,26 @@ install_verified() { # $1 candidate file, $2 origin label
 
 if [ -n "${NCZ_SINGULARITY_PAYLOAD_DIR:-}" ] && [ -f "$NCZ_SINGULARITY_PAYLOAD_DIR/$file" ]; then
     install_verified "$NCZ_SINGULARITY_PAYLOAD_DIR/$file" "$NCZ_SINGULARITY_PAYLOAD_DIR" && exit 0
+fi
+
+# 3. the artifact store. A fresh host has no assets and no payload dir, and the
+#    published repo CAN lag the pin: on 2026-11-06 its newest arm64 payload was
+#    20261025175504 while the pin named 20261106. The store keeps reviewed bytes
+#    under ncz-singularity-debs/<label>/<arch>/<file>, and the pin's sha256 is the
+#    authority -- a store copy with different bytes is reported and skipped, never
+#    installed. Labels are newest-first so a re-pin picks the newest that matches.
+store_root="${NCZ_PAYLOAD_SRC_ROOT:-}"
+if [ -z "$store_root" ] && [ -r "$ROOT/build/lib/ncz-site.sh" ]; then
+    # shellcheck source=lib/ncz-site.sh
+    . "$ROOT/build/lib/ncz-site.sh"
+    store_root="$(ncz_site_value NCZ_PAYLOAD_SRC_ROOT projects-dir)"
+fi
+if [ -n "$store_root" ] && [ -d "$store_root/ncz-singularity-debs" ]; then
+    for _cand in $(ls -1d "$store_root"/ncz-singularity-debs/*/"$ARCH"/"$file" 2>/dev/null | sort -r); do
+        [ -f "$_cand" ] || continue
+        install_verified "$_cand" "store ${_cand#"$store_root"/}" && exit 0
+    done
+    say "no store copy of $file under $store_root/ncz-singularity-debs/*/$ARCH matched the pin"
 fi
 
 [ "$OFFLINE" = 1 ] && die "--offline and $file is not staged (set NCZ_SINGULARITY_PAYLOAD_DIR to a directory holding it)"

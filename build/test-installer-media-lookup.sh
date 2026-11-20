@@ -179,8 +179,12 @@ check "early_command no longer mounts list-devices disk/partition candidates its
     sh -c '! grep -q "for _ncz_media in" "$1"' _ "$PRESEED"
 check "partman/early_command searches USB disks only" \
     grep -qF 'for _blk in /sys/block/sd* ; do' "$PRESEED"
+# The preseed queries the block device's udev environment by basename now
+# (-p "/block/$_bn"), not by stripping /sys off the path, so the old literal stopped
+# matching. Assert the fact instead of one spelling: the udev query happens AND its
+# result is filtered on the USB bus before anything is mounted.
 check "partman/early_command checks the USB bus before mounting" \
-    grep -qF "udevadm info -q env -p \"\${_blk#/sys}\"" "$PRESEED"
+    sh -c 'grep -qF "udevadm info -q env -p \"/block/\$_bn\"" "$1" && grep -q "ID_BUS=usb" "$1"' _ "$PRESEED"
 check "media-usb-only.sh is baked into the initrd" grep -qE '^[[:space:]]*"media-usb-only\.sh",' "$INITRD_PATCHER"
 for k in grub-installer/skip systemd-boot-installer/skip; do
     check "preseed.cfg answers $k true and seen" sh -c 'grep -qE "^d-i $2 boolean true\$" "$1" && grep -qE "^d-i $2 seen true\$" "$1"' _ "$PRESEED" "$k"

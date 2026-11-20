@@ -45,6 +45,12 @@
 #   2. ncz.gpu=mali|panthor   on the kernel cmdline  (NCZ spelling, same thing)
 #   3. GPU_MODE= in /etc/default/ncz-gpu
 #   4. mali  -- the 26.7 shipped default
+#
+# The 7.3 'Panthor (Experimental)' boot entry selects this stack via
+# sky1.gpu=panthor (the older rEFInd entries emitted the Sky1-Linux spelling
+# sky1.gpu=mesa for the same entry; get_mode() below still accepts both).
+# Do NOT change the mali default here: the Mali (Default) entry and every
+# fallback path must keep behaving exactly as they do today.
 set -u
 
 BLACKLIST=/etc/modprobe.d/ncz-gpu-drivers.conf
@@ -122,7 +128,53 @@ get_mode() {
 }
 
 ensure_blacklist() {
-    cat > "$BLACKLIST" <<'BL'
+    # $1 is the mode the switcher is about to apply (mali|panthor|none).
+    #
+    # MINOR-003: the "Selected:" line at the bottom is the switcher's OWN record
+    # of which stack it applied, in the same file that holds the pair. Until now
+    # the selection existed only as the bootloader's sky1.gpu= token (or
+    # GPU_MODE= in /etc/default/ncz-gpu), so a post-install hook running on a
+    # live system, a later `modprobe`, or an operator reading modprobe.d had no
+    # on-disk statement of intent: on the Panthor entry the cmdline no longer
+    # names mali_kbase (r201 removed it so the Mali fallback stays possible) and
+    # nothing reads the sky1.gpu= token back.
+    #
+    # Both losers stay named by `blacklist` -- mali_kbase on a Panthor boot
+    # included, because that line is what stops a udev modalias event from
+    # auto-binding CIXH5000 out from under Mesa. `blacklist` only suppresses
+    # modalias autoload; it does NOT block an explicit modprobe, so
+    # activate_panthor()'s load and the Mali fallback's `modprobe mali_kbase`
+    # both still work. Never write `install <mod> /bin/true` here.
+    #
+    # ONE write, atomically. This used to truncate-and-rewrite the file and then
+    # append the selection with a second `cat >>`, so modprobe.d (read by udev
+    # coldplug, which can run concurrently with this unit, and by any `modprobe`
+    # on the box) could observe the file mid-update: either the bare pair with no
+    # selection, or a moment where the file was empty. Neither is fatal on its
+    # own -- the pair is what holds the drivers -- but the file is a single
+    # artifact and should never be published half-written. Build the whole thing
+    # in a sibling temp file and rename() it over the target: rename within one
+    # directory is atomic, so a reader sees either the old file or the new one.
+    # Take the temp path from mktemp only if it actually produced a usable file:
+    # a missing mktemp is not the only failure mode, a present-but-failing one
+    # exits non-zero with no output, and `> ""` would then fail the whole write
+    # and leave the box with NO modprobe.d file -- strictly worse than the
+    # non-atomic original. Anything unusable falls back to writing the target
+    # directly, which is still a single write (just not a rename).
+    _bl=$(mktemp "$BLACKLIST.XXXXXX" 2>/dev/null) || _bl=""
+    if [ -n "$_bl" ] && [ ! -f "$_bl" ]; then
+        rm -f "$_bl" 2>/dev/null
+        _bl=""
+    fi
+    if [ -n "$_bl" ]; then
+        _bl_mode=atomic
+    else
+        _bl="$BLACKLIST"
+        _bl_mode=direct
+        log "WARN: no usable mktemp; writing $BLACKLIST in a single direct write (not atomic)"
+    fi
+    {
+        cat <<'BL'
 # Written by ncz-gpu-switcher. Do not hand-edit -- set sky1.gpu= on the kernel
 # cmdline (or GPU_MODE= in /etc/default/ncz-gpu) instead.
 #
@@ -136,6 +188,41 @@ blacklist mali_kbase
 blacklist memory_group_manager
 blacklist protected_memory_allocator
 BL
+        case "${1:-}" in
+            mali)
+                cat <<'BL'
+
+# Selected: mali (vendor Mali stack). ncz-gpu-switcher loaded mali_kbase here.
+BL
+                ;;
+            panthor)
+                cat <<'BL'
+
+# Selected: panthor (Mesa). ncz-gpu-switcher loaded this stack on this boot.
+# mali_kbase is held by the blacklist above so nothing autoloads it; an
+# explicit modprobe still loads it, which is what the Mali fallback relies on.
+BL
+                ;;
+        esac
+    } > "$_bl" || { rm -f "$_bl"; err "WARN: could not write $_bl"; return 1; }
+    [ "$_bl" = "$BLACKLIST" ] || chmod 0644 "$_bl" 2>/dev/null
+    if [ "$_bl" != "$BLACKLIST" ]; then
+        # Same directory as the target, so this is a rename, not a copy.
+        mv -f "$_bl" "$BLACKLIST" || { rm -f "$_bl"; err "WARN: could not install $BLACKLIST"; return 1; }
+    fi
+    # Announce the recorded selection on stdout so journald captures which stack
+    # this boot applied, paired with the existing activate_*() output -- a
+    # post-mortem `journalctl -u ncz-gpu-switcher` will then show blacklisted
+    # + selected in two lines, in that order. The `none` case records no
+    # "Selected:" line in the file, so the per-boot log message replaces it as
+    # the on-this-host-claim of choice (sky1.gpu=none is the rescue entry
+    # which intentionally loads nothing).
+    case "${1:-}" in
+        mali)    log "selected mali (recorded in $BLACKLIST)" ;;
+        panthor) log "selected panthor (recorded in $BLACKLIST)" ;;
+        none)    log "selected none (rescue/no-accelerators entry)" ;;
+    esac
+    return 0
 }
 
 drop_legacy() {
@@ -319,10 +406,27 @@ activate_panthor() {
 
 [ "$(id -u)" = 0 ] || { echo "ncz-gpu-switcher: must run as root" >&2; exit 1; }
 
+# Not a CIX Sky1 board: nothing to switch. The unit carries
+# ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00, so systemd never
+# even starts this script off Sky1; this guard is for the direct runs
+# (`ncz-gpu-select`'s shim, a human, a first-boot hook) that bypass the unit.
+# Same probe as ncz-gpu-status / ncz-gpu-hw-present: Sky1 is ACPI (acpi=force),
+# so the firmware-instantiated CIX GPU platform device is the identifier --
+# a device-tree HID does not exist on this platform. Exit 0, never 1: an
+# unsupported machine is not a broken GPU stack, and the old exit 1 is what
+# made the generic-arm64 KVM gate report "loaded failed failed".
+# Test seam: NCZ_SYSROOT prefixes /sys.
+if [ ! -e "${NCZ_SYSROOT:-}/sys/bus/platform/devices/CIXH5000:00" ]; then
+    log "no CIX Sky1 GPU (no /sys/bus/platform/devices/CIXH5000:00) -- not Sky1 hardware, nothing to switch"
+    exit 0
+fi
+
 drop_legacy
-ensure_blacklist
 
 mode=$(get_mode)
+# AFTER the mode is known: the file records the selection (MINOR-003), so it
+# must be written by the branch that actually knows which stack won.
+ensure_blacklist "$mode"
 # Written only when a Panthor request fell back to Mali (below); read by ncz-gpu-status.
 FALLBACK_NOTE=/run/ncz-gpu-fallback
 rm -f "$FALLBACK_NOTE" 2>/dev/null

@@ -1,0 +1,4 @@
+arch	url-template	sha256	dest	note
+amd64	{BASE}/dists/forky/main/debian-installer/binary-{ARCH}/Packages.xz	5691926ef94e461c23e69d09e8b633e895af373c701fe63c3ec18e5a476be02c	Packages-amd64.xz	d-i installer index (binary-amd64); pinned at NCZ_BASE_MIRROR_SNAPSHOT
+arm64	{BASE}/dists/forky/main/debian-installer/binary-{ARCH}/Packages.xz	eae39b3becf7d7e09609275e0b56174f8fff74430bce52f9c8207906ef88aaf4	Packages-arm64.xz	d-i installer index (binary-arm64); pinned at NCZ_BASE_MIRROR_SNAPSHOT
+all	{BASE}/pool/main/d/debootstrap/debootstrap-udeb_1.0.145_all.udeb	d94c7e115507b9bdb1f32c615464ce1c6cb14be611fe3b4bff535332079976bf	debootstrap-udeb_1.0.145_all.udeb	debootstrap-udeb 1.0.145 (Filename+SHA256 per the pinned Packages.xz above)

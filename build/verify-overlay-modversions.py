@@ -22,9 +22,30 @@ WHAT IT CHECKS, for the kernel pinned by assets/kernel/mainline:
     one of the other overlay modules (__ksymtab_<sym>); anything else is a
     CRC MISMATCH or UNRESOLVED and fails the gate.
 
+  - every .ko has the kernel's struct module layout: its
+    .gnu.linkonce.this_module section is the same size as in an in-tree module
+    of the same build (the first lib/modules/<KVER>/kernel/ member of
+    <staging>/modules-cixmini.tgz, or --ref-ko). CRCs and vermagic cannot see
+    this. 2026-10-26, r292: the overlays were rebuilt against a header tree
+    whose Kconfig had been re-run on a host without pahole, which dropped
+    CONFIG_DEBUG_INFO_BTF_MODULES; struct module shrank from 0x500 to 0x4c0
+    and the kernel refused all three Mali modules ("section size must match")
+    while every check here passed.
+
+--bom (prebuilt-deb kernel BOM, assets/kernel/mainline.debs; r297 and later):
+the kernel tracks no per-KVER overlays, aipu/amvx/panthor/mali are built by
+DKMS on the target (their source debs are held by verify-dkms-deb-sources.py
+--bom). An overlay dir with no .ko for KVER is then not a failure, and when no
+prebuilt .ko exists at all there is nothing to compare: SKIP, exit 0. Any
+prebuilt .ko that does exist gets every check above, against the Module.symvers
+build/stage-arm64-kernel.sh derives at the top of the payload dir
+(<staging>/Module.symvers; the BOM payload has no headers-dir). The BOM KVER
+must equal the staged KVER.
+
 Usage:
   build/verify-overlay-modversions.py [--root DIR] [--staging DIR]
                                       [--symvers FILE] [--kver KVER]
+                                      [--ref-ko KO] [--bom]
 Environment: VERIFY_ROOT (same as --root), OVERLAY_STAGING_DIR (--staging).
 
 The staging dir defaults to the target of the assets/kernel/mainline symlink;
@@ -41,8 +62,10 @@ import json
 import os
 import struct
 import sys
+import tarfile
 
-OVERLAY_DIRS = ("mali", "vpu", "npu", "panthor")
+# panthor is not shipped (Mali only, operator order 2026-11-16): no overlay set is required for it.
+OVERLAY_DIRS = ("mali", "vpu", "npu")
 
 
 def yocto_shared_root():
@@ -72,7 +95,10 @@ class ElfError(Exception):
 def read_sections(path):
     """Return ({name: bytes}, [symbol names]) for an ELF64 little-endian file."""
     with open(path, "rb") as f:
-        data = f.read()
+        return parse_sections(f.read())
+
+
+def parse_sections(data):
     if data[:4] != b"\x7fELF":
         raise ElfError("not an ELF file")
     if data[4] != 2 or data[5] != 1:
@@ -132,6 +158,42 @@ def vermagic(sections):
     return None
 
 
+THIS_MODULE = ".gnu.linkonce.this_module"
+
+
+def reference_layout(staging, kver, explicit):
+    """Size of .gnu.linkonce.this_module in an in-tree module of the pinned build.
+
+    Returns (size, where) or raises ElfError/OSError. The in-tree modules were
+    linked with the kernel itself, so their struct module is the one the loader
+    compares against.
+    """
+    if explicit:
+        sections, _ = read_sections(explicit)
+        where = explicit
+    else:
+        if not staging:
+            raise ElfError("no staging dir and no --ref-ko")
+        tgz = os.path.join(staging, "modules-cixmini.tgz")
+        prefix = f"lib/modules/{kver}/kernel/"
+        sections = None
+        with tarfile.open(tgz, "r:*") as tf:
+            for m in tf:
+                name = m.name.removeprefix("./")
+                if m.isfile() and name.startswith(prefix) and name.endswith(".ko"):
+                    sections, _ = parse_sections(tf.extractfile(m).read())
+                    where = f"{tgz}:{name}"
+                    break
+        if sections is None:
+            raise ElfError(f"no {prefix}*.ko in {tgz}")
+    if THIS_MODULE not in sections:
+        raise ElfError(f"reference {where} has no {THIS_MODULE} section")
+    vm = vermagic(sections)
+    if vm is None or not (vm == kver or vm.startswith(kver + " ")):
+        raise ElfError(f"reference {where} has vermagic {vm!r}, not {kver}")
+    return len(sections[THIS_MODULE]), where
+
+
 def load_symvers(path):
     crcs = {}
     with open(path, encoding="latin-1") as f:
@@ -140,6 +202,26 @@ def load_symvers(path):
             if len(parts) >= 2 and parts[0].startswith("0x"):
                 crcs[parts[1]] = int(parts[0], 16) & 0xFFFFFFFF
     return crcs
+
+
+def overlay_kos(root, drv, kver):
+    base = os.path.join(root, "assets", "kernel", drv, kver)
+    if not os.path.isdir(base):
+        return []
+    return sorted(os.path.join(base, n) for n in os.listdir(base) if n.endswith(".ko"))
+
+
+def bom_kver(root):
+    """KVER of the prebuilt-deb kernel BOM (assets/kernel/mainline.debs), or None."""
+    try:
+        with open(os.path.join(root, "assets", "kernel", "mainline.debs")) as f:
+            for line in f:
+                line = line.split("#", 1)[0].strip()
+                if line.startswith("KVER="):
+                    return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
 
 
 def resolve_staging(root, explicit):
@@ -169,8 +251,25 @@ def main():
     ap.add_argument("--staging", default=os.environ.get("OVERLAY_STAGING_DIR"))
     ap.add_argument("--symvers")
     ap.add_argument("--kver")
+    ap.add_argument(
+        "--ref-ko", help="in-tree module of the pinned build (struct module reference)"
+    )
+    ap.add_argument(
+        "--bom",
+        action="store_true",
+        help="prebuilt-deb kernel BOM: overlays optional, symvers at <staging>/Module.symvers",
+    )
     a = ap.parse_args()
     tag = "verify-overlay-modversions"
+    bkver = None
+    if a.bom:
+        bkver = bom_kver(a.root)
+        if not bkver:
+            print(
+                f"{tag}: ERROR: --bom requires assets/kernel/mainline.debs with a KVER= line",
+                file=sys.stderr,
+            )
+            return 2
 
     staging, wanted = resolve_staging(a.root, a.staging)
     kver = a.kver
@@ -189,6 +288,20 @@ def main():
                 f"{tag}: ERROR: cannot read KVER in {staging}: {exc}", file=sys.stderr
             )
             return 2
+    if a.bom:
+        if bkver != kver:
+            print(
+                f"{tag}: FAIL: assets/kernel/mainline.debs KVER {bkver} != staged KVER {kver}"
+            )
+            return 1
+        prebuilt = [d for d in OVERLAY_DIRS if overlay_kos(a.root, d, kver)]
+        if not prebuilt:
+            print(
+                f"{tag}: SKIP: no prebuilt overlay .ko for {kver} in assets/kernel/"
+                f"{{{','.join(OVERLAY_DIRS)}}}/{kver}/ (prebuilt-deb kernel BOM: DKMS builds "
+                "them on the target); nothing to compare"
+            )
+            return 0
     symvers = a.symvers
     if not symvers:
         if not staging:
@@ -197,9 +310,18 @@ def main():
                 file=sys.stderr,
             )
             return 2
-        symvers = os.path.join(
-            staging, "headers-dir", "lib", "modules", kver, "build", "Module.symvers"
-        )
+        if a.bom:
+            symvers = os.path.join(staging, "Module.symvers")
+        else:
+            symvers = os.path.join(
+                staging,
+                "headers-dir",
+                "lib",
+                "modules",
+                kver,
+                "build",
+                "Module.symvers",
+            )
     if not os.path.isfile(symvers):
         print(f"{tag}: ERROR: Module.symvers not found: {symvers}", file=sys.stderr)
         return 2
@@ -211,6 +333,15 @@ def main():
     if not kcrc:
         print(
             f"{tag}: ERROR: no CRC rows in {symvers} (kernel without MODVERSIONS?)",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        ref_tm, ref_where = reference_layout(staging, kver, a.ref_ko)
+    except (OSError, ElfError, tarfile.TarError) as exc:
+        print(
+            f"{tag}: ERROR: cannot read the kernel's struct module size (in-tree reference module): {exc}",
             file=sys.stderr,
         )
         return 2
@@ -233,13 +364,12 @@ def main():
 
     kos = []
     for d in OVERLAY_DIRS:
-        base = os.path.join(a.root, "assets", "kernel", d, kver)
-        found = (
-            sorted(os.path.join(base, n) for n in os.listdir(base) if n.endswith(".ko"))
-            if os.path.isdir(base)
-            else []
-        )
-        if not found:
+        found = overlay_kos(a.root, d, kver)
+        if not found and a.bom:
+            print(
+                f"SKIP assets/kernel/{d}/{kver}/: no prebuilt overlay (DKMS on the target)"
+            )
+        elif not found:
             failures.append(f"MISSING overlay set: assets/kernel/{d}/{kver}/*.ko")
         kos.extend(found)
 
@@ -283,14 +413,27 @@ def main():
                 print(f"  UNRESOLVED {rel} {sym}")
         if bad or miss:
             failures.append(f"{rel}: crc_mismatch={bad} unresolved={miss}")
+        tm = sections.get(THIS_MODULE)
+        layout_ok = tm is not None and len(tm) == ref_tm
+        if tm is None:
+            failures.append(f"{rel}: no {THIS_MODULE} section (not a kernel module)")
+        elif not layout_ok:
+            failures.append(
+                f"{rel}: this_module 0x{len(tm):x} != kernel 0x{ref_tm:x} (struct module layout differs: "
+                "built against a different kernel configuration; the loader refuses it with "
+                "'.gnu.linkonce.this_module section size must match')"
+            )
         total_bad += bad
-        state = "FAIL" if (bad or miss or not versions) else "OK"
+        state = "FAIL" if (bad or miss or not versions or not layout_ok) else "OK"
+        tm_txt = f"0x{len(tm):x}" if tm is not None else "none"
         print(
             f"{state} {rel}: versions={len(versions)} crc_mismatch={bad} sibling_overlay={sib} unresolved={miss}"
+            f" this_module={tm_txt}"
         )
 
     print(
         f"{tag}: kver={kver} symvers={symvers} ({len(kcrc)} CRCs) modules={len(parsed)}"
+        f" this_module=0x{ref_tm:x} (from {ref_where})"
     )
     if failures:
         for msg in failures:

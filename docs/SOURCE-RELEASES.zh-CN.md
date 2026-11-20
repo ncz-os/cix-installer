@@ -9,7 +9,13 @@
 > **说明：** 本页 26.10 "Cygnus" 的内核源码部分已与[英文版](SOURCE-RELEASES.md)
 > 同步；其余各节仍描述 26.7（2026.08.18-v12），以英文版为准。
 
-## 26.10 "Cygnus"：内核对应源码
+## 26.10 "Cygnus" Preview 4
+
+四个镜像对应的安装程序源码为标签
+[`v26.10-preview4`](https://gitlab.com/ncz-os/cix-installer/-/tree/v26.10-preview4) 处的源码树（由构建 `4b51adc1` 合并为单一提交）。
+参见 [Preview 4 发布说明（英文）](releases/26.10-cygnus-preview4.md)。
+
+## 较早的 26.10 "Cygnus" 镜像：内核对应源码
 
 镜像 `ncz-os-arm64-20261013-d395bb2d` 与 `ncz-os-amd64-20261013-d395bb2d` 由提交 `d395bb2d` 构建。
 每个镜像只带一个内核（默认、安装程序与救援启动项共用）。以下各部分均已于

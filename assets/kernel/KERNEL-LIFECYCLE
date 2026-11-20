@@ -1,0 +1,58 @@
+# NCZ-OS kernel lifecycle (promotion state), machine-readable. KEY=value.
+# Read by build/check-kernel-lifecycle.py (run by verify-kernel-default-policy.sh
+# Check 11 before any kernel is staged). Flow and rules: docs/RC-DEFINITION.md.
+#
+# WRITER: the kernel-ci promotion registry
+# (<artifact store>/projects/kernel-ci/registry.json, states
+# provisional -> boot-tested -> current; the previous current -> retired)
+# regenerates this file on every promotion and opens a pin-bump branch that
+# changes it together with the per-arch pins. Do not hand-edit it per release.
+# The values below are the hand-written SEED (rc4, 2026-11-07), the first
+# promotion; the registry takes over from it.
+#
+# Every committed pin for an arch must equal CURRENT_KVER_<arch> (and
+# CURRENT_PKG_<arch> when set), must not be RETIRED and must not sort below
+# MIN_VERSION (an -rcN sorts below its final release). An empty CURRENT_KVER_<arch>
+# means no kernel is promoted for that arch: its builds are refused.
+LIFECYCLE_SCHEMA=1
+LIFECYCLE_SOURCE=manual-repin-20261116-74rc3
+
+# Lowest upstream kernel version any default may pin. 7.3.x is retired for the
+# 26.10 Cygnus PR4 release (operator 2026-11-16).
+MIN_VERSION=7.4.0-rc3
+
+# amd64: T2 7.4.0-rc3-t2-ncz 7.4.0-rc3-4 (operator 2026-11-16: "release will use
+# 7.4 kernel, no edge and 7.3 will be retired"; 26.10 Cygnus PR4). The 7.4.0-rc3
+# base is accepted for this release and must move to the final 7.4 kernel in a
+# subsequent PATCH release. Package revision 7.4.0-rc3-4 is the REBUILD that
+# carries 7002 (Navi 14 lower power limits) and the 7101-7107 AER/DPC series
+# (replacing 9013); the earlier staged -1 and -2 debs are not the release kernel.
+CURRENT_KVER_amd64=7.4.0-rc3-t2-ncz
+CURRENT_PKG_amd64=7.4.0-rc3-4
+
+# arm64: Sky1 7.4.0-rc3-sky1-ncz r303 (operator 2026-11-16: "release will use
+# 7.4 kernel, no edge and 7.3 will be retired"; 26.10 Cygnus PR4).
+# Assembled as kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115
+# (assets/kernel/mainline.release); package version 7.4.0-rc3-sky1-ncz+r303.
+# MALI ONLY: the vendor Mali out-of-tree modules (mali_kbase,
+# memory_group_manager, protected_memory_allocator) are built against this tree,
+# CONFIG_DRM_PANTHOR is off and no panthor module or package is built. The
+# 7.4.0-rc3 base is accepted for this release and must move to the final 7.4
+# kernel in a subsequent PATCH release.
+CURRENT_KVER_arm64=7.4.0-rc3-sky1-ncz
+CURRENT_PKG_arm64=7.4.0-rc3-sky1-ncz+r303
+
+# Retired KVERs, comma-separated: never pinned again, on any arch.
+# The whole 7.3.x series is retired with the 2026-11-16 7.4 decision: no default,
+# no rescue, no installer, no previous-kernel entry and no apt component for the
+# image names a 7.3.x kernel. 7.4.0-rc2-* stay retired (parked dev candidates,
+# superseded by rc3).
+RETIRED=7.3.0-t2-ncz,7.3.1-t2-ncz,7.3.3-t2-ncz,7.3.4-t2-ncz,7.4.0-rc2-t2-ncz,7.3.0-sky1-ncz,7.3.1-sky1-ncz,7.3.3-sky1-ncz,7.3.4-sky1-ncz,7.4.0-rc2-sky1-ncz
+
+# --- repin 2026-11-16 (operator: "release will use 7.4 kernel, no edge and 7.3
+# will be retired"; 26.10 Cygnus PR4) ---
+# amd64 pool build: 7.4.0-rc3-t2-ncz, package revision 7.4.0-rc3-4 (the rebuild
+# that carries 7002 and the 7101-7107 AER/DPC series, replacing 9013). arm64 pool build:
+# kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115, package version
+# 7.4.0-rc3-sky1-ncz+r303 (Mali only, CONFIG_DRM_PANTHOR off). Previous line
+# 7.3.4-t2-ncz+r303 / 7.3.4-sky1-ncz+r304 is retired with the rest of 7.3.x.

@@ -43,7 +43,9 @@ fi
 STATUS="$(head -n1 "$STATUS_FILE" | tr -d '\r')"
 KIND="${STATUS%%:*}"
 conf() { sed -n "s/^$1=//p" "$CONF" 2>/dev/null | head -n1 | sed -e "s/^'//" -e "s/'\$//"; }
-TDIR="$(conf TOOLKIT_DIR)"; TVER="$(conf TOOLKIT)"
+# ncz-cuda-setup records what it resolved and installed (INSTALLED_*); older selections name it directly
+TDIR="$(conf INSTALLED_TOOLKIT_DIR)"; TDIR="${TDIR:-$(conf TOOLKIT_DIR)}"
+TVER="$(conf INSTALLED_TOOLKIT)"; TVER="${TVER:-$(conf TOOLKIT)}"
 NVCC="$TARGET${TDIR:-/usr/local/cuda-none}/bin/nvcc"
 fail=0
 bad() { echo "FAIL: $*" >&2; fail=1; }
@@ -57,9 +59,10 @@ esac
 
 need_conf() {
     [ -s "$CONF" ] || { bad "missing $CONF (the GPU family/driver/toolkit decision)"; return 1; }
-    for k in GPU_PCI_ID FAMILY DRIVER_BRANCH TOOLKIT TOOLKIT_DIR; do
+    for k in GPU_PCI_ID FAMILY DRIVER_BRANCH TOOLKIT; do
         [ -n "$(conf $k)" ] || bad "$CONF lacks $k"
     done
+    [ -n "$(conf TOOLKIT_SERIES)$(conf TOOLKIT_DIR)" ] || bad "$CONF lacks TOOLKIT_SERIES (or a legacy TOOLKIT_DIR)"
 }
 dpkg_has() {
     [ -f "$TARGET/var/lib/dpkg/status" ] || return 1
@@ -74,6 +77,7 @@ case "$EXPECT" in
         [ -f "$TARGET/etc/profile.d/ncz-cuda.sh" ] || bad "missing /etc/profile.d/ncz-cuda.sh"
         [ -f "$TARGET/etc/apt/preferences.d/ncz-nvidia-cuda.pref" ] || bad "missing driver-branch apt pin"
         [ -f "$TARGET/var/lib/ncz/cuda-setup.done" ] || bad "no cuda-setup.done stamp"
+        [ -n "$(conf TOOLKIT_SERIES)" ] && [ -z "$(conf INSTALLED_TOOLKIT)" ] && bad "$CONF has no INSTALLED_TOOLKIT: ncz-cuda-setup did not record what it installed"
         [ -n "$TVER" ] || bad "$CONF has no TOOLKIT: cannot verify the toolkit packages"
         if [ -n "$TVER" ]; then
             dpkg_has "cuda-nvcc-$TVER" || bad "dpkg does not list cuda-nvcc-$TVER as installed"

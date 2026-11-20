@@ -81,7 +81,21 @@ done
 # T2 hardware gate (DMI: Apple vendor AND known T2 product_name). Non-T2
 # Macs and every PC/VM exit 0 here -- the hook never builds, never writes
 # a modprobe.d file, never touches dkms.
-if ! ncz_is_t2_hardware; then
+# KVM-gate escape hatch (operator ORDER #27(2), 2026-11-14): the gate passes
+# ncz_t2_dkms_force=1 on the rEFInd Install entry options; preseed/late.sh
+# exports NCZ_T2_DKMS_FORCE=1 into the chrooted hook chain (where /proc is
+# not available) and the BUILD path runs even on QEMU, so
+# build/check-t2-dkms-modules.sh can assert t2gmux.ko/t2smc.ko exist for
+# the shipped kernel (the module-abi probe then modprobes them under the
+# real kernel). Hardware POLICY is unchanged under the force: the
+# apple_gmux blacklist below is still written on real T2 hardware only.
+# Never set NCZ_T2_DKMS_FORCE on a real install.
+_ncz_t2_real=0
+if ncz_is_t2_hardware; then
+    _ncz_t2_real=1
+elif [ "${NCZ_T2_DKMS_FORCE:-}" = 1 ]; then
+    echo "[56] DMI: $(ncz_t2_detect_detail 2>/dev/null || echo 'not a T2 Mac'); NCZ_T2_DKMS_FORCE=1 -- forcing T2 DKMS build (KVM gate)"
+else
     echo "[56] $(ncz_t2_detect_detail 2>/dev/null || echo 'not a T2 Mac'); skipping"
     exit 0
 fi
@@ -162,9 +176,11 @@ fi
 
 # t2gmux owns APP000B on T2 hardware (since 2026-10-05). Blacklist the
 # in-kernel apple_gmux so the DKMS t2gmux is the sole owner. This file is
-# only ever written on T2 hardware (we already gated above); non-T2 Macs
-# and PCs are NEVER touched.
-cat > "$MODPROBE_D/ncz-t2-gmux.conf" <<'EOC'
+# only ever written on REAL T2 hardware (NCZ_T2_DKMS_FORCE does NOT count:
+# the KVM gate's forced build must not leak hardware policy onto non-T2
+# machines); non-T2 Macs and PCs are NEVER touched.
+if [ "$_ncz_t2_real" = 1 ]; then
+    cat > "$MODPROBE_D/ncz-t2-gmux.conf" <<'EOC'
 # NCZ-OS: apple_gmux (in-kernel) is not loaded on Apple T2 hardware.
 # t2gmux (DKMS) is the canonical owner of APP000B on T2 Macs (since
 # 2026-10-05). The in-kernel driver does not handle the T2 gmux. This
@@ -173,6 +189,7 @@ cat > "$MODPROBE_D/ncz-t2-gmux.conf" <<'EOC'
 blacklist apple_gmux
 install apple_gmux /bin/false
 EOC
+fi
 
 _ok=""; _fail=""
 for KVER in "${TARGET_KVERS[@]}"; do

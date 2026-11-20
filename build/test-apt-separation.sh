@@ -12,6 +12,18 @@
 # Installed: fonts-liberation 1:2.1.5-3, libdrm-common 2.4.134-3+ncz1, terser 5.1.0,
 #            ncz-wallpapers-ncz 1.0, libfoo 1.0
 #
+# 2026-10-15 (native Forky policy) universe additions: the NCZ suite also carries the native
+# Forky-only allowlist -- apple-t2-audio-config 0.5.1+ncz1 and apple-firmware-script
+# 20261015+ncz1 (both Architecture: all), libopenvino-2026.4.1 + its three intel
+# plugin shlibs and the four intel-*-npu CPack components -- while the whole Ubuntu
+# T2 host and the whole Intel apt host are pinned -1. The T2 repo therefore also
+# carries HIGHER Ubuntu builds of the two apples and a higher apfs-dkms, the Intel
+# repo carries higher builds of the selected names plus two names only it ships, and
+# two UNLISTED Debian-named artefacts exist in both repos with NCZ's copy HIGHER.
+# The per-architecture half of an override row ('all,amd64' / 'amd64') cannot be
+# expressed in a pin at all; it is asserted over real Packages metadata by
+# build/test-native-apt-overrides.sh, which drives build/check-ncz-repo-policy.sh.
+#
 # Every assertion is made twice: WITHOUT the separation pin (the r200 behaviour,
 # the negative control that must reproduce the flagged update) and WITH it.
 #
@@ -70,6 +82,12 @@ entry "$DEB" libfoo 1.0
 entry "$DEB" ncz-evil 9.0
 entry "$DEB" "linux-image-$ARCH" 7.1.9-1
 entry "$DEB" libgtk4-layer-shell0 1.3.0-1+b1 "$ARCH"
+# Debian fallback names (2026-10-15 Forky snapshot 20261012T023456Z): no special pin,
+# default priority 500; the policy does NOT block them.
+entry "$DEB" apfs-dkms 0.3.21-1 "$ARCH"
+# Debian-named artefacts that are NOT in the NCZ override list (Debian 500 wins):
+entry "$DEB" libopenvino-forky-extra 4.2.0-1 "$ARCH"
+entry "$DEB" intel-forky-extra 2.1.0-1 "$ARCH"
 # NCZ
 entry "$NCZ" fonts-liberation 1:2.1.5-3build1
 entry "$NCZ" libdrm-common 2.4.134-3+ncz1
@@ -79,10 +97,42 @@ entry "$NCZ" zoder 0.2.1 "$ARCH"
 entry "$NCZ" linux-image-7.3.0-t2-ncz 7.3.0-1 "$ARCH"
 entry "$NCZ" libfoo 2.0
 entry "$NCZ" libgtk4-layer-shell0 1.3.0-1+ncz20261013 "$ARCH"
+# NCZ Forky-native builds of the narrow allowlist (2026-10-15).
+# A/B -- apples (allowlisted 'all,amd64'). The REAL artifacts are Architecture: all
+# (apple-t2-audio-config 0.5.1+ncz1 = 6 UCM configs + 2 docs, no ELF;
+# apple-firmware-script 20261015+ncz1 = scripts + docs), and 'all' is how
+# Buildkite's managed registry spells them. One stanza per artifact: there is
+# NO $ARCH duplicate row in the index (a second row for the same name/version
+# would only re-describe the same all-arch deb).
+entry "$NCZ" apple-t2-audio-config 0.5.1+ncz1
+entry "$NCZ" apple-firmware-script 20261015+ncz1
+# C -- libopenvino-2026.4.1 + the three intel-plugin shlibs (amd64 only).
+entry "$NCZ" libopenvino-2026.4.1 2026.4.1-1+ncz1 "$ARCH"
+entry "$NCZ" libopenvino-intel-cpu-plugin-2026.4.1 2026.4.1-1+ncz1 "$ARCH"
+entry "$NCZ" libopenvino-intel-gpu-plugin-2026.4.1 2026.4.1-1+ncz1 "$ARCH"
+entry "$NCZ" libopenvino-intel-npu-plugin-2026.4.1 2026.4.1-1+ncz1 "$ARCH"
+# D -- the four Intel NPU CPack components (amd64 only).
+for _n in intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu; do
+    entry "$NCZ" "$_n" 2026.4.1-1+ncz1 "$ARCH"
+done
+# Two Debian-named artefacts that are NOT allowlisted, where NCZ carries the
+# HIGHER build. Without a pin a version contest alone hands the name to NCZ; with
+# the pin the NCZ row is 100 and Debian's 500 wins. (A lower NCZ version would
+# make the assertion vacuous, so the fixture is deliberately the "wrong" way up.)
+entry "$NCZ" libopenvino-forky-extra 9.9.9-1+ncz1 "$ARCH"
+entry "$NCZ" intel-forky-extra 9.9.9-1+ncz1 "$ARCH"
+# Foreign HIGHER versions of the new allowlist (prove whole-host -1 works):
+# the T2 repo's Ubuntu build and the Intel apt repo's Ubuntu build would win
+# any contest if their host priority were positive.
+entry "$T2" apple-t2-audio-config 99999999-1ubuntu1 "$ARCH"
+entry "$T2" apple-firmware-script 99999999-1ubuntu1 "$ARCH"
 # T2
 entry "$T2" t2fanrd 0.1.0-4 "$ARCH"
 entry "$T2" libfoo 3.0 "$ARCH"
 entry "$T2" linux-image-t2-fake 1.0 "$ARCH"
+# T2 repo carries apfs-dkms too; the policy does NOT prefer it because
+# the whole host is -1, so Debian's 0.3.21-1 is the candidate.
+entry "$T2" apfs-dkms 1.0 "$ARCH"
 for d in "$DEB" "$NCZ" "$T2"; do gzip -kf "$d/Packages"; done
 
 : > "$T/status"
@@ -150,6 +200,16 @@ src_of() {  # prefsdir pkg -> the source line (url) serving the candidate
     apt-cache "${o[@]}" policy "$2" 2>/dev/null | awk -v c="$(cand "$1" "$2")" '
         /Version table:/{t=1; next} t && ($1==c || $2==c) {f=1; next} f && /^ +[0-9]+ /{print $2; exit}'
 }
+polprio() {  # prefsdir pkg -> "<pin-priority> <source-url>" per version-table row
+    local -a o; mapfile -t o < <(aptopts "$1")
+    apt-cache "${o[@]}" policy "$2" 2>/dev/null | awk '/^ +-?[0-9]+ /{print $1, $2}'
+}
+
+candidate_priority() {  # version priority differs from repository index priority
+    local -a o; mapfile -t o < <(aptopts "$1")
+    apt-cache "${o[@]}" policy "$2" 2>/dev/null | awk -v c="$(cand "$1" "$2")" '
+        $1==c {print $2; exit} $1=="***" && $2==c {print $3; exit}'
+}
 
 OLD="$T/prefs-old"; NEW="$T/prefs-new"
 
@@ -158,6 +218,14 @@ eq "old fonts-liberation candidate (Ubuntu build leaks)" "$(cand "$OLD" fonts-li
 eq "old libfoo candidate (T2 Ubuntu build wins on version)" "$(cand "$OLD" libfoo)" "3.0"
 eq "old ncz-evil candidate (Debian hijacks an NCZ name)" "$(cand "$OLD" ncz-evil)" "9.0"
 case "$(upgrade_plan "$OLD")" in *fonts-liberation*) ok "old dist-upgrade plan includes fonts-liberation" ;; *) bad "old plan lacks fonts-liberation: $(upgrade_plan "$OLD")" ;; esac
+# The pre-policy shape of every 2026-10-15 row: the Ubuntu T2 host wins its own
+# contests at apt's default 500, and an unlisted NCZ name is hijacked on version
+# alone. These are the behaviours the NEW rows below have to invert.
+eq "old apple-t2-audio-config candidate (Ubuntu T2 build wins)" "$(cand "$OLD" apple-t2-audio-config)" "99999999-1ubuntu1"
+eq "old apple-firmware-script candidate (Ubuntu T2 build wins)" "$(cand "$OLD" apple-firmware-script)" "99999999-1ubuntu1"
+eq "old apfs-dkms candidate (T2 repo's 1.0 beats Debian 0.3.21-1)" "$(cand "$OLD" apfs-dkms)" "1.0"
+eq "old libopenvino-forky-extra candidate (unlisted name: NCZ hijacks it)" "$(cand "$OLD" libopenvino-forky-extra)" "9.9.9-1+ncz1"
+eq "old intel-forky-extra candidate (unlisted name: NCZ hijacks it)" "$(cand "$OLD" intel-forky-extra)" "9.9.9-1+ncz1"
 
 echo "=== NEW: Debian names come from Debian ==="
 eq "fonts-liberation candidate" "$(cand "$NEW" fonts-liberation)" "1:2.1.5-3"
@@ -186,9 +254,80 @@ eq "new pin, Debian 1.3.0-1+b1: candidate is the fixed NCZ build" "$(cand "$NEW"
 case "$(upgrade_plan "$NEW")" in *libgtk4-layer-shell0*) ok "new pin: dist-upgrade delivers the fixed build" ;; *) bad "new pin: libgtk4-layer-shell0 missing from plan: $(upgrade_plan "$NEW")" ;; esac
 case "$(src_of "$NEW" libgtk4-layer-shell0)" in "http://localhost:$PORT/ncz"*) ok "libgtk4-layer-shell0 is served by the NCZ host" ;; *) bad "libgtk4-layer-shell0 source: $(src_of "$NEW" libgtk4-layer-shell0)" ;; esac
 
-echo "=== NEW: third-party T2 repo ==="
-eq "t2fanrd (known T2 package) candidate" "$(cand "$NEW" t2fanrd)" "0.1.0-4"
+# --- 2026-10-15 (native Forky policy): the native Forky-only allowlist -------------------
+echo "=== NEW: the native T2 apples (A/B) come from NCZ; the Ubuntu T2 host is -1 ==="
+eq "apple-t2-audio-config candidate (NCZ-native build, not the T2 99999999-1ubuntu1)" "$(cand "$NEW" apple-t2-audio-config)" "0.5.1+ncz1"
+case "$(src_of "$NEW" apple-t2-audio-config)" in "http://localhost:$PORT/ncz"*) ok "  ... served by the NCZ host" ;; *) bad "  apple-t2-audio-config source: $(src_of "$NEW" apple-t2-audio-config)" ;; esac
+eq "apple-firmware-script candidate (NCZ-native build, not the T2 99999999-1ubuntu1)" "$(cand "$NEW" apple-firmware-script)" "20261015+ncz1"
+case "$(src_of "$NEW" apple-firmware-script)" in "http://localhost:$PORT/ncz"*) ok "  ... served by the NCZ host" ;; *) bad "  apple-firmware-script source: $(src_of "$NEW" apple-firmware-script)" ;; esac
+POLPRI="$(polprio "$NEW" apple-t2-audio-config)"
+case "$POLPRI" in *"-1 http://127.0.0.1:$PORT/t2"*) ok "  the Ubuntu T2 host is pinned -1 for the whole apple-t2-audio-config table" ;; *) bad "  T2 priority rows: $POLPRI" ;; esac
+eq "NCZ audio candidate priority" "$(candidate_priority "$NEW" apple-t2-audio-config)" "990"
+POLPRI="$(polprio "$NEW" apple-firmware-script)"
+case "$POLPRI" in *"-1 http://127.0.0.1:$PORT/t2"*) ok "  the Ubuntu T2 host is pinned -1 for apple-firmware-script too" ;; *) bad "  T2 priority rows: $POLPRI" ;; esac
+eq "NCZ firmware candidate priority" "$(candidate_priority "$NEW" apple-firmware-script)" "990"
+
+echo "=== NEW: Debian's own T2 name (apfs-dkms) is untouched: Debian 500, T2 blocked ==="
+eq "apfs-dkms candidate (Debian 0.3.21-1, NOT the T2 repo's higher 1.0)" "$(cand "$NEW" apfs-dkms)" "0.3.21-1"
+case "$(src_of "$NEW" apfs-dkms)" in "file:$DEB"*) ok "  apfs-dkms is served by the Debian source" ;; *) bad "  apfs-dkms source: $(src_of "$NEW" apfs-dkms)" ;; esac
+POLPRI="$(polprio "$NEW" apfs-dkms)"
+case "$POLPRI" in *"500 file:$DEB"*) ok "  Debian keeps apt's default priority 500 for apfs-dkms" ;; *) bad "  apfs-dkms priority rows: $POLPRI" ;; esac
+
+echo "=== NEW: the selected native Intel NPU set (C/D) resolves to NCZ's own build ==="
+# The C/D override rows are amd64-ONLY rows, but the generated pin stanza is
+# name-based (Package: <name> / Pin: origin <ncz host> / 990) exactly like every
+# other override row: this policy retains name-based client pins; the PUBLICATION
+# gate enforces architecture metadata, exercised over real
+# Packages metadata by build/test-native-apt-overrides.sh. This block exercises
+# the other half -- the name really resolves, from the NCZ host, at 990.
+NATIVE_CD="libopenvino-2026.4.1 libopenvino-intel-cpu-plugin-2026.4.1 libopenvino-intel-gpu-plugin-2026.4.1 libopenvino-intel-npu-plugin-2026.4.1"
+NATIVE_D4="intel-driver-compiler-npu intel-fw-npu intel-level-zero-npu intel-validation-npu"
+for _p in $NATIVE_CD $NATIVE_D4; do
+    eq "native $_p candidate" "$(cand "$NEW" "$_p")" "2026.4.1-1+ncz1"
+    eq "native $_p candidate priority" "$(candidate_priority "$NEW" "$_p")" "990"
+    case "$(src_of "$NEW" "$_p")" in "http://localhost:$PORT/ncz"*) ok "  $_p is served by the NCZ host" ;; *) bad "  $_p source: $(src_of "$NEW" "$_p")" ;; esac
+done
+
+echo "=== NEW: names outside the allowlist stay Debian's, even when NCZ's build is HIGHER ==="
+eq "libopenvino-forky-extra candidate (NCZ 9.9.9-1+ncz1 is only 100)" "$(cand "$NEW" libopenvino-forky-extra)" "4.2.0-1"
+case "$(src_of "$NEW" libopenvino-forky-extra)" in "file:$DEB"*) ok "  libopenvino-forky-extra is served by the Debian source" ;; *) bad "  libopenvino-forky-extra source: $(src_of "$NEW" libopenvino-forky-extra)" ;; esac
+eq "intel-forky-extra candidate (NCZ 9.9.9-1+ncz1 is only 100)" "$(cand "$NEW" intel-forky-extra)" "2.1.0-1"
+case "$(src_of "$NEW" intel-forky-extra)" in "file:$DEB"*) ok "  intel-forky-extra is served by the Debian source" ;; *) bad "  intel-forky-extra source: $(src_of "$NEW" intel-forky-extra)" ;; esac
+
+echo "=== NEW: a host that already installed the OLD foreign apples upgrades to the native set ==="
+# The shape hook 55 / ncz-intel-accel-setup creates on an existing install:
+# apple-t2-audio-config 0.5.1 and apple-firmware-script 0.6 installed from the
+# Ubuntu T2 repo. A plain `apt-get install` of the two names (no -t, no pinning,
+# no live hook, isolated apt root) must upgrade both to the NCZ-native builds
+# with "0 to remove" -- the r200 pin text offered neither build at all.
+cp "$T/status" "$T/status.native-backup"
+inst apple-t2-audio-config 0.5.1
+inst apple-firmware-script 0.6
+mapfile -t _nat < <(aptopts "$NEW")
+NATPLAN="$(apt-get "${_nat[@]}" -s --no-remove install apple-t2-audio-config apple-firmware-script 2>&1)"; natrc=$?
+eq "unpinned 'apt-get install' of the two apples resolves (rc=0)" "$natrc" "0"
+if printf '%s\n' "$NATPLAN" | grep -F >/dev/null 'Inst apple-t2-audio-config [0.5.1] (0.5.1+ncz1'; then
+    ok "  it upgrades apple-t2-audio-config to the NCZ-native 0.5.1+ncz1"
+else bad "  apple-t2-audio-config is not upgraded to the native build" "$NATPLAN"; fi
+if printf '%s\n' "$NATPLAN" | grep -F >/dev/null 'Inst apple-firmware-script [0.6] (20261015+ncz1'; then
+    ok "  it upgrades apple-firmware-script to the NCZ-native 20261015+ncz1"
+else bad "  apple-firmware-script is not upgraded to the native build" "$NATPLAN"; fi
+if printf '%s\n' "$NATPLAN" | grep >/dev/null '^Remv'; then
+    bad "  the plan removes a package (apt would not print '0 to remove')" "$NATPLAN"
+else ok "  no ^Remv action: an existing install keeps both names ('0 to remove')"; fi
+if printf '%s\n' "$NATPLAN" | grep >/dev/null '99999999-1ubuntu1'; then
+    bad "  the plan still carries the Ubuntu T2 build" "$NATPLAN"
+else ok "  no 99999999-1ubuntu1 (T2) version anywhere in the plan"; fi
+cp "$T/status.native-backup" "$T/status"
+
+echo "=== NEW: third-party T2 repo -- the WHOLE host is -1, known names included ==="
+# 2026-10-15 (native Forky policy): the old per-name 990 allowlist for adityagarg8.github.io is
+# gone; the host is pinned -1 wholesale, so even a name NCZ has never rebuilt
+# (t2fanrd) is not installable. Nothing from that host wins a contest.
+eq "t2fanrd (Ubuntu T2 repo only, whole host -1) is not installable" "$(cand "$NEW" t2fanrd)" "(none)"
+eq "OLD: t2fanrd is installable from the T2 repo without the pin" "$(cand "$OLD" t2fanrd)" "0.1.0-4"
 eq "linux-image-t2-fake from the T2 repo is blocked" "$(cand "$NEW" linux-image-t2-fake)" "(none)"
+case "$(polprio "$NEW" t2fanrd)" in *"-1 http://127.0.0.1:$PORT/t2"*) ok "the T2 row for t2fanrd sits at -1 (and only at -1)" ;; *) bad "T2 priority rows: $(polprio "$NEW" t2fanrd)" ;; esac
 
 echo "=== NEW: Debian kernel purity pin still composes ==="
 eq "Debian linux-image-$ARCH unavailable" "$(cand "$NEW" "linux-image-$ARCH")" "(none)"
@@ -236,28 +375,66 @@ case "$(apt-get "${_o[@]}" -s dist-upgrade 2>&1)" in *"Remv fonts-liberation"*) 
 cp "$T/status.A" "$T/status"
 
 echo "=== scenario D: Intel deferred install (ncz-intel-accel-setup: UNPINNED apt-get install, Ubuntu-named suite ubuntu24) ==="
-# Intel carries Ubuntu builds of the Level Zero / OpenCL runtime with HIGHER versions; Debian forky ships same-named
-# libopenvino-intel-* plugin packages with higher versions than Intel's. Required: libopenvino-intel-* from Intel,
-# intel-opencl-icd / libze1 / libze-intel-gpu1 from Debian forky.
+# 2026-10-15 (native Forky policy) contract: apt.repos.intel.com is pinned -1 as a WHOLE HOST.
+# So Intel can supply NOTHING: not intel-opencl-icd / libze1 / libze-intel-gpu1,
+# and not libopenvino-intel-npu-plugin either -- that name falls back to Debian
+# forky's own 3000.0-1. The Intel NPU stack NCZ now builds itself arrives under
+# the SELECTED names (libopenvino-2026.4.1 + its intel-* plugins, intel-*-npu),
+# which the NCZ host serves at 990 even against Intel's HIGHER foreign build.
 INTEL="$T/www/intel"; DEBI="$T/debintel"
 mk_repo "$INTEL" Intel ubuntu24; mk_repo "$DEBI" Debian testing
 for p in intel-opencl-icd libze1 libze-intel-gpu1; do entry "$INTEL" "$p" 99.0-ubuntu24 "$ARCH"; entry "$DEBI" "$p" 25.1-1 "$ARCH"; done
 entry "$INTEL" libopenvino-intel-npu-plugin 2026.1.0-intel "$ARCH"; entry "$DEBI" libopenvino-intel-npu-plugin 3000.0-1 "$ARCH"
+# Foreign-only names: the Intel repo also carries a HIGHER Ubuntu build of every
+# name NCZ now builds natively, plus two names nobody else ships at all.
+for p in $NATIVE_CD $NATIVE_D4; do entry "$INTEL" "$p" 2026.4.1-99intel "$ARCH"; done
+entry "$INTEL" libopenvino-extra 99.0-ubuntu24 "$ARCH"
+entry "$INTEL" intel-other 99.0-ubuntu24 "$ARCH"
 gzip -kf "$INTEL/Packages" "$DEBI/Packages"
 cat > "$T/sources" <<EOF
 deb [trusted=yes] file://$DEBI ./
 deb [trusted=yes] http://127.0.0.2:$PORT/intel ./
+deb [trusted=yes] http://localhost:$PORT/ncz ./
 EOF
 apt-get "${UPD[@]}" update >"$T/update4.log" 2>&1
 eq "OLD: Intel's Ubuntu intel-opencl-icd wins (the bug the pin prevents)" "$(cand "$OLD" intel-opencl-icd)" "99.0-ubuntu24"
-eq "OLD: Debian's libopenvino-intel-npu-plugin beats Intel's (the bug the pin prevents)" "$(cand "$OLD" libopenvino-intel-npu-plugin)" "3000.0-1"
-eq "NEW: libopenvino-intel-npu-plugin comes from Intel" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "2026.1.0-intel"
+eq "OLD: Debian's libopenvino-intel-npu-plugin already wins without the pin (3000.0-1 > 2026.1.0-intel)" "$(cand "$OLD" libopenvino-intel-npu-plugin)" "3000.0-1"
+eq "OLD: Intel's higher foreign build of a selected name wins" "$(cand "$OLD" libopenvino-intel-npu-plugin-2026.4.1)" "2026.4.1-99intel"
+eq "OLD: a foreign-only Intel name is installable" "$(cand "$OLD" libopenvino-extra)" "99.0-ubuntu24"
+# --- NEW: the whole Intel host is -1 --------------------------------------
+eq "NEW: libopenvino-intel-npu-plugin falls back to Debian forky, not Intel" "$(cand "$NEW" libopenvino-intel-npu-plugin)" "3000.0-1"
+case "$(src_of "$NEW" libopenvino-intel-npu-plugin)" in "file:$DEBI"*) ok "  ... and it is served by the Debian snapshot source" ;; *) bad "  source: $(src_of "$NEW" libopenvino-intel-npu-plugin)" ;; esac
 for p in intel-opencl-icd libze1 libze-intel-gpu1; do eq "NEW: $p comes from Debian forky" "$(cand "$NEW" "$p")" "25.1-1"; done
+POLPRI="$(polprio "$NEW" libopenvino-intel-npu-plugin)"
+case "$POLPRI" in *"-1 http://127.0.0.2:$PORT/intel"*) ok "the Intel origin carries -1 in the version table" ;; *) bad "Intel priority rows: $POLPRI" ;; esac
+case "$POLPRI" in *"500 file:$DEBI"*) ok "the Debian source keeps apt's default 500 for the same name" ;; *) bad "Debian priority rows: $POLPRI" ;; esac
+POLPRI="$(polprio "$NEW" intel-opencl-icd)"
+case "$POLPRI" in *"-1 http://127.0.0.2:$PORT/intel"*) ok "intel-opencl-icd: Intel's 99.0-ubuntu24 is pinned -1 too" ;; *) bad "Intel priority rows: $POLPRI" ;; esac
+# --- NEW: the selected native names win their contest against the foreign build ---
+for p in $NATIVE_CD $NATIVE_D4; do
+    eq "NEW: $p candidate is NCZ's native build, not Intel's 2026.4.1-99intel" "$(cand "$NEW" "$p")" "2026.4.1-1+ncz1"
+    case "$(src_of "$NEW" "$p")" in "http://localhost:$PORT/ncz"*) ok "  $p is served by the NCZ host" ;; *) bad "  $p source: $(src_of "$NEW" "$p")" ;; esac
+    case "$(polprio "$NEW" "$p")" in *"-1 http://127.0.0.2:$PORT/intel"*) ok "  the foreign 2026.4.1-99intel build of $p sits at -1" ;; *) bad "  $p Intel priority rows: $(polprio "$NEW" "$p")" ;; esac
+done
+# --- NEW: a foreign-only name has no candidate at all and apt refuses it ---
+for p in libopenvino-extra intel-other; do
+    eq "NEW: foreign-only $p (no Debian/NCZ copy) has no candidate" "$(cand "$NEW" "$p")" "(none)"
+    mapfile -t _f < <(aptopts "$NEW")
+    FPLAN="$(apt-get "${_f[@]}" -s install "$p" 2>&1)"; frc=$?
+    if [ "$frc" -ne 0 ]; then ok "NEW: apt-get -s install $p is refused (rc=$frc)"; else bad "NEW: apt-get -s install $p resolved against the blocked Intel host" "$FPLAN"; fi
+done
 mapfile -t _o < <(aptopts "$NEW")
 PLAN="$(apt-get "${_o[@]}" -s install libopenvino-intel-npu-plugin intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"; prc=$?
 [ "$prc" = 0 ] && ok "an unpinned apt-get install of the Intel set resolves (rc=0)" || bad "unpinned install plan failed rc=$prc" "$PLAN"
-printf '%s\n' "$PLAN" | grep >/dev/null '^Inst libopenvino-intel-npu-plugin (2026.1.0-intel' && printf '%s\n' "$PLAN" | grep >/dev/null '^Inst intel-opencl-icd (25.1-1' \
-    && ok "the plan installs the Intel plugin and Debian's runtime" || bad "wrong sources in the install plan" "$PLAN"
+printf '%s\n' "$PLAN" | grep >/dev/null '^Inst libopenvino-intel-npu-plugin (3000.0-1' && printf '%s\n' "$PLAN" | grep >/dev/null '^Inst intel-opencl-icd (25.1-1' \
+    && ok "the plan installs Debian's plugin and Debian's runtime (no Intel build)" || bad "wrong sources in the install plan" "$PLAN"
+if printf '%s\n' "$PLAN" | grep >/dev/null -E 'ubuntu24|2026\.1\.0-intel|99intel'; then
+    bad "the install plan still carries an Intel-origin version" "$PLAN"
+else ok "no Intel-origin version (ubuntu24 / *-intel / *99intel) in the install plan"; fi
+PLANU="$(apt-get "${_o[@]}" -s --print-uris install libopenvino-intel-npu-plugin intel-opencl-icd libze1 libze-intel-gpu1 2>&1)"
+if printf '%s\n' "$PLANU" | grep >/dev/null '127\.0\.0\.2'; then
+    bad "the install plan still names an Intel-host artefact URI" "$PLANU"
+else ok "the install plan's artefact URIs name no Intel host (whole-host -1)"; fi
 ncz_apt_separation_pin_text | grep >/dev/null -i 'cdrom' && bad "the pin text mentions /cdrom" || ok "the pin text does not depend on /cdrom"
 
 echo "=== scenario E: hook 24's ncz-screensavers canary reads the same policy shape with the pin installed ==="
@@ -272,6 +449,8 @@ print(s[a:b])
 PYC
 CD="$T/cdrom"; mk_repo "$CD" nclawzero forky; entry "$CD" ncz-screensavers 0.8.9; gzip -kf "$CD/Packages"
 entry "$NCZ" ncz-screensavers 0.8.10; gzip -kf -f "$NCZ/Packages"
+# Discard only this fixture cache: HTTP Last-Modified has second precision.
+find "$T/state/lists" -maxdepth 1 -type f -delete
 mkshim() {  # prefsdir dest
     local -a o; mapfile -t o < <(aptopts "$1")
     { echo '#!/bin/bash'; printf '/usr/bin/apt-cache'; printf ' %q' "${o[@]}"

@@ -500,9 +500,13 @@ if [ -x "$REPO/build/build-dkms-debs.sh" ]; then
     # vpu IS built: it was missing from this list, so a stale
     # cix-vpu-driver-dkms deb kept its filename and was never restaged.
     rm -f "$ASSETS/cix-debs"/cix-npu-kmd-dkms_*.deb   # retired; see the header above
-    if bash "$REPO/build/build-dkms-debs.sh" mali panthor vpu 2>&1 | sed 's/^/    /'; then
+    # panthor-cix-dkms is NEVER staged (order 01:35Z 2026-11-15, "NO PANTHOR
+    # ANYWHERE"): a stale staged deb gets installed by hook 25 and dkms-adds
+    # panthor into the image. Remove any leftover from older stage runs too.
+    rm -f "$ASSETS/cix-debs"/panthor-cix-dkms_*.deb
+    log "  removed panthor-cix-dkms from the staged set (Panthor is not shipped)"
+    if bash "$REPO/build/build-dkms-debs.sh" mali vpu 2>&1 | sed 's/^/    /'; then
         for d in "$REPO/build/dkms-debs"/cix-gpu-kmd-dkms_*.deb \
-                 "$REPO/build/dkms-debs"/panthor-cix-dkms_*.deb \
                  "$REPO/build/dkms-debs"/cix-vpu-driver-dkms_*.deb; do
             [ -e "$d" ] || continue
             # These debs were just built from assets/kernel/<drv>, so they
@@ -524,7 +528,7 @@ if [ -x "$REPO/build/build-dkms-debs.sh" ]; then
         done
         reached=$((reached+1))
     else
-        warn "build-dkms-debs.sh mali panthor vpu returned non-zero"
+        warn "build-dkms-debs.sh mali vpu returned non-zero"
         missing=$((missing+1))
     fi
 else
@@ -540,7 +544,7 @@ fi
 # call skipped one (no src/, no dkms.conf), surface that NOW, not in a
 # post-install dmesg. The op-mode (NCZ_ISO) is the only place this can
 # fail fast without a hardware boot.
-EXPECTED_DKMS=(cix-gpu-kmd panthor-cix cix-vpu-driver cix-npu-driver)
+EXPECTED_DKMS=(cix-gpu-kmd cix-vpu-driver cix-npu-driver)
 for n in "${EXPECTED_DKMS[@]}"; do
     case " ${DKMS_BUILT[*]} " in
         *"${n}-dkms_"*) : ;;   # present

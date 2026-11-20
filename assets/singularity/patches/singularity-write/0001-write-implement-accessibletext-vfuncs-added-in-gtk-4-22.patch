@@ -1,31 +1,19 @@
-From a27cd61c09d5a3a8f45d2412d07218204d110873 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Wed, 7 Oct 2026 12:31:07 -0400
-Subject: [PATCH] write: implement the GtkAccessibleText vfuncs GTK 4.22 added
+Date: Wed, 18 Nov 2026 12:00:00 -0500
+Subject: [PATCH] write: implement the Gtk.AccessibleText vfuncs GTK 4.22 added
 
-GTK 4.22 added get_default_attributes, get_extents, get_offset,
-set_caret_position and set_selection to GtkAccessibleText, and Vala 0.56's
-gtk4.vapi declares them abstract. WriteDocView implements the interface but
-not these, so it fails to build against GTK 4.24 with "does not implement
-interface method Gtk.AccessibleText.get_default_attributes" (and four more).
-Report each as unsupported.
+Implement the five newly abstract Gtk.AccessibleText methods, reporting the
+operations as unsupported with empty attributes and false return values.
 ---
- src/ui/doc_view.vala | 26 ++++++++++++++++++++++++++
- 1 file changed, 26 insertions(+)
-
-diff --git a/src/ui/doc_view.vala b/src/ui/doc_view.vala
-index 5c42f25..1baee51 100644
 --- a/src/ui/doc_view.vala
 +++ b/src/ui/doc_view.vala
-@@ -1904,5 +1904,31 @@ namespace Singularity.Apps {
+@@ -2063,5 +2063,28 @@
              attribute_values = {};
              return false;
          }
 +
-+        /* GTK 4.22 added these vfuncs to GtkAccessibleText and Vala 0.56's
-+         * gtk4.vapi declares them abstract, so a class that implements the
-+         * interface must define them. None is supported: report so through
-+         * the return value, which GTK documents as "not supported". */
++        /* GTK 4.22 added these vfuncs to GtkAccessibleText. */
 +        public void get_default_attributes(out string[] attribute_names, out string[] attribute_values) {
 +            attribute_names = {};
 +            attribute_values = {};
@@ -51,4 +39,3 @@ index 5c42f25..1baee51 100644
  }
 -- 
 2.53.0
-

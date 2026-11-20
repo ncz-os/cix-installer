@@ -229,7 +229,7 @@ def cmd_refind(a) -> None:
         im = to_8bit(lin)
         if a.wordmark:
             # Product line under the menu, above rEFInd's two help lines
-            # (the same place the 26.7 banner carried its title).
+            # (the same place the old 26.7 banner carried its title).
             wm = wordmark(int(w * 0.30), int(h * 0.085), a.wordmark)
             im.paste(wm, ((w - wm.width) // 2, int(h * 0.80)), wm)
         im.save(out / name, optimize=True)

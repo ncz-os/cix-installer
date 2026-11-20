@@ -4,6 +4,8 @@
 
 # NCZ Agentic Linux — AI/ML Stack Reference (Cix Sky1)
 
+> Preview 4 uses `7.4.0-rc3-sky1-ncz` and the Mali GPU driver. The measurements below are from 26.7.
+>
 > **Scope note (26.7).** NCZ-OS ships one kernel, `7.2.0-sky1-ncz`, and
 > **both GPU drivers**:
 >

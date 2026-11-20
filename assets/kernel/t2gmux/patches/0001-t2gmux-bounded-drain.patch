@@ -1,8 +1,8 @@
 diff --git a/t2gmux.c b/t2gmux.c
-index ddc651e..4c72fc6 100644
+index e02bd4f..f8e6fc6 100644
 --- a/t2gmux.c
 +++ b/t2gmux.c
-@@ -1179,14 +1179,37 @@ static void gmux_interrupt_work(struct work_struct *work)
+@@ -1296,32 +1296,55 @@ static void gmux_interrupt_work(struct work_struct *work)
  	acpi_finish_gpe(NULL, gmux_data->gpe);
  
  	status = gmux_interrupt_get_status(gmux_data);
@@ -13,7 +13,20 @@ index ddc651e..4c72fc6 100644
 -			complete(&gmux_data->powerchange_done);
 -		if (status & GMUX_INTERRUPT_STATUS_FAILED)
 -			pr_warn("interrupt failed: status 0x%x\n", status);
--		status = gmux_interrupt_get_status(gmux_data);
+-		if (status & GMUX_INTERRUPT_STATUS_HOTPLUG) {
+-			/*
+-			 * There is an interrupt on every connect and disconnect,
+-			 * but GET_DISPLAY only tells whether any display is
+-			 * connected, so wake the dGPU on every hotplug.
+-			 */
+-			bool external_state = !!gmux_read8(gmux_data,
+-						GMUX_PORT_SWITCH_GET_DISPLAY);
+-
+-			if (external_state != gmux_data->external_state) {
+-				gmux_data->external_state = external_state;
+-				pr_debug("hotplug: display %s\n",
+-					 external_state ? "connected" :
+-							  "disconnected");
 +	/*
 +	 * Bound the acknowledge loop: a stuck interrupt that never
 +	 * clears would otherwise hold power_lock forever, blocking
@@ -35,6 +48,26 @@ index ddc651e..4c72fc6 100644
 +			if (status & GMUX_INTERRUPT_STATUS_FAILED)
 +				pr_warn("interrupt failed: status 0x%x\n",
 +					status);
++			if (status & GMUX_INTERRUPT_STATUS_HOTPLUG) {
++				/*
++				 * There is an interrupt on every connect and disconnect,
++				 * but GET_DISPLAY only tells whether any display is
++				 * connected, so wake the dGPU on every hotplug.
++				 */
++				bool external_state = !!gmux_read8(gmux_data,
++							GMUX_PORT_SWITCH_GET_DISPLAY);
++
++				if (external_state != gmux_data->external_state) {
++					gmux_data->external_state = external_state;
++					pr_debug("hotplug: display %s\n",
++						 external_state ? "connected" :
++								  "disconnected");
++				}
++				if (!gmux_data->external_switchable)
++					turn_on_gpu = true;
+ 			}
+-			if (!gmux_data->external_switchable)
+-				turn_on_gpu = true;
 +			status = gmux_interrupt_get_status(gmux_data);
 +		}
 +
@@ -44,10 +77,8 @@ index ddc651e..4c72fc6 100644
 +					   drains, status);
 +			mutex_unlock(&gmux_data->power_lock);
 +			return;
-+		}
+ 		}
+-		status = gmux_interrupt_get_status(gmux_data);
  	}
  
  	gmux_enable_interrupts(gmux_data);
--- 
-2.50.1 (Apple Git-155)
-

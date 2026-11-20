@@ -74,11 +74,23 @@ if [ -d "$AGENT_STACK_SRC" ]; then
     for f in "$AGENT_STACK_SRC"/*.container "$AGENT_STACK_SRC"/*.network \
              "$AGENT_STACK_SRC"/agent-env.sample; do
         [ -e "$f" ] || continue
-        install -D -m 0644 "$f" /usr/share/ncz/quadlets/$(basename "$f")
+        install -D -m 0644 "$f" "/usr/share/ncz/quadlets/$(basename "$f")"
     done
     echo "    /usr/share/ncz/quadlets staged ($(ls /usr/share/ncz/quadlets/*.container 2>/dev/null | wc -l | tr -d ' ') container + $(ls /usr/share/ncz/quadlets/*.network 2>/dev/null | wc -l | tr -d ' ') network templates)"
 else
     echo "    WARN: $AGENT_STACK_SRC not in payload — /usr/share/ncz/quadlets NOT staged" >&2
+fi
+
+# Stage the pinned model catalog so `ncz models pull <name>` works on the
+# installed system. Non-fatal when the payload lacks it (the default
+# nomic GGUF pull keeps working without the catalog).
+MODELS_CATALOG_SRC=/usr/local/lib/cix-installer/assets/models/catalog.tsv
+[ -f "$MODELS_CATALOG_SRC" ] || MODELS_CATALOG_SRC=/cdrom/ncz-payload/assets/models/catalog.tsv
+if [ -f "$MODELS_CATALOG_SRC" ]; then
+    install -D -m 0644 "$MODELS_CATALOG_SRC" /usr/share/ncz/models/catalog.tsv
+    echo "    /usr/share/ncz/models/catalog.tsv staged"
+else
+    echo "    WARN: $MODELS_CATALOG_SRC not in payload — ncz model catalog NOT staged" >&2
 fi
 
 # The default Debian `secure_path` is /usr/sbin:/usr/bin:/sbin:/bin. Operators
@@ -105,7 +117,7 @@ fi
 
 install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 #!/bin/bash
-# ncz — nclawzero operator CLI.
+# ncz — NCZ-OS operator CLI.
 # Subcommands:
 #   desktop {on|off|status}  — graphical/multi-user toggle
 #   models pull              — fetch cixtech/ai_model_hub_25_Q3 LFS to /opt/ncz/models
@@ -115,8 +127,13 @@ install -D -m 0755 /dev/stdin /usr/local/bin/ncz <<'NCZ'
 set -euo pipefail
 
 readonly NCZ_VERSION="0.2.0"
-readonly NCZ_MODELS_DIR="/opt/ncz/models"
+# Overridable for tests (installed default: /opt/ncz/models). The ${:-}
+# form keeps `set -u` happy when the variable is unset.
+readonly NCZ_MODELS_DIR="${NCZ_MODELS_DIR:-/opt/ncz/models}"
 readonly NCZ_CIX_LIB_DIR="/opt/cix"
+# Pinned model catalog (name/url/sha256/size/licence). Overridable for tests;
+# installed at /usr/share/ncz/models/catalog.tsv by this hook.
+readonly NCZ_MODELS_CATALOG="${NCZ_MODELS_CATALOG:-/usr/share/ncz/models/catalog.tsv}"
 readonly NCZ_AGENT_HELPER="/usr/local/lib/ncz-agent-cli"
 readonly NCZ_QUADLET_TEMPLATES="/usr/share/ncz/quadlets"
 readonly NCZ_QUADLET_ACTIVE="/etc/containers/systemd"
@@ -127,7 +144,7 @@ readonly MNEMOS_IMAGE="${MNEMOS_IMAGE:-ghcr.io/ncz-os/mnemos-enterprise:latest}"
 
 ncz_help() {
     cat <<HELP
-ncz — nclawzero operator CLI ($NCZ_VERSION)
+ncz — NCZ-OS operator CLI ($NCZ_VERSION)
 
 Usage: ncz <subcommand> [args]
 
@@ -288,6 +305,15 @@ ncz_models() {
                     *.cix)  printf '  %-34s %6s  NPU  (npu-cix / Zhouyi, /dev/aipu)\n' "$(basename "$m")" "$sz" ;;
                     *.gguf) printf '  %-34s %6s  CPU/GPU (llama.cpp / Vulkan)\n' "$(basename "$m")" "$sz" ;;
                 esac
+                # The META-INF sidecar records where the artifact came from
+                # (source URL + verified sha256), so a user-supplied model
+                # is distinguishable from a catalog pull.
+                local prov="$NCZ_MODELS_DIR/META-INF/$(basename "$m").provenance"
+                if [ -f "$prov" ]; then
+                    local src
+                    src="$(sed -n 's/^Source: //p' "$prov" 2>/dev/null | head -1)"
+                    [ -n "$src" ] && printf '  %-34s        source: %s\n' "" "$src"
+                fi
             done < <(find "$NCZ_MODELS_DIR" -maxdepth 3 -type f \( -name '*.cix' -o -name '*.gguf' \) 2>/dev/null | sort)
             # Tokenizer dirs (config.json alongside tokenizer.json/vocab).
             while IFS= read -r t; do
@@ -304,7 +330,7 @@ ncz_models() {
             ;;
         help|--help|-h)
             cat <<MSG
-Usage: ncz models [list|pull|path]
+Usage: ncz models [list|pull [name]|add <url> --sha256 <hex>|path]
 
   list   (default) Show embedding models installed in $NCZ_MODELS_DIR:
          .cix (NPU / Zhouyi) + .gguf (CPU/GPU llama.cpp) + tokenizers.
@@ -313,6 +339,17 @@ Usage: ncz models [list|pull|path]
          Idempotent: skips when the file is already present and its
          sha256 matches. Public source only; clear offline message when
          the network is down.
+  pull <name>  Download the catalog entry <name> (name, url, pinned
+         sha256, size, licence from $NCZ_MODELS_CATALOG). Same pinned-
+         hash / retry / idempotency path as the default pull. An
+         unknown name lists the available catalog entries.
+  add <url> --sha256 <hex>
+         Install a user-supplied model that is NOT in the catalog.
+         --sha256 is REQUIRED: the download is verified against it
+         before the file is installed, exactly like a catalog pull.
+         The file lands in $NCZ_MODELS_DIR under the URL's basename and
+         carries the same META-INF provenance sidecar. A file already
+         present with a DIFFERENT hash is refused, never overwritten.
   path   Print the on-disk path that 'ncz install mnemos' will use
          (or 'unset' if no host-side model is installed).
 
@@ -321,7 +358,12 @@ Docs: $NCZ_MODELS_DIR/MODELS-README.md,
 MSG
             ;;
         pull)
-            ncz_models_pull
+            shift || true
+            ncz_models_pull "$@"
+            ;;
+        add)
+            shift || true
+            ncz_models_add "$@"
             ;;
         path)
             # Surface the path 'ncz install mnemos' will hand to the MNEMOS
@@ -339,26 +381,244 @@ MSG
             return 1
             ;;
         *)
-            echo "ncz models: unknown action '$action' (expected list|pull|path)" >&2
+            echo "ncz models: unknown action '$action' (expected list|pull|add|path)" >&2
             exit 1
             ;;
     esac
 }
 
 # ncz_models_pull -- download nomic-embed-text-v1.5.Q8_0.gguf to $NCZ_MODELS_DIR
-# with a pinned hash + 3 retries + clear offline message. Idempotent: skips
+# (no args, today's behaviour) or the named catalog entry
+# `ncz models pull <name>` (name/url/sha256/size/licence from
+# $NCZ_MODELS_CATALOG, shipped as assets/models/catalog.tsv).
+# Pinned hash + 3 retries + clear offline message. Idempotent: skips
 # when the file is already present with the correct hash. The same GGUF is
 # baked into the MNEMOS-enterprise image at /opt/mnemos/models/<file>, so
 # pulling it to the host is optional (only needed for host-side embedders
 # such as the zoder work-history path that doesn't run inside MNEMOS).
 ncz_models_pull() {
+    local want="${1:-}"
+    if [ -n "$want" ]; then
+        ncz_models_pull_catalog "$want"
+        return $?
+    fi
     # Public source: HuggingFace nomic-ai/nomic-embed-text-v1.5-GGUF.
     # The Q8_0 quantization is ~146 MB. Hash pinned below matches the file
-    # baked into ghcr.io/ncz-os/mnemos-enterprise:latest as of 2026-10-13.
+    # baked into ghcr.io/ncz-os/mnemos-enterprise:latest as of 2026-10-13
+    # (and the catalog's default row — keep both pins in sync).
     local url='https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf'
     local sha256='3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7'
+    local fname='nomic-embed-text-v1.5.Q8_0.gguf'
+    local licence='Apache-2.0'
+    ncz_models_fetch "$fname" "$url" "$sha256" "$licence"
+}
+
+# ncz_models_list_catalog -- print the known catalog names (one per line).
+ncz_models_list_catalog() {
+    if [ ! -f "$NCZ_MODELS_CATALOG" ]; then
+        echo "ncz models pull: no catalog at $NCZ_MODELS_CATALOG" >&2
+        return 1
+    fi
+    awk -F'\t' '!/^#/ && NF >= 1 && $1 != "" {print $1}' "$NCZ_MODELS_CATALOG"
+}
+
+# ncz_models_check_name -- refuse an install filename that could escape
+# $NCZ_MODELS_DIR. One case statement, most restrictive pattern first:
+# empty, leading dot (hidden/parent refs), a '..' component, then
+# the safe-charset whitelist. $2 names the source of the value for the
+# diagnostic ("catalog entry 'x'" / "model URL").
+ncz_models_check_name() {
+    local fname="$1"
+    local what="$2"
+    case "$fname" in
+        ""|.*|*..*|*[!A-Za-z0-9._-]*)
+            echo "ncz models: $what has an unsafe filename '$fname'" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+# ncz_models_check_url -- only http(s):// and file:// URLs are fetched.
+ncz_models_check_url() {
+    local url="$1"
+    local what="$2"
+    case "$url" in http://*|https://*|file://*) return 0 ;; esac
+    echo "ncz models: $what has an unsafe URL (want http(s):// or file://)" >&2
+    return 1
+}
+
+# ncz_models_check_sha256 -- the pin must be exactly 64 lowercase hex chars.
+ncz_models_check_sha256() {
+    local sha256="$1"
+    local what="$2"
+    case "$sha256" in
+        ????????????????????????????????????????????????????????????????)
+            case "$sha256" in *[!0-9a-f]*)
+                echo "ncz models: $what has a non-hex sha256 pin" >&2
+                return 1
+                ;;
+            esac
+            ;;
+        *)
+            echo "ncz models: $what has a malformed sha256 pin (want 64 hex chars)" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
+# ncz_models_add -- install a user-supplied model that is NOT in the
+# catalog: `ncz models add <url> --sha256 <hex>`.
+#
+# The verification is the same one a catalog pull gets: the download is
+# checked against the operator-supplied sha256 BEFORE the file is
+# installed, through the shared ncz_models_fetch helper (3 retries,
+# offline diagnostic, idempotency). --sha256 is mandatory — an unpinned
+# download would land in the models directory unverified, which is
+# exactly the hole this subcommand closes.
+ncz_models_add() {
+    local url="" sha256="" arg
+    while [ "$#" -gt 0 ]; do
+        arg="$1"
+        case "$arg" in
+            --sha256)
+                shift || true
+                if [ "$#" -gt 0 ]; then
+                    sha256="$1"
+                    shift || true
+                fi
+                ;;
+            --sha256=*)
+                sha256="${arg#--sha256=}"
+                shift || true
+                ;;
+            --)
+                shift || true
+                break
+                ;;
+            -*)
+                echo "ncz models add: unknown option '$arg'" >&2
+                echo "Usage: ncz models add <url> --sha256 <hex>" >&2
+                return 1
+                ;;
+            *)
+                if [ -n "$url" ]; then
+                    echo "ncz models add: unexpected extra argument '$arg'" >&2
+                    echo "Usage: ncz models add <url> --sha256 <hex>" >&2
+                    return 1
+                fi
+                url="$arg"
+                shift || true
+                ;;
+        esac
+    done
+    if [ -z "$url" ]; then
+        echo "ncz models add: a model URL is required" >&2
+        echo "Usage: ncz models add <url> --sha256 <hex>" >&2
+        return 1
+    fi
+    if [ -z "$sha256" ]; then
+        echo "ncz models add: --sha256 <hex> is required" >&2
+        echo "  the download is verified against this hash before it is installed." >&2
+        echo "  Usage: ncz models add <url> --sha256 <hex>" >&2
+        return 1
+    fi
+    ncz_models_check_url "$url" "model URL" || return 1
+    ncz_models_check_sha256 "$sha256" "model URL" || return 1
+    # The install name is the URL's basename, so it lands directly in
+    # $NCZ_MODELS_DIR. A basename that could escape it is refused.
+    local fname
+    fname="$(basename "$url")"
+    ncz_models_check_name "$fname" "model URL '$url'" || return 1
+    echo "[ncz] models add: $fname (user-supplied, sha256 pinned by the operator)"
+    # "refuse": an installed file with a different hash is never silently
+    # overwritten — the operator's pin is an assertion, not a repair order.
+    ncz_models_fetch "$fname" "$url" "$sha256" "" "refuse"
+}
+
+# ncz_models_pull_catalog -- pull the catalog entry <name> through the same
+# pinned-hash / retry / idempotency path as the default pull. Unknown names
+# list the catalog on stderr and exit non-zero.
+ncz_models_pull_catalog() {
+    local want="$1"
+    if [ ! -f "$NCZ_MODELS_CATALOG" ]; then
+        echo "ncz models pull: no catalog at $NCZ_MODELS_CATALOG" >&2
+        echo "ncz models pull: cannot resolve '$want' without the catalog" >&2
+        return 1
+    fi
+    local row
+    row="$(awk -F'\t' -v want="$want" '!/^#/ && $1 == want {print; exit}' "$NCZ_MODELS_CATALOG")"
+    if [ -z "$row" ]; then
+        echo "ncz models pull: unknown model '$want'" >&2
+        echo "Available models:" >&2
+        ncz_models_list_catalog >&2 || true
+        return 1
+    fi
+    local fname url sha256 size licence
+    fname="$(printf '%s' "$row" | cut -f1)"
+    url="$(printf '%s' "$row" | cut -f2)"
+    sha256="$(printf '%s' "$row" | cut -f3)"
+    size="$(printf '%s' "$row" | cut -f4)"
+    licence="$(printf '%s' "$row" | cut -f5)"
+    if [ -z "$fname" ] || [ -z "$url" ] || [ -z "$sha256" ]; then
+        echo "ncz models pull: catalog entry '$want' is malformed (need name/url/sha256)" >&2
+        return 1
+    fi
+    # The catalog is installed from the payload but must still be treated as
+    # data. The same guards protect a user-supplied `ncz models add` URL.
+    ncz_models_check_name "$fname" "catalog entry '$want'" || return 1
+    ncz_models_check_url "$url" "catalog entry '$want'" || return 1
+    ncz_models_check_sha256 "$sha256" "catalog entry '$want'" || return 1
+    echo "[ncz] models pull: catalog entry '$fname' (${size:-unknown size} bytes, licence: ${licence:-unknown})"
+    ncz_models_fetch "$fname" "$url" "$sha256" "$licence"
+}
+
+# ncz_models_write_provenance -- record where an installed model came
+# from. The sidecar lives in $NCZ_MODELS_DIR/META-INF/<file>.provenance and
+# is the host-side metadata `ncz models list` surfaces, so an operator can
+# tell a catalog pull from a user-supplied `ncz models add`.
+# Args: filename, url, sha256, licence.
+ncz_models_write_provenance() {
+    local fname="$1"
+    local url="$2"
+    local sha256="$3"
+    local licence="${4:-}"
+    local meta_dir="$NCZ_MODELS_DIR/META-INF"
+    local meta="$meta_dir/$fname.provenance"
+    install -d -m 0755 "$meta_dir" 2>/dev/null || {
+        echo "ncz models: cannot create $meta_dir (provenance not recorded)" >&2
+        return 1
+    }
+    {
+        printf 'File: %s\n' "$fname"
+        printf 'Source: %s\n' "$url"
+        printf 'Sha256: %s\n' "$sha256"
+        [ -n "$licence" ] && printf 'License: %s\n' "$licence"
+        printf 'Installed-By: ncz models\n'
+    } > "$meta" 2>/dev/null || {
+        echo "ncz models: cannot write $meta (provenance not recorded)" >&2
+        return 1
+    }
+    chmod 0644 "$meta" 2>/dev/null || true
+    return 0
+}
+
+# ncz_models_fetch -- shared download+verify+install for one pinned artifact.
+# Args: filename, url, sha256, [licence], [on_mismatch].
+#   on_mismatch: "replace" (default) re-downloads a file whose hash does not
+#   match the pin — the catalog/hook pin is authoritative, so repairing the
+#   stale file is right. "refuse" leaves the installed file alone and fails;
+#   `ncz models add` uses it, because there the pin is an operator
+#   assertion and the file on disk may be a model the embedder trusts.
+ncz_models_fetch() {
+    local fname="$1"
+    local url="$2"
+    local sha256="$3"
+    local licence="${4:-}"
+    local on_mismatch="${5:-replace}"
     local dest_dir="$NCZ_MODELS_DIR"
-    local dest="$dest_dir/nomic-embed-text-v1.5.Q8_0.gguf"
+    local dest="$dest_dir/$fname"
     install -d -m 0755 "$dest_dir" 2>/dev/null || {
         echo "ncz models pull: cannot create $dest_dir (mkdir failed)" >&2
         return 1
@@ -372,7 +632,17 @@ ncz_models_pull() {
         actual="$(sha256sum "$dest" 2>/dev/null | awk '{print $1}')"
         if [ "$actual" = "$sha256" ]; then
             echo "[ncz] models pull: $dest already present, sha256 matches"
+            # The file is in place and verified: (re)record where it came
+            # from, so an `add` still leaves provenance behind even when
+            # the download is skipped.
+            ncz_models_write_provenance "$fname" "$url" "$sha256" "$licence" || true
             return 0
+        fi
+        if [ "$on_mismatch" = "refuse" ]; then
+            echo "[ncz] models: $dest sha256 mismatch (have=$actual want=$sha256)" >&2
+            echo "  refusing to overwrite an installed model — remove it first, or" >&2
+            echo "  install it under a different filename." >&2
+            return 1
         fi
         echo "[ncz] models pull: $dest sha256 mismatch (have=$actual want=$sha256) — re-downloading"
         rm -f "$dest"
@@ -432,7 +702,15 @@ EOF
     fi
     install -m 0644 "$tmp" "$dest"
     rm -f "$tmp"
-    echo "[ncz] models pull: installed $dest (sha256 verified)"
+    # Record the provenance sidecar next to the model so `ncz models list`
+    # can show where the artifact came from. A missing sidecar is not a
+    # failed install: the model itself is verified and in place.
+    ncz_models_write_provenance "$fname" "$url" "$sha256" "$licence" || true
+    if [ -n "$licence" ]; then
+        echo "[ncz] models pull: installed $dest (sha256 verified, licence: $licence)"
+    else
+        echo "[ncz] models pull: installed $dest (sha256 verified)"
+    fi
 }
 
 # --- install subcommand --------------------------------------------------
@@ -479,7 +757,7 @@ ncz_install_nemoclaw() {
     systemctl start nemoclaw.service
 
     echo "[ncz] NemoClaw started."
-    echo "[ncz] OpenShell-gated inference endpoint: https://inference.local/v1"
+    echo "[ncz] OpenShell-gated inference endpoint: https://inference.local/v1"   # lan-url-ok: the target's own mDNS inference endpoint named by OpenShell, not a medium payload pin
     echo "[ncz] Service: systemctl status nemoclaw.service"
 }
 

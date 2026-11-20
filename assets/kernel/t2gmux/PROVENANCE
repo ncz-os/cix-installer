@@ -1,45 +1,56 @@
 Module: t2gmux (Apple T2 GMUX: dGPU/GPU mux power control)
 Source: https://github.com/kaiT2en/KaiT2en-Fedora
 Module path: modules/t2gmux
-Upstream commit: a88f36f452676bdcf840a5d958478e49d221c384
-Upstream commit date: 2026-10-06T00:38:31+02:00
-Upstream subject: Merge pull request #93 from turannul/patch-1
+Upstream commit: 8c7f72585d1aa3df8c115721cbfe3d35673481ff
+Upstream commit date: 2026-11-12T21:11:08+01:00
+Upstream subject: t2-fan-control: kill idle activity in smc mode
+Last upstream commit touching modules/t2gmux: 29ff1e1 (2026-11-10) "t2gmux: use the PWRD power sequence on the MacBookPro15,1"
 SPDX-License-Identifier: GPL-2.0-only
 Copyright: Canonical Ltd., Andreas Heider, Lukas Wunner, Orlando Chamberlain (src/t2gmux.c)
-Vendored: 2026-10-05
+Vendored: 2026-11-14 (previous vendoring 2026-10-05 from a88f36f452676bdcf840a5d958478e49d221c384)
+Upstream version: t2gmux 0.9 (MODULE_VERSION and dkms.conf PACKAGE_VERSION; was 0.8)
+DKMS PACKAGE_VERSION: 0.9 (tracks the vendored MODULE_VERSION 0.9 and the content change in the
+  2026-11-14 re-vendor; post-install/56-t2-dkms.sh reads it from dkms.conf.  Rule: PACKAGE_VERSION
+  tracks the vendored content, not upstream tags — any change to src/** or patches/*.patch MUST
+  bump PACKAGE_VERSION (monotonic) and record the new content identity in the ledger below.
+  0.9 also matches upstream here because upstream bumped MODULE_VERSION for the same content.)
 
 Vendored layout:
   upstream modules/t2gmux/t2gmux.c   -> src/t2gmux.c
   upstream modules/t2gmux/Makefile  -> src/Makefile
-  upstream modules/t2gmux/dkms.conf -> dkms.conf  (module root)
+  upstream modules/t2gmux/dkms.conf -> dkms.conf  (module root; locally extended, see below)
   upstream README.md is NOT vendored.
 
 Upstream-derived file hashes (sha256) as vendored:
-  src/t2gmux.c 3a810bc1f9b44c69209ac9931765e8d3763c72d60a0af929f568beb17630375f  (pristine, matches upstream commit)
-  src/Makefile 88a071776b940a643dd1c78ab46a307e11a39dce22e9c694f0993e7ef47ec044  (pristine, matches upstream commit)
-  dkms.conf    948b1930e18c6f1a290c3268b8239a26782a9ca6a281a5857ba20c8c13dd8fb0  (pristine, matches upstream commit)
+  src/t2gmux.c 0a40e9ec2b9599667ff497bfffcb51bae8ff86688fa114685bc546a951d2e5e7  (pristine, matches upstream commit)
+  src/Makefile 88a071776b940a643dd1c78ab46a307e11a39dce22e9c694f0993e7ef47ec044  (pristine, matches upstream commit; unchanged since a88f36f)
+  upstream dkms.conf at that commit 7d8d08cb3ab1c276e498f96166d1c1b9de346800e6f08383e39bfcf243075134  (dkms.conf here = this file + the PATCH[] block, see below)
 Source tree digest (sha256 of `find src -type f | sort | xargs sha256sum | sha256sum`):
-  823bdc6295231b878586af63160689669b0a670434ab920d7f8e6a957ad6e76b
+  1a3f78ae3ddb812251bc903f93a59baaae9ec9ac89e717d0698342bc700d28da
 
-What changed since the previously vendored commit (8760e41..a88f36f; six safety and
-power-sequencing fixes, no new module parameters and no new sysfs interface):
-  65af65f  t2gmux, gpu-runtime-pm: follow macOS for 16,x dGPU power-up, gmux
-           interrupts and the inactive eDP (2026-09-29)
-  952a2ee  t2gmux: on resume only power down a dGPU that is powered, like
-           AppleMuxControl2 (2026-09-29)
-  60686dd  t2gmux: wait for the T2 mailbox and skip busy accesses like
-           AppleMuxControl2 (2026-09-29)
-  398dd08  t2gmux: keep the pci core from suspending the bridges when running on
-           ports=native (pci_d3cold_disable on the dGPU) (2026-10-01)
-  8f32b9c  t2gmux: block user config access across PWRD transitions, check PWRD
-           result (2026-10-01)
-  26fa944  t2gmux: add transition lock (2026-10-05)
-  Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/8760e41...a88f36f
+What changed since the previously vendored commit (a88f36f..8c7f725; 13 upstream commits
+touch modules/t2gmux; 2026-10-06 .. 2026-11-10; MODULE_VERSION 0.8 -> 0.9):
+  7f4cd75 / 1e86611  min 5000 ms dGPU power-off for Navi, then reverted (net zero) (2026-10-06)
+  43273e9            remove debug (2026-10-07)
+  460cd82 225cd8a d713dd9 65d47b3
+                     Thunderbolt PEG-port power-down experiments and their reverts (net zero) (2026-10-07)
+  b18616a            set bridge state (2026-10-14)
+  d9ece56            port PCI bridge quirk, gpu-active on switch, boot_gpu parameter, FSS check, iMac docs (2026-10-21)
+  09c159e c06cb96    wake the dGPU on hotplug, resume it asynchronously (pm_request_resume) (2026-10-21/26)
+  2279af4            tidy READMEs and comments (2026-11-08)
+  29ff1e1            use the PWRD power sequence on MacBookPro15,1 (use_pwg_power_sequence removed) (2026-11-10)
+  Net source change: t2gmux.c 52128 bytes vs 48734 (+259/-134 lines): hotplug handling in
+  gmux_interrupt_work(), PCI bridge quirk helpers, boot_gpu switch at probe, FSS warning,
+  MacBookPro15,1 on the PWRD sequence.
+  Log: https://github.com/kaiT2en/KaiT2en-Fedora/compare/a88f36f...8c7f725
 
 Local modifications:
   - dkms.conf: adds PATCH[0..2]/PATCH_MATCH[0..2] to apply the local hardening
     patches (see below) during the DKMS build. DKMS 3.2.2 resolves the
-    PATCH[] value below its patches/ directory.
+    PATCH[] value below its patches/ directory.  PACKAGE_VERSION is 0.9,
+    tracking the vendored MODULE_VERSION; it must be bumped whenever the
+    vendored content (src/** or patches/*.patch) changes — see the
+    Content-Identity Ledger below and tests/test_t2_pkgver_guard_20261114.py.
   - patches/0001-t2gmux-bounded-drain.patch: bound the interrupt acknowledge
     loop in gmux_interrupt_work() to 32 drains; if the status does not
     clear, disable the interrupt source via gmux_stop_interrupts() and bail
@@ -58,10 +69,41 @@ Local modifications:
     misread.  Full error-return propagation across all 42 call sites is a
     larger surgery and is documented in the report as future work.
 
+Per-patch disposition against 8c7f725 (2026-11-14 refresh):
+  0001-t2gmux-bounded-drain       KEPT, REBASED.  Upstream still has the unbounded
+                                  `while (status)` acknowledge loop; hunk did not apply
+                                  because upstream added a GMUX_INTERRUPT_STATUS_HOTPLUG
+                                  block inside the loop.  The bound (32 drains) and the
+                                  stuck-status bail-out now wrap the loop including the
+                                  hotplug branch.  Behaviour note: on the stuck-status
+                                  bail-out the function returns before the new
+                                  deferred pm_request_resume(), exactly as the old patch
+                                  returned before the end of the function; a hotplug wake
+                                  seen in an earlier iteration of a stuck-interrupt loop
+                                  is therefore not issued.
+  0002-t2gmux-pm-quiesce          KEPT, REGENERATED.  Applied unchanged in content (no
+                                  conflict); gmux_suspend/gmux_shutdown/gmux_resume are
+                                  untouched upstream.  Re-diffed for line offsets only.
+  0003-t2gmux-error-recording     KEPT, REGENERATED.  Applied unchanged in content; upstream
+                                  still has no error recording in gmux_mmio_read/write
+                                  (its only change there is comment text) and
+                                  __gmux_set_discrete_state() still ends in `return 0`,
+                                  which the patch turns into `return ret`.
+  Verified: GNU patch 2.8.1 applies the three patches in dkms.conf order to the pristine
+  src/t2gmux.c with no offset/fuzz; the result compiles against 7.3.4-t2-ncz (r303 headers).
+
+Content-Identity Ledger (sha256 over sorted "<relpath> <file-sha256>\n" lines for
+src/** and patches/*.patch, relpaths relative to assets/kernel/t2gmux; see
+tests/test_t2_pkgver_guard_20261114.py, which enforces bijection and that the
+current content digest matches the entry for the PACKAGE_VERSION in dkms.conf):
+  PACKAGE_VERSION 0.8  674ee0734dc5927edc43f3935fc6d6436d7d0b9f5e16df6ade77e5a76f3ffd01  (pre-2026-11-14, commit 28d1f1ad)
+  PACKAGE_VERSION 0.9  e80288d1800c4afc19174e4eab89c813196a7fe405bd321d2ea417a6bd0db24c  (2026-11-14 re-vendor from 8c7f725)
+
 Re-sync:
   git clone https://github.com/kaiT2en/KaiT2en-Fedora.git
-  git -C KaiT2en-Fedora checkout a88f36f452676bdcf840a5d958478e49d221c384
+  git -C KaiT2en-Fedora checkout 8c7f72585d1aa3df8c115721cbfe3d35673481ff
   cp modules/t2gmux/t2gmux.c   assets/kernel/t2gmux/src/t2gmux.c
   cp modules/t2gmux/Makefile  assets/kernel/t2gmux/src/Makefile
-  cp modules/t2gmux/dkms.conf assets/kernel/t2gmux/dkms.conf
+  git show 8c7f72585d1aa3df8c115721cbfe3d35673481ff:modules/t2gmux/dkms.conf > assets/kernel/t2gmux/dkms.conf
+  # then re-add the PATCH[0..2]/PATCH_MATCH[0..2] block, rebase patches/*.patch
   # verify: build/test-t2-dkms-provenance.sh

@@ -1,0 +1,7 @@
+# t=54s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - Step 4 of 7: Type the password again ├┐
+  │ Type the same password again to confirm it.                         │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

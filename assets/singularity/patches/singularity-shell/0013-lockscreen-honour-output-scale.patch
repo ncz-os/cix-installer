@@ -1,230 +1,91 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From f57b404cbe70de452780023276c50f2fb4ea5dc1 Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
-Date: Sun, 11 Oct 2026 11:50:42 -0400
-Subject: [PATCH] lockscreen: honour the output scale and log the surface
- geometry
+Date: Mon, 12 Oct 2026 21:45:45 -0400
+Subject: [PATCH] fix(lockscreen): render at the output scale
 
-The lock client drew at the surface's logical size and let the compositor
-upscale, so on a HiDPI output the lock screen (and its prompt) was blurry.
-Track the wl_output scale, allocate the buffer in physical pixels, scale
-cairo so the drawing code keeps logical coordinates, and tell the
-compositor with wl_surface_set_buffer_scale(). Also log the configured
-geometry, which makes a scale mismatch diagnosable from the journal.
+The lock client drew its buffer at the logical surface size and left the
+compositor to upscale it, so on a scaled output the clock and unlock card were
+blurry. Listen for the wl_output scale, allocate the buffer in physical pixels,
+scale cairo so the drawing stays in logical units, and set the buffer scale.
 
-Assisted-by: opencode:deepseek-flash
-AI-Scope: imported the downstream output-scale and geometry patches onto upstream f9c9329 unchanged
 ---
- src/lockscreen/lock_main.c | 139 +++++++++++++++++++++++++++++++++++--
- 1 file changed, 133 insertions(+), 6 deletions(-)
+ src/lockscreen/lock_main.c | 37 +++++++++++++++++++++++++++++++++++--
+ 1 file changed, 35 insertions(+), 2 deletions(-)
 
 diff --git a/src/lockscreen/lock_main.c b/src/lockscreen/lock_main.c
-index e3b58c5..a245733 100644
+index e3b58c5..7c19aae 100644
 --- a/src/lockscreen/lock_main.c
 +++ b/src/lockscreen/lock_main.c
-@@ -14,6 +14,7 @@
- #include <stdio.h>
- #include <stdlib.h>
- #include <string.h>
-+#include <errno.h>
- #include <unistd.h>
- #include <time.h>
- #include <math.h>
-@@ -66,6 +67,8 @@ struct lock_output {
+@@ -66,6 +66,7 @@ struct lock_output {
      struct wl_surface *surface;
      struct ext_session_lock_surface_v1 *lock_surface;
      uint32_t width, height;
-+    int32_t scale;            /* wl_output buffer scale; 1 until the output says otherwise */
-+    int32_t pending_scale;
++    int32_t scale, pending_scale;
      bool configured;
      double mb_cx[3], mb_r[3], mb_cy;
      bool mb_valid;
-@@ -430,8 +433,14 @@ static const struct wl_callback_listener frame_listener = { .done = frame_done }
+@@ -430,8 +431,11 @@ static const struct wl_callback_listener frame_listener = { .done = frame_done }
  static void render_output(struct lock_output *o) {
      if (o->frame_cb) return;
      cairo_t *cr;
 -    struct loginui_buffer *b = loginui_create_buffer(shm, o->width, o->height, &cr);
 +    int32_t sc = o->scale > 0 ? o->scale : 1;
-+    /* Buffer in PHYSICAL pixels; cairo scaled so the drawing code below keeps
-+     * working in logical units and needs no changes. */
-+    struct loginui_buffer *b = loginui_create_buffer(shm,
-+                                                     o->width * (uint32_t)sc,
++    struct loginui_buffer *b = loginui_create_buffer(shm, o->width * (uint32_t)sc,
 +                                                     o->height * (uint32_t)sc, &cr);
      if (!b) return;
-+    if (sc != 1) cairo_scale(cr, (double)sc, (double)sc);
++    cairo_scale(cr, sc, sc);
  
      time_t now = time(NULL);
      struct tm tm; localtime_r(&now, &tm);
-@@ -478,17 +487,75 @@ static void render_output(struct lock_output *o) {
+@@ -478,11 +482,39 @@ static void render_output(struct lock_output *o) {
          o->frame_cb = wl_surface_frame(o->surface);
          wl_callback_add_listener(o->frame_cb, &frame_listener, o);
      }
 +    wl_surface_set_buffer_scale(o->surface, sc);
      wl_surface_attach(o->surface, b->wl_buffer, 0, 0);
 -    wl_surface_damage_buffer(o->surface, 0, 0, (int)o->width, (int)o->height);
-+    /* damage_buffer takes BUFFER coordinates, so it scales with the buffer. */
-+    wl_surface_damage_buffer(o->surface, 0, 0,
-+                             (int)(o->width * (uint32_t)sc),
++    wl_surface_damage_buffer(o->surface, 0, 0, (int)(o->width * (uint32_t)sc),
 +                             (int)(o->height * (uint32_t)sc));
      wl_surface_commit(o->surface);
  }
  
-+/*
-+ * OUTPUT SCALE.
-+ *
-+ * Without this the lock surface renders at the LOGICAL size and the compositor
-+ * upscales the result. On a 3840x2160 panel at scale 2 the client draws
-+ * 1920x1080 and every glyph arrives on screen doubled and soft -- which is
-+ * exactly the "the lock screen is lower resolution than the greeter" report
-+ * from the machine. wl_output was bound at version 3 here, so the scale event
-+ * was always available; there was simply no listener to receive it.
-+ *
-+ * The scale is applied in render_output(): the buffer is allocated in PHYSICAL
-+ * pixels, cairo is scaled so all the drawing code keeps using logical
-+ * coordinates, and wl_surface_set_buffer_scale() tells the compositor the
-+ * buffer is already at that density so it does not scale it again.
-+ */
-+static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y,
-+                            int32_t pw, int32_t ph, int32_t sp, const char *make,
-+                            const char *model, int32_t tr) {
-+    (void)d;(void)o;(void)x;(void)y;(void)pw;(void)ph;(void)sp;(void)make;(void)model;(void)tr;
-+}
-+static void output_mode(void *d, struct wl_output *wo, uint32_t f,
-+                        int32_t w, int32_t h, int32_t refresh) {
-+    (void)d;(void)wo;(void)f;(void)w;(void)h;(void)refresh;
-+}
++static void output_geometry(void *data, struct wl_output *wo, int32_t x, int32_t y,
++                            int32_t pw, int32_t ph, int32_t subpixel, const char *make,
++                            const char *model, int32_t transform) {}
++
++static void output_mode(void *data, struct wl_output *wo, uint32_t flags,
++                        int32_t w, int32_t h, int32_t refresh) {}
++
 +static void output_scale(void *data, struct wl_output *wo, int32_t factor) {
-+    (void)wo;
 +    struct lock_output *o = data;
 +    if (factor > 0) o->pending_scale = factor;
 +}
++
 +static void output_done(void *data, struct wl_output *wo) {
-+    (void)wo;
 +    struct lock_output *o = data;
-+    if (o->pending_scale > 0 && o->pending_scale != o->scale) {
-+        o->scale = o->pending_scale;
-+        if (o->configured) render_output(o);
-+    }
++    if (o->pending_scale <= 0 || o->pending_scale == o->scale) return;
++    o->scale = o->pending_scale;
++    if (o->configured) render_output(o);
 +}
++
 +static const struct wl_output_listener output_listener = {
 +    .geometry = output_geometry,
-+    .mode     = output_mode,
-+    .done     = output_done,
-+    .scale    = output_scale,
++    .mode = output_mode,
++    .done = output_done,
++    .scale = output_scale,
 +};
 +
  /* ── ext-session-lock ───────────────────────────────────────────────────── */
  
  static void lock_surface_configure(void *data, struct ext_session_lock_surface_v1 *s,
-                                    uint32_t serial, uint32_t w, uint32_t h) {
-     struct lock_output *o = data;
-     o->width = w; o->height = h; o->configured = true;
-+    /* Log the geometry we are told to paint. On a 3840x2160 panel the lock
-+     * screen was reported as visibly lower resolution than the greeter, and
-+     * the obvious culprit -- a missing buffer scale -- turned out not to
-+     * apply: the output reports SCALE = 1, measured with a read-only wl_output
-+     * probe, so nothing is being upscaled. That leaves the configured size
-+     * itself as the thing to check, and nothing recorded it. */
-+    fprintf(stderr, "lock: configure %ux%u scale=%d (buffer %ux%u)\n",
-+            w, h, o->scale > 0 ? o->scale : 1,
-+            w * (unsigned)(o->scale > 0 ? o->scale : 1),
-+            h * (unsigned)(o->scale > 0 ? o->scale : 1));
-     ext_session_lock_surface_v1_ack_configure(s, serial);
-     render_output(o);
- }
-@@ -581,17 +648,58 @@ static void submit_password(void) {
- 
- /* ── Keyboard ───────────────────────────────────────────────────────────── */
- 
-+/*
-+ * EVERY FAILURE HERE USED TO BE SILENT, AND EVERY ONE OF THEM BRICKS THE LOCK.
-+ *
-+ * kb_key() begins "if (!xkb_state ... ) return;", so if this function fails to
-+ * produce an xkb_state the lock screen renders perfectly, holds a live
-+ * wl_keyboard, and DISCARDS EVERY KEYSTROKE. From the outside that is
-+ * indistinguishable from a dead keyboard: the device is enumerated, the seat
-+ * has it, the compositor is routing to the surface -- and the user cannot log
-+ * back into their own machine. Reported from the machine as "keyboard frozen"
-+ * and "the keystrokes are not showing up at all".
-+ *
-+ * There were three unlogged early returns below. Now each one says what
-+ * happened, and kb_key() tells the USER rather than leaving them poking at a
-+ * screen that will never respond.
-+ */
- static void kb_keymap(void *data, struct wl_keyboard *kb, uint32_t format, int fd, uint32_t size) {
--    if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) { close(fd); return; }
-+    (void)data; (void)kb;
-+    if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
-+        fprintf(stderr, "lock: keymap format %u is not XKB_V1 -- keyboard will not work\n", format);
-+        close(fd);
-+        return;
-+    }
-     char *map = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
-     close(fd);
--    if (map == MAP_FAILED) return;
-+    if (map == MAP_FAILED) {
-+        fprintf(stderr, "lock: mmap of the %u-byte keymap failed: %s -- keyboard will not work\n",
-+                size, strerror(errno));
-+        return;
-+    }
-+    if (!xkb_context) {
-+        /* Belt and braces: the context is created in main() before the seat
-+         * listener is bound, but if that ever changes, a NULL context here
-+         * silently produces a NULL keymap and a dead lock screen. */
-+        xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-+        fprintf(stderr, "lock: xkb context was NULL at keymap time; recreated\n");
-+    }
-     if (xkb_keymap) xkb_keymap_unref(xkb_keymap);
-     if (xkb_state) xkb_state_unref(xkb_state);
-     xkb_keymap = xkb_keymap_new_from_string(xkb_context, map,
-         XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
-     munmap(map, size);
--    if (xkb_keymap) xkb_state = xkb_state_new(xkb_keymap);
-+    if (!xkb_keymap) {
-+        xkb_state = NULL;
-+        fprintf(stderr, "lock: xkb_keymap_new_from_string failed -- keyboard will not work\n");
-+        return;
-+    }
-+    xkb_state = xkb_state_new(xkb_keymap);
-+    if (!xkb_state) {
-+        fprintf(stderr, "lock: xkb_state_new failed -- keyboard will not work\n");
-+        return;
-+    }
-+    fprintf(stderr, "lock: keymap accepted, keyboard ready\n");
- }
- static void kb_enter(void *d, struct wl_keyboard *kb, uint32_t s, struct wl_surface *sf, struct wl_array *keys) {}
- static void kb_leave(void *d, struct wl_keyboard *kb, uint32_t s, struct wl_surface *sf) {}
-@@ -603,7 +711,23 @@ static void kb_repeat(void *d, struct wl_keyboard *kb, int32_t rate, int32_t del
- 
- static void kb_key(void *data, struct wl_keyboard *kb, uint32_t serial,
-                    uint32_t time, uint32_t key, uint32_t state) {
--    if (!xkb_state || state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-+    (void)data; (void)kb; (void)serial; (void)time;
-+    if (!xkb_state) {
-+        /* Do not fail silently. Without a keymap this screen can never accept
-+         * a password, so SAY SO on the surface -- a user staring at an
-+         * unresponsive prompt has no other way to learn that rebooting is the
-+         * only way back in. */
-+        static bool told_user = false;
-+        if (!told_user) {
-+            told_user = true;
-+            fprintf(stderr, "lock: key event with no xkb state -- input cannot be decoded\n");
-+            snprintf(status_text, sizeof status_text, "%s",
-+                     "Keyboard unavailable — reboot to unlock");
-+            render_all();
-+        }
-+        return;
-+    }
-+    if (state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-     if (anim_phase == PHASE_LEAVE) return;
-     xkb_keycode_t kc = key + 8;
-     xkb_keysym_t sym = xkb_state_key_get_one_sym(xkb_state, kc);
-@@ -712,6 +836,9 @@ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
+@@ -712,6 +744,7 @@ static void reg_global(void *data, struct wl_registry *reg, uint32_t name,
          o->name = name;
          o->wl_output = wl_registry_bind(reg, name, &wl_output_interface,
                                          version < 3 ? version : 3);
-+        o->scale = 1;
-+        o->pending_scale = 1;
 +        wl_output_add_listener(o->wl_output, &output_listener, o);
          o->next = outputs;
          outputs = o;
          if (locked) create_lock_surface(o);
+-- 
+2.53.0
+

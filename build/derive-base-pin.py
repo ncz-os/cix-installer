@@ -29,6 +29,8 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
+import time
 import urllib.request
 
 COMPONENTS = ("main", "contrib", "non-free-firmware")
@@ -104,29 +106,71 @@ def netinst_identities(iso: str, arch: str, scratch: str) -> tuple[set, str]:
     return ident, sub_date
 
 
-def snapshot_identities(ts: str, arch: str, cache: str) -> set:
+def snapshot_identities(ts: str, arch: str, cache: str):
+    """Return (identities, failed_paths) for one snapshot timestamp.
+
+    A 404 means the component genuinely does not exist at that snapshot and is
+    recorded as an empty index.  Any OTHER failure (5xx, timeout, connection
+    reset) is a transient service failure: it is retried with backoff and, if
+    it still fails, the path is returned in ``failed`` so the caller refuses to
+    score coverage from a partial index.  A silent empty file here once
+    under-reported coverage (snapshot.debian.org answered 503/504 for the
+    contrib, non-free-firmware and debian-installer indices) and made a healthy
+    netinst look stale.
+    """
     os.makedirs(cache, exist_ok=True)
     ident = set()
+    failed = []
 
     def load(suite: str, relpath: str) -> None:
         f = os.path.join(cache, f"{ts}_{suite}_" + relpath.replace("/", "_"))
-        if not os.path.isfile(f) or os.path.getsize(f) == 0:
-            url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
+        url = f"{SNAP}/{ts}/dists/{suite}/{relpath}"
+        text = None
+        if os.path.isfile(f) and os.path.getsize(f) > 0:
             try:
-                with urllib.request.urlopen(url, timeout=120) as r, open(f, "wb") as o:
-                    o.write(r.read())
-            except Exception:  # noqa: BLE001 - a missing component index is fine
-                open(f, "wb").close()
+                text = read_maybe(f)
+            except Exception:  # noqa: BLE001
+                # a truncated cache entry (a run killed mid-write): drop it
+                # and fall through to a refetch instead of under-counting
+                # coverage from a partially parsed index
+                try:
+                    os.unlink(f)
+                except OSError:
+                    pass
+        if text is None:
+            last = None
+            for delay in (0, 5):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    with urllib.request.urlopen(url, timeout=75) as r, open(f, "wb") as o:
+                        o.write(r.read())
+                    last = None
+                    break
+                except urllib.error.HTTPError as e:  # noqa: PERF203
+                    last = e
+                    if e.code == 404:
+                        open(f, "wb").close()
+                        return
+                except Exception as e:  # noqa: BLE001
+                    last = e
+            if last is not None:
+                failed.append(f"{suite}/{relpath} ({last})")
+                try:
+                    if os.path.isfile(f) and os.path.getsize(f) == 0:
+                        os.unlink(f)
+                except OSError:
+                    pass
                 return
-        try:
-            text = read_maybe(f)
-        except Exception:  # noqa: BLE001
-            return
+            try:
+                text = read_maybe(f)
+            except Exception:  # noqa: BLE001
+                return
         for d in parse_stanzas(text):
             if d.get("Package") and d.get("Version") and d.get("Architecture"):
                 ident.add((d["Package"], d["Version"], d["Architecture"]))
 
-    # The codename's (testing/forky) full index set -- the image base closure.
+    # The codename (testing/forky) full index set -- the image base closure.
     for comp in COMPONENTS:
         for x in (arch, "all"):
             load("forky", f"{comp}/binary-{x}/Packages.xz")
@@ -136,8 +180,7 @@ def snapshot_identities(ts: str, arch: str, cache: str) -> set:
         # only: the netinst substrate's d-i udebs are built from sid.  Its
         # runtime (binary-*) packages are deliberately NOT loaded.
         load(DI_SUITE, f"main/debian-installer/binary-{x}/Packages.xz")
-    return ident
-
+    return ident, failed
 
 RUN_RE = re.compile(r"\b([0-9]{8}T[0-9]{6}Z)\b")
 
@@ -150,11 +193,27 @@ def archive_runs(listing: str, days: set) -> list[str]:
 
 def month_listing(year: int, month: int) -> str:
     url = f"{SNAP}/?year={year}&month={month}"
-    try:
-        with urllib.request.urlopen(url, timeout=120) as r:
-            return r.read().decode("utf-8", "replace")
-    except Exception:  # noqa: BLE001 - the fixed grid below still applies
-        return ""
+    # Retry: a silently failed listing shrinks the candidate set to the fixed
+    # grid and can pick a DIFFERENT snapshot than a run whose listing fetched
+    # (2026-11-06 r7/r8: the listing fetch failed, so the 082611Z archive run
+    # was not a candidate and amd64 pinned 120000Z while arm64, whose listing
+    # had fetched, pinned 082611Z -- one release.conf cannot carry both).
+    last = None
+    for delay in (0, 5, 15):
+        if delay:
+            time.sleep(delay)
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r:
+                listing = r.read().decode("utf-8", "replace")
+            if RUN_RE.search(listing):
+                return listing
+            last = "listing page has no archive-run timestamps"
+        except Exception as e:  # noqa: BLE001
+            last = e
+    print(f"WARNING: archive-run listing for {year:04d}-{month:02d} unavailable"
+          f" after retries ({last}); candidate set is the fixed grid only",
+          file=sys.stderr, flush=True)
+    return ""
 
 
 def candidate_timestamps(sub_date: str, listing=month_listing) -> list[str]:
@@ -190,6 +249,13 @@ def main() -> int:
     ap.add_argument("--scratch", required=True)
     ap.add_argument("--min-coverage", type=float, default=99.0)
     a = ap.parse_args()
+    # The per-candidate index cache persists across runs (entries are keyed by
+    # snapshot timestamp, so they stay valid) instead of living in the
+    # throwaway --scratch dir: a re-run against a flaky service then only
+    # fetches what it has not fetched before.
+    cache = os.environ.get("NCZ_SUBSTRATE_DERIVE_CACHE") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "build", ".substrate-derive-cache", a.arch)
 
     iso_sha = sha256(a.iso)
     sub, sub_date = netinst_identities(a.iso, a.arch, a.scratch)
@@ -197,17 +263,78 @@ def main() -> int:
         print(f"ERROR: no netinst identities extracted from {a.iso}", file=sys.stderr)
         return 2
     best = None
+    unverifiable = []
+    streak = 0
     for ts in candidate_timestamps(sub_date):
-        snap = snapshot_identities(ts, a.arch, a.scratch)
+        snap, failed = snapshot_identities(ts, a.arch, cache)
+        if failed:
+            print(f"  candidate snapshot {ts}: UNVERIFIABLE - {len(failed)} index"
+                  f" fetches failed, first: {failed[0]}", file=sys.stderr)
+            unverifiable.append(ts)
+            streak += 1
+            if streak >= 3:
+                print("ERROR: three consecutive candidates could not be verified;"
+                      " the snapshot.debian.org service is degraded. Aborting"
+                      " without a pin.", file=sys.stderr)
+                return 2
+            continue
         if not snap:
             continue
+        streak = 0
         cov = 100.0 * len(sub & snap) / len(sub)
-        print(f"  candidate snapshot {ts}: {len(sub & snap)}/{len(sub)} = {cov:.1f}%")
+        print(f"  candidate snapshot {ts}: {len(sub & snap)}/{len(sub)} = {cov:.1f}%",
+              flush=True)
         if best is None or cov > best[1]:
             best = (ts, cov, sub - snap)
+        if len(sub & snap) == len(sub):
+            # Ascending scan, and coverage cannot exceed 100%: this is the
+            # EARLIEST full-coverage candidate, exactly what a complete scan
+            # would select (max coverage, earliest on a tie).  Stopping here
+            # keeps a verified 100% pin from being thrown away by transient
+            # failures on later candidates (2026-11-06 amd64 r6: 100.0% at
+            # 20261102T082611Z, then the breaker tripped on three late
+            # 503/504 candidates and the pin was lost).
+            break
     if best is None:
+        if unverifiable:
+            print(f"ERROR: no candidate snapshot could be verified ({len(unverifiable)}"
+                  " timestamps had failed index fetches). The snapshot.debian.org"
+                  " service is degraded; re-run when it recovers. No pin written.",
+                  file=sys.stderr)
+            return 2
         print("ERROR: no candidate snapshot index could be fetched", file=sys.stderr)
         return 2
+    # release.conf carries a single snapshot for both arches.  If the other
+    # arch's base.pin row already pins a snapshot that authorises THIS
+    # substrate at >= min-coverage, adopt it so both rows -- and the one
+    # release.conf -- agree; otherwise keep this run's own pick.  Measured,
+    # never assumed: an unverifiable other-arch snapshot is skipped.
+    if os.path.isfile(a.pin_out):
+        other = {}
+        for ln in open(a.pin_out, errors="replace"):
+            if ln.startswith("#") or not ln.strip():
+                continue
+            f = ln.rstrip("\n").split("\t")
+            if len(f) >= 6 and f[0] != a.arch:
+                other[f[0]] = f[3]
+        for arch_o in sorted(other):
+            ts_o = other[arch_o]
+            if ts_o == best[0]:
+                continue
+            snap_o, failed_o = snapshot_identities(ts_o, a.arch, cache)
+            if failed_o:
+                print(f"  cross-arch check {ts_o} ({arch_o} row): UNVERIFIABLE"
+                      f" ({len(failed_o)} fetches); keeping this run's pick",
+                      flush=True)
+                break
+            cov_o = 100.0 * len(sub & snap_o) / len(sub)
+            print(f"  cross-arch check {ts_o} ({arch_o} row): {len(sub & snap_o)}"
+                  f"/{len(sub)} = {cov_o:.1f}%", flush=True)
+            if cov_o >= a.min_coverage:
+                print(f"  adopting {ts_o} for cross-arch consistency"
+                      f" (release.conf is single-snapshot)", flush=True)
+                best = (ts_o, cov_o, sub - snap_o)
+            break
     ts, cov, missing = best
 
     hdr = ("# manifests/base.pin -- the single BUILD+provenance base pin.\n"

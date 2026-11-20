@@ -55,6 +55,15 @@ case "$AMD_KV" in *-sky1-ncz) bad "amd64 kernel '$AMD_KV' would match the Sky1 s
 # --- helper cases ---------------------------------------------------------------------------
 HAND=7.3.0-sky1-ncz      # a later kernel package installed by hand
 OLD=7.2.8-sky1-ncz       # an older NCZ Sky1 kernel still on disk
+# HAND must be a kernel the sidecar does NOT already name, or the "folded-in"
+# case below degenerates: it expects SKY1_KV and HAND to be two different
+# entries and the control to miss HAND. From r291 onward the shipped Sky1 KVER
+# IS 7.3.0-sky1-ncz, so pinning HAND to that value made every one of those
+# assertions self-contradictory. Derive a synthetic newer kernel from whatever
+# ships, so the case stays meaningful as the pin moves forward.
+if [ "$HAND" = "$SKY1_KV" ]; then
+    HAND=7.3.1-sky1-ncz
+fi
 fix() {   # fix <dir> <sidecar or -> <kver...>  : meta/KVER_NEXT + usr/lib/modules/<kver>/
     local r="$1" side="$2"; shift 2
     rm -rf "$r"; mkdir -p "$r/meta" "$r/usr/lib/modules"

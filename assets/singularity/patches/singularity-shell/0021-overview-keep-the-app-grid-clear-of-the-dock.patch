@@ -1,4 +1,4 @@
-From 7c0bd28a9718399ce602314082945af738ae8623 Mon Sep 17 00:00:00 2001
+From d18b4c9d29ab57aafbb2f85f4d767b149138bcde Mon Sep 17 00:00:00 2001
 From: Jason Perlow <jperlow@gmail.com>
 Date: Tue, 13 Oct 2026 12:28:37 -0400
 Subject: [PATCH] overview: keep the app grid clear of the dock
@@ -21,7 +21,7 @@ area. Search results get the same inset.
  3 files changed, 39 insertions(+), 7 deletions(-)
 
 diff --git a/src/components/dock/dock.vala b/src/components/dock/dock.vala
-index 147edb0..4d0cb86 100644
+index f02aa91..6fe78f6 100644
 --- a/src/components/dock/dock.vala
 +++ b/src/components/dock/dock.vala
 @@ -58,6 +58,7 @@ namespace Singularity {
@@ -32,7 +32,7 @@ index 147edb0..4d0cb86 100644
          private bool _menu_open = false;
          private Gee.ArrayList<Singularity.DockContextMenuProvider> _menu_providers =
              new Gee.ArrayList<Singularity.DockContextMenuProvider>();
-@@ -453,16 +454,19 @@ namespace Singularity {
+@@ -461,16 +462,19 @@ namespace Singularity {
              set_margin(this, GtkLayerShell.Edge.LEFT, 0);
              set_margin(this, GtkLayerShell.Edge.RIGHT, 0);
              set_margin(this, GtkLayerShell.Edge.TOP, 0);
@@ -52,7 +52,7 @@ index 147edb0..4d0cb86 100644
                  set_margin(this, GtkLayerShell.Edge.RIGHT, gap);
                  main_container.margin_start = gap + magnifier.headroom(true);
              } else {
-@@ -471,7 +475,8 @@ namespace Singularity {
+@@ -479,7 +483,8 @@ namespace Singularity {
                  // container's bottom margin. Pull the surface down by that
                  // much so the shadow is not clipped at the surface edge,
                  // while the dock stays at the same visual gap (#162).
@@ -62,7 +62,7 @@ index 147edb0..4d0cb86 100644
                  main_container.margin_top = gap + magnifier.headroom(true);
              }
          }
-@@ -870,6 +875,16 @@ namespace Singularity {
+@@ -878,6 +883,16 @@ namespace Singularity {
              if (changed) app_system.config_changed("dock-reservation");
          }
  
@@ -80,10 +80,10 @@ index 147edb0..4d0cb86 100644
              if (hidden_by_scrolling_tiling()) {
                  _set_reveal_barrier_active(false);
 diff --git a/src/components/overview/overview.vala b/src/components/overview/overview.vala
-index dad3602..551dbf2 100644
+index b61f1b0..8443e6f 100644
 --- a/src/components/overview/overview.vala
 +++ b/src/components/overview/overview.vala
-@@ -29,6 +29,8 @@ namespace Singularity {
+@@ -32,6 +32,8 @@ namespace Singularity {
  
          public bool showing { get; private set; default = false; }
  
@@ -92,7 +92,7 @@ index dad3602..551dbf2 100644
          // True when the keyboard focus is on something the user is typing
          // into (Entry, TextView, etc.) - used to suppress the
          // "redirect to search bar" behavior so notes / calculator widgets
-@@ -385,15 +387,28 @@ namespace Singularity {
+@@ -411,12 +413,25 @@ namespace Singularity {
              if (grid_mon == null) return;
              Gdk.Rectangle gg = grid_mon.get_geometry();
              int avail = gg.width - 48;
@@ -100,7 +100,7 @@ index dad3602..551dbf2 100644
              string dock_pos = desktop_settings.get_string("dock-position");
 -            if ((dock_pos == "left" || dock_pos == "right")
 -                    && !desktop_settings.get_boolean("dock-autohide")) {
--                int isz = desktop_settings.get_int("dock-icon-size");
+-                int isz = Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon);
 -                if (isz <= 0) isz = 48;
 -                avail -= isz + desktop_settings.get_int("dock-gap") + 28;
 +            // The dock stays above the overview, also in autohide.
@@ -110,7 +110,7 @@ index dad3602..551dbf2 100644
 +            content_stack.margin_end = 0;
 +            if (dock_pos == "left" || dock_pos == "right") {
 +                if (dock == null && !desktop_settings.get_boolean("dock-autohide")) {
-+                    int isz = desktop_settings.get_int("dock-icon-size");
++                    int isz = Singularity.FormShell.dock_icon_size(desktop_settings, grid_mon);
 +                    if (isz <= 0) isz = 48;
 +                    dock_extent = isz + desktop_settings.get_int("dock-gap") + 28;
 +                }
@@ -121,6 +121,11 @@ index dad3602..551dbf2 100644
 +                content_stack.margin_bottom = dock_extent;
 +                avail_h -= dock_extent;
              }
+             if (Singularity.FormFactor.at(grid_mon) == Singularity.FormFactorKind.PHONE) {
+                 int slot = avail / PHONE_GRID_COLUMNS;
+@@ -429,7 +444,7 @@ namespace Singularity {
+                 results_scrolled.width_request = RESULTS_WIDTH;
+             }
              launcher_grid.set_columns_for_width(avail);
 -            launcher_grid.viewport_hint = gg.height;
 +            launcher_grid.viewport_hint = avail_h;
@@ -128,18 +133,18 @@ index dad3602..551dbf2 100644
  
          private void animate_stage(bool entering) {
 diff --git a/src/core/main.vala b/src/core/main.vala
-index 12113f0..bca0818 100644
+index fa52bb5..3207df3 100644
 --- a/src/core/main.vala
 +++ b/src/core/main.vala
-@@ -760,6 +760,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
-         } else {
+@@ -915,6 +915,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+         } else if (want_dock) {
              dock = new Singularity.Dock(this);
          }
 +        if (overview != null) overview.dock = dock;
          connect_shell_signals();
          if (hot_corner_manager != null) {
              if (panel != null) hot_corner_manager.attach_to_panel(panel);
-@@ -991,6 +992,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
+@@ -1159,6 +1160,7 @@ public class SingularityApp : Singularity.ShellApplication, Singularity.Shell.Sh
      private void ensure_overview() {
          if (overview != null) return;
          overview = new Singularity.Overview(this, panel);
@@ -148,5 +153,5 @@ index 12113f0..bca0818 100644
              set_tiling_layout_hold(overview, true);
              if (panel != null) panel.set_overview_mode(true);
 -- 
-2.53.0
+2.47.3
 

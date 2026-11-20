@@ -1,0 +1,35 @@
+From f1b248aedcb383321f96990e4d5ae197635297d8 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 18 Nov 2026 15:25:45 -0500
+Subject: [PATCH] fix(idle): restore the screens before re-arming the idle
+ watches
+
+Changing an idle, blank or lock setting, or plugging in or unplugging the
+charger, re-arms the idle watches. rearm() removes every watch, including the
+ones whose resume event un-dims the panel and wakes the screens. If the screens
+were already dimmed or blanked, nothing was left to undo that: the backlight
+stayed at the dim level and the display stayed off until something else woke it.
+
+Undo the dim and the blank before the watches are dropped.
+---
+ src/core/idle_manager.vala | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/core/idle_manager.vala b/src/core/idle_manager.vala
+index f2b756f..39b5cc4 100644
+--- a/src/core/idle_manager.vala
++++ b/src/core/idle_manager.vala
+@@ -95,6 +95,10 @@ namespace Singularity {
+ 
+         public void rearm() {
+             if (!available) return;
++            // Dropping the watches below also drops the resume events that would
++            // undo a dim or blank in progress, so put the screens back first.
++            undim();
++            if (blanked) blank_screens(false);
+             int[] all = { DIM, BLANK, LOCK, SUSPEND, PROBE };
+             foreach (int id in all) IdleNotify.unwatch(id);
+             fired.clear();
+-- 
+2.53.0
+

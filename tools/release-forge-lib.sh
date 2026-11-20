@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # release-forge-lib.sh - shared helpers for the release page tools
 # (tools/check-release-parity.sh, tools/sync-release-pages.sh).
 # Source it; it defines functions only and changes no shell options.
@@ -29,16 +30,13 @@ RF_GITHUB_API=${RF_GITHUB_API%/}; RF_GITHUB_UPLOADS=${RF_GITHUB_UPLOADS%/}
 RF_GITHUB_WEB=${RF_GITHUB_WEB%/}; RF_GITHUB_RAW=${RF_GITHUB_RAW%/}
 RF_GITLAB_API=${RF_GITLAB_API%/}; RF_GITLAB_WEB=${RF_GITLAB_WEB%/}
 
-# Release layout. A staged release folder is
-#   <dir>/amd64/  ncz-os-amd64-<date>-<build>.img.zst.part-NN  PARTS-amd64.sha256  SHA256SUMS-amd64
-#   <dir>/arm64/  ncz-os-arm64-<date>-<build>.img.zst.part-NN  PARTS-arm64.sha256  SHA256SUMS-arm64
-#   <dir>/        ncz-join-image.sh  SHA256SUMS  NOTES.md  (TITLE  PRERELEASE)
-# (one or both architectures). SHA256SUMS is SHA256SUMS-amd64 followed by
-# SHA256SUMS-arm64. The canonical file order, used on both release pages, is
-# every amd64 file (parts, PARTS-amd64.sha256, SHA256SUMS-amd64), then every
-# arm64 file, then the common files (ncz-join-image.sh, SHA256SUMS, NOTES.md).
+# Architecture groups are ordered amd64, arm64. Within each group come
+# desktop parts and checksums, server parts and checksums, then the combined
+# architecture checksum. Legacy groups have one unflavored part set.
+# The join script, combined checksums and notes follow the architecture groups.
 # shellcheck disable=SC2034  # used by the scripts that source this file
 RF_ARCHES=(amd64 arm64)
+RF_FLAVOR_SUFFIXES=(-desktop -server)
 # shellcheck disable=SC2034
 RF_COMMON_FILES=(ncz-join-image.sh SHA256SUMS NOTES.md)
 
@@ -123,10 +121,9 @@ rf_project_id() {
   jq -r '.id' "$2/proj.json"
 }
 
-# Stable alias of a split image part: ncz-os-<arch>-<date>-<sha>.img.zst.part-NN
-# -> ncz-os-<arch>.img.zst.part-NN. Other names are their own alias.
+# Stable aliases omit the date and build from part names.
 rf_stable_name() {
-  printf '%s\n' "$1" | sed -E 's/^(ncz-os-[a-z0-9_]+)-[0-9]{8}-[0-9a-f]{6,40}(\.img\.zst\.part-[0-9]+)$/\1\2/'
+  printf '%s\n' "$1" | sed -E 's/^(ncz-os-[a-z0-9_]+)-[0-9]{8}-[0-9a-f]{6,40}((-(desktop|server))?\.img\.zst\.part-[0-9]+)$/\1\2/'
 }
 
 # rf_normalise_body FILE GITHUB_REPO GITLAB_PROJECT [TAG]  ->  stdout
@@ -149,9 +146,9 @@ t = "\n".join(l.rstrip() for l in t.split("\n")).strip("\n") + "\n"
 gh = re.escape(ghw + "/" + repo); gl = re.escape(glw + "/" + proj); raw = re.escape(ghr + "/" + repo)
 END = r"""[^\s)\]>"'`]+"""
 def gl_path(name):
-    m = re.match(r"^ncz-os-(amd64|arm64)-[0-9]{8}-[0-9a-f]{6,40}(\.img\.zst\.part-[0-9]+)$", name)
+    m = re.match(r"^ncz-os-(amd64|arm64)-[0-9]{8}-[0-9a-f]{6,40}((-(desktop|server))?\.img\.zst\.part-[0-9]+)$", name)
     if m: return "/%s/ncz-os-%s%s" % (m.group(1), m.group(1), m.group(2))
-    m = re.match(r"^(?:PARTS-(amd64|arm64)\.sha256|SHA256SUMS-(amd64|arm64))$", name)
+    m = re.match(r"^(?:PARTS-(amd64|arm64)(?:-desktop|-server)?\.sha256|SHA256SUMS-(amd64|arm64)(?:-desktop|-server)?)$", name)
     if m: return "/%s/%s" % (m.group(1) or m.group(2), name)
     return "/" + name
 if tag:
@@ -198,7 +195,7 @@ bad = []
 def dl(m):
     p = m.group(1)
     if p in amap: name = amap[p]
-    elif re.match(r"^(amd64|arm64)/(PARTS-\1\.sha256|SHA256SUMS-\1)$", p): name = p.split("/", 1)[1]
+    elif re.match(r"^(amd64|arm64)/(PARTS-\1(?:-desktop|-server)?\.sha256|SHA256SUMS-\1(?:-desktop|-server)?)$", p): name = p.split("/", 1)[1]
     elif "/" not in p and not re.search(r"\.part-[0-9]+$", p): name = p
     else:
         bad.append(p); name = p
@@ -239,8 +236,8 @@ PY
 # rf_file_group NAME  ->  amd64 | arm64 | common (by file name)
 rf_file_group() {
   case "$1" in
-    ncz-os-amd64-*|PARTS-amd64.sha256|SHA256SUMS-amd64) echo amd64 ;;
-    ncz-os-arm64-*|PARTS-arm64.sha256|SHA256SUMS-arm64) echo arm64 ;;
+    ncz-os-amd64-*|PARTS-amd64.sha256|PARTS-amd64-*.sha256|SHA256SUMS-amd64|SHA256SUMS-amd64-*) echo amd64 ;;
+    ncz-os-arm64-*|PARTS-arm64.sha256|PARTS-arm64-*.sha256|SHA256SUMS-arm64|SHA256SUMS-arm64-*) echo arm64 ;;
     *) echo common ;;
   esac
 }
@@ -253,49 +250,99 @@ rf_canonical_sort() {
   awk '{ n = $0; g = 2; k = 9
          if (n ~ /^ncz-os-amd64-|^(PARTS|SHA256SUMS)-amd64/) g = 0
          else if (n ~ /^ncz-os-arm64-|^(PARTS|SHA256SUMS)-arm64/) g = 1
-         if (g < 2) { k = (n ~ /^ncz-os-/) ? 0 : (n ~ /^PARTS-/ ? 1 : 2) }
+         if (g < 2) {
+           k = (n ~ /^ncz-os-/) ? 0 : (n ~ /^PARTS-/ ? 1 : 2)
+           if (n ~ /-server(\.img\.zst\.part-[0-9]+|\.sha256)?$/) k += 3
+           if (n ~ /^SHA256SUMS-(amd64|arm64)$/) k = 6
+         }
          else { k = (n == "ncz-join-image.sh") ? 0 : (n == "SHA256SUMS" ? 1 : (n == "NOTES.md" ? 2 : 3)) }
          printf "%d\t%d\t%s\n", g, k, n }' | LC_ALL=C sort -t$'\t' -k1,1n -k2,2n -k3,3 | cut -f3
 }
 
+# Select the parts of one architecture and flavor from names on stdin.
+# An empty suffix selects legacy parts.
+rf_image_parts() {
+  local arch=$1 suffix=$2
+  if [ -n "$suffix" ]; then
+    grep -E "^ncz-os-$arch-[0-9]{8}-[0-9a-f]{6,40}$suffix\.img\.zst\.part-[0-9]+$"
+  else
+    grep -E "^ncz-os-$arch-.*\.img\.zst\.part-[0-9]+$" |
+      grep -Ev -- '-(desktop|server)\.img\.zst\.part-'
+  fi
+}
+
 # rf_layout DIR [--need-notes]  ->  "<group>\t<path relative to DIR>\t<name>"
-# per file in the canonical order. Verifies every part against its PARTS
+# per file in the canonical order. Requires all four images and verifies
+# every part against its PARTS
 # file and the folder against the layout above; prints ERROR lines to stderr
 # and returns 2 on any problem.
 rf_layout() {
-  local dir=$1 need_notes=${2:-} a pf sf want name n got arches=() bad=0 lines=()
+  local dir=$1 need_notes=${2:-} a p pf sf want name got suffix img raw zipped
+  local arches=() bad=0 lines=() flavor_sums=()
+  local -A seen=()
   err() { echo "ERROR: $*" >&2; bad=1; }
   for p in "$dir"/*.img.zst.part-*; do [ -e "$p" ] && err "part outside an architecture folder: ${p##*/}"; done
   for a in "${RF_ARCHES[@]}"; do
-    [ -d "$dir/$a" ] || continue
-    arches+=("$a"); pf="$dir/$a/PARTS-$a.sha256"; sf="$dir/$a/SHA256SUMS-$a"
-    [ -f "$pf" ] || { err "$a/PARTS-$a.sha256 not found"; continue; }
-    [ -f "$sf" ] || { err "$a/SHA256SUMS-$a not found"; continue; }
-    n=0
-    while read -r want name; do
-      [ -n "${name:-}" ] || continue; name=${name#\*}
-      case "$name" in */*) err "$a/PARTS-$a.sha256 entry is not a plain file name: $name"; continue ;; esac
-      printf '%s' "$name" | grep >/dev/null -E '^[A-Za-z0-9._+~-]+$' || { err "file name not allowed: $name"; continue; }
-      case "$name" in "ncz-os-$a-"*.img.zst.part-*) ;; *) err "$a/PARTS-$a.sha256 lists $name, which is not an $a image part"; continue ;; esac
-      [ -f "$dir/$a/$name" ] || { err "part listed in $a/PARTS-$a.sha256 is missing: $name"; continue; }
-      got=$(rf_sha "$dir/$a/$name")
-      [ "$got" = "$want" ] || { err "checksum mismatch for $a/$name"; continue; }
-      lines+=("$a"$'\t'"$a/$name"$'\t'"$name"); n=$((n+1))
-    done < "$pf"
-    [ "$n" -gt 0 ] || err "$a/PARTS-$a.sha256 lists no parts"
-    for p in "$dir/$a"/*; do
-      name=${p##*/}
-      case "$name" in "PARTS-$a.sha256"|"SHA256SUMS-$a") continue ;; esac
-      grep -qE "[[:space:]]\*?$(printf '%s' "$name" | sed 's/[.[\*^$+]/\\&/g')\$" "$pf" || err "$a/$name is not listed in $a/PARTS-$a.sha256"
+    if [ -d "$dir/$a" ]; then arches+=("$a"); fi
+    seen=()
+    flavor_sums=()
+    for suffix in "${RF_FLAVOR_SUFFIXES[@]}"; do
+      pf="PARTS-$a$suffix.sha256"; sf="SHA256SUMS-$a$suffix"
+      [ -f "$dir/$a/$pf" ] || { err "$a$suffix: $a/$pf not found"; continue; }
+      [ -f "$dir/$a/$sf" ] || { err "$a/$sf not found"; continue; }
+      seen[$pf]=1; seen[$sf]=1
+      flavor_sums+=("$dir/$a/$sf")
+      img=
+      while read -r want name; do
+        [ -n "${name:-}" ] || continue; name=${name#\*}
+        case "$name" in */*) err "$a/$pf entry is not a plain file name: $name"; continue ;; esac
+        [[ $name =~ ^[A-Za-z0-9._+~-]+$ ]] || { err "file name not allowed: $name"; continue; }
+        if ! rf_image_parts "$a" "$suffix" <<<"$name" >/dev/null; then
+          err "$a/$pf lists $name, which is not an image part for $a$suffix"; continue
+        fi
+        if [ -n "$img" ] && [ "$img" != "${name%.zst.part-*}" ]; then
+          err "$a/$pf lists parts of more than one image"; continue
+        fi
+        img=${name%.zst.part-*}
+        [ -z "${seen[$name]:-}" ] || { err "$a/$pf lists $name more than once"; continue; }
+        seen[$name]=1
+        [ -f "$dir/$a/$name" ] || { err "part listed in $a/$pf is missing: $name"; continue; }
+        got=$(rf_sha "$dir/$a/$name")
+        [ "$got" = "$want" ] || { err "checksum mismatch for $a/$name"; continue; }
+        lines+=("$name")
+      done < "$dir/$a/$pf"
+      [ -n "$img" ] || err "$a/$pf lists no parts"
+      raw=0; zipped=0
+      while read -r want name; do
+        [ -n "${name:-}" ] || continue; name=${name#\*}
+        case "$name" in
+          "$img") raw=$((raw+1)) ;;
+          "$img.zst") zipped=$((zipped+1)) ;;
+          *) err "$a/$sf names $name but $a/$pf has no part of it" ;;
+        esac
+        if [[ ! $want =~ ^[0-9a-f]{64}$ ]]; then
+          err "$a/$sf has an invalid sha256 for $name"
+        fi
+      done < "$dir/$a/$sf"
+      if [ "$raw" -ne 1 ] || [ "$zipped" -ne 1 ]; then
+        err "$a/$sf must list one image and one compressed image checksum"
+      fi
+      lines+=("$pf" "$sf")
     done
-    while read -r want name; do
-      [ -n "${name:-}" ] || continue; name=${name#\*}
-      case "$name" in "ncz-os-$a-"*.img) ;; *) err "$a/SHA256SUMS-$a names $name, which is not an $a image"; continue ;; esac
-      grep -q "[[:space:]]\*\?$(printf '%s' "$name" | sed 's/[.[\*^$+]/\\&/g')\.zst\.part-" "$pf" || err "$a/SHA256SUMS-$a names $name but $a/PARTS-$a.sha256 has no part of it"
-    done < "$sf"
-    lines+=("$a"$'\t'"$a/PARTS-$a.sha256"$'\t'"PARTS-$a.sha256" "$a"$'\t'"$a/SHA256SUMS-$a"$'\t'"SHA256SUMS-$a")
+    sf="SHA256SUMS-$a"
+    if [ "${#flavor_sums[@]}" -gt 0 ]; then
+      [ -f "$dir/$a/$sf" ] || err "$a/$sf not found"
+      cmp -s "$dir/$a/$sf" <(cat "${flavor_sums[@]}") || err "$a/$sf is not the concatenation of its flavor checksums"
+      seen[$sf]=1
+      lines+=("$sf")
+    fi
+    for p in "$dir/$a"/*; do
+      [ -e "$p" ] || continue
+      name=${p##*/}
+      [ -n "${seen[$name]:-}" ] && continue
+      err "$a/$name is not listed in the flavor layout"
+    done
   done
-  [ "${#arches[@]}" -gt 0 ] || err "no architecture folder (amd64/ or arm64/) in $dir"
   [ -f "$dir/ncz-join-image.sh" ] || err "ncz-join-image.sh not found"
   if [ ! -f "$dir/SHA256SUMS" ]; then err "SHA256SUMS not found"
   elif [ "${#arches[@]}" -gt 0 ]; then
@@ -303,18 +350,22 @@ rf_layout() {
     for x in "${arches[@]}"; do cat_f+=("$dir/$x/SHA256SUMS-$x"); done
     cmp -s "$dir/SHA256SUMS" <(cat "${cat_f[@]}") || err "SHA256SUMS is not SHA256SUMS-amd64 followed by SHA256SUMS-arm64"
   fi
-  lines+=("common"$'\t'"ncz-join-image.sh"$'\t'"ncz-join-image.sh" "common"$'\t'"SHA256SUMS"$'\t'"SHA256SUMS")
-  if [ -f "$dir/NOTES.md" ]; then lines+=("common"$'\t'"NOTES.md"$'\t'"NOTES.md")
+  lines+=(ncz-join-image.sh SHA256SUMS)
+  if [ -f "$dir/NOTES.md" ]; then lines+=(NOTES.md)
   elif [ -n "$need_notes" ]; then err "NOTES.md not found"; fi
   [ "$bad" -eq 0 ] || return 2
-  printf '%s\n' "${lines[@]}"
+  while IFS= read -r name; do
+    a=$(rf_file_group "$name")
+    if [ "$a" = common ]; then p=$name; else p=$a/$name; fi
+    printf '%s\t%s\t%s\n' "$a" "$p" "$name"
+  done < <(printf '%s\n' "${lines[@]}" | rf_canonical_sort)
 }
 
 # rf_check_sections BODY ARCH=SHA256SUMS-FILE...  ->  "ok<TAB>text" / "DIFF<TAB>text" lines
 # The notes need one section per architecture: a heading (## or deeper)
 # naming the architecture, in the order given, whose section contains the
-# sha256 of each image in that architecture's SHA256SUMS file and the
-# "ncz-join-image.sh <arch>" command.
+# raw image sha256 and join command in each flavor subsection or in the
+# architecture section for legacy images.
 rf_check_sections() {
   python3 -I - "$@" <<'PY'
 import re, sys
@@ -332,15 +383,36 @@ for a, sums in pairs:
             pos[a] = (i, "\n".join(body[i:end])); break
     if a not in pos:
         print("DIFF\tthe notes have no section heading naming %s" % a); continue
-    sec = pos[a][1]; miss = []
+    start, sec = pos[a]
+    miss = []
+    images = []
     try:
         for line in open(sums, encoding="utf-8"):
             f = line.split()
-            if len(f) >= 2 and f[0] not in sec: miss.append("sha256 of " + f[1].lstrip("*"))
+            if len(f) >= 2 and f[1].endswith(".img"): images.append((f[0], f[1].lstrip("*")))
     except OSError:
         miss.append("(no SHA256SUMS-%s to compare)" % a)
-    if not re.search(r"ncz-join-image\.sh\b[^\n]*?(?<![\w-])" + re.escape(a) + r"(?![\w-])", sec):
-        miss.append("the 'ncz-join-image.sh %s' command" % a)
+    for sha, image in images or [("", "")]:
+        flavor = re.search(r"-(desktop|server)\.img$", image)
+        command = a
+        section = sec
+        if flavor:
+            flavor = flavor.group(1)
+            command += r"[ \t]+" + flavor
+            limit = start + len(sec.splitlines())
+            heading = next(((i, lvl) for i, lvl, title in heads
+                            if start < i < limit and re.match(flavor + r"\b", title, re.I)), None)
+            if heading:
+                i, lvl = heading
+                end = next((j for j, lv, _ in heads if j > i and lv <= lvl), limit)
+                section = "\n".join(body[i:min(end, limit)])
+            else:
+                miss.append(flavor.capitalize() + " subsection")
+                continue
+        if sha and sha not in section: miss.append("sha256 of " + image)
+        pattern = r"ncz-join-image\.sh[ \t]+" + command + r"(?![\w-])"
+        if not re.search(pattern, section):
+            miss.append("the 'ncz-join-image.sh %s' command" % (a + (" " + flavor if flavor else "")))
     if miss: print("DIFF\tthe %s section of the notes is missing: %s" % (a, ", ".join(miss)))
     else: print("ok\tnotes: %s section with its image sha256 and join command" % a)
 order = [a for a, _ in pairs if a in pos]

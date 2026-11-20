@@ -1,0 +1,13 @@
+# t=110s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+
+  ┌────────────┤ [6/8] NCZ-OS 26.10 Cygnus - select the TARGET DISK (it will be ERASED) ├─┐
+  │ The disk you choose will be COMPLETELY ERASED and NCZ-OS installed on it.            │
+  │                                              v                                       │
+  │   /dev/vda (128.0 GB) <vda>  SAMSUNG MZ7LN128  │
+  │                                              ^                                       │
+  │ arm64 (Sky1) | build 8bf4e6e9 | diagnostics login: root / set by ncz_diag_pw         │
+  │                                                                              │
+  │                         <Go Back>     <OK>                                     │
+  └──────────────────────────────────────────────────────────────────────────────┘

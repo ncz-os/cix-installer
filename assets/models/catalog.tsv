@@ -1,0 +1,8 @@
+# NCZ model catalog — pinned pulls for `ncz models pull <name>`.
+# Tab-separated: name	url	sha256	size	licence
+# The default row (nomic-embed-text-v1.5.Q8_0.gguf) carries the same pinned
+# sha256 the CLI has always used — it matches the file baked into the
+# mnemos-enterprise image. Sizes are upstream Content-Length bytes.
+nomic-embed-text-v1.5.Q8_0.gguf	https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf	3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7	146146432	Apache-2.0
+bge-small-zh-v1.5-q8_0.gguf	https://huggingface.co/CompendiumLabs/bge-small-zh-v1.5-gguf/resolve/main/bge-small-zh-v1.5-q8_0.gguf	5a88d266870fbd27c6f329df60de80e2d4cf3bbd5e6f080bd5c1b2e5abb12039	26472640	MIT
+bge-small-zh-v1.5_256.cix	https://www.modelscope.cn/models/cix/ai_model_hub/resolve/26_Q1/models/Generative_AI/Text_Image_Search/onnx_bge_small_zh/bge-small-zh_256.cix	2ec3a6a8e97642ff630f0d6e6f2d0ce7c6ad9af1ce37d79f277b03ae25cb0920	75110644	Apache-2.0

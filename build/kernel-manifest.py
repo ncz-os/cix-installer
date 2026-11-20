@@ -45,7 +45,7 @@ SCHEMA = 1
 # O6N 2026-09-26 defect (image booted with NO /dev/aipu, no error).
 ACCEL_OVERLAYS = {
     "mali":    "assets/kernel/mali",
-    "panthor": "assets/kernel/panthor",
+    # panthor is not shipped (Mali only, operator order 2026-11-16): no overlay is required for it.
     "vpu":     "assets/kernel/vpu",
     "npu":     "assets/kernel/npu",
 }

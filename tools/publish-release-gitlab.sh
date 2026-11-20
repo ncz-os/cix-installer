@@ -5,12 +5,9 @@
 # Usage:
 #   tools/publish-release-gitlab.sh --dir DIR --tag TAG [options]
 #
-# DIR is a staged release folder with one folder per architecture
-# (docs/IMAGE-HOSTING.md, "Release layout"):
-#   DIR/amd64/  ncz-os-amd64-<date>-<build>.img.zst.part-NN, PARTS-amd64.sha256, SHA256SUMS-amd64
-#   DIR/arm64/  the same for arm64
-#   DIR/        ncz-join-image.sh, SHA256SUMS (= SHA256SUMS-amd64 + SHA256SUMS-arm64),
-#               optionally NOTES.md (attached as a file too)
+# DIR is a staged release folder (see docs/IMAGE-HOSTING.md). Each
+# architecture folder holds desktop and server parts and checksums,
+# followed by SHA256SUMS-<arch>. The root holds the common files.
 # Every part is checked against its PARTS file before anything is sent.
 # Each architecture is one generic package, <package>-<arch> (its parts, its
 # PARTS and SHA256SUMS files and a copy of ncz-join-image.sh, so the package
@@ -25,8 +22,8 @@
 # so the page reads as one folder per architecture), then the common files
 # (link type other). Links of the release that are not in this set are
 # removed. Each link's direct path is a stable alias that does not change
-# between releases (/<arch>/ncz-os-<arch>.img.zst.part-NN,
-# /<arch>/PARTS-<arch>.sha256, /<arch>/SHA256SUMS-<arch>, /<common file>), so
+# between releases. Part aliases omit the date and build and keep the flavor.
+# Checksums keep their file names, so
 #   https://gitlab.com/<project>/-/releases/permalink/latest/downloads/<alias>
 # always reaches the latest release's file.
 # The tag must already exist: this tool never creates tags.
@@ -140,7 +137,7 @@ done < "$WORK0/layout.tsv"
 declare -A ALIAS=()
 for f in "${FILES[@]}"; do
   a=$(rf_gl_path "$f")
-  [ -z "${ALIAS[$a]:-}" ] || udie "$f and ${ALIAS[$a]} share the stable path $a (one image per architecture per release)"
+  [ -z "${ALIAS[$a]:-}" ] || udie "$f and ${ALIAS[$a]} share the stable path $a (one image per architecture and flavor)"
   ALIAS[$a]=$f
 done
 GROUPS_USED=$(printf '%s\n' "${FGROUP[@]}" | sort -u | tr '\n' ' ')

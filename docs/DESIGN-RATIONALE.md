@@ -4,10 +4,8 @@
 
 # NCZ-OS 26.7 — Design Rationale
 
-> **Reading this for 26.10?** Most decisions below still hold for 26.10 "Cygnus",
-> but details may have moved on and the measurements were taken on the 26.7 kernel line (7.2). 26.10
-> ships one 7.3.0-rc7 kernel per architecture; see
-> [releases/26.10-cygnus-20261013.md](releases/26.10-cygnus-20261013.md).
+> Measurements below are from 26.7. Preview 4 ships one Linux 7.4 kernel per architecture. Sky1 uses Mali only. See
+> [releases/26.10-cygnus-preview4.md](releases/26.10-cygnus-preview4.md).
 
 Why this distribution is built the way it is: the GPU stack, the media and
 codec path, the desktop, networking, the base distribution, and the initramfs.

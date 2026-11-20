@@ -51,7 +51,10 @@ cd "$REPO" || exit 1
 for f in build/*.sh build/lib/*.sh tools/*.sh; do
     [ -f "$f" ] || continue
     case "$KEEP" in *" $f "*) continue ;; esac
-    [ "$f" = build/test-pipefail-grep.sh ] && continue   # section 1 uses the unsafe form on purpose
+    case "$f" in
+        build/test-pipefail-grep.sh|build/test-grepq-conversion-check.sh)
+            continue ;;   # regression fixtures carry the unsafe form on purpose
+    esac
     grep >/dev/null -E 'set -[a-z]*o pipefail|set -o pipefail|set -euo pipefail|set -uo pipefail' "$f" || continue
     h=$(grep -nE "$RE" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
     [ -n "$h" ] && hits="$hits$(printf '%s\n' "$h" | sed "s|^|$f:|")"$'\n'

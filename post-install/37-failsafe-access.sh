@@ -172,8 +172,7 @@ for _m in busybox openssl python3; do
 done
 
 if [ -z "$HASH" ]; then
-    # Last resort. Tolerable only because the file is 0600 root-only: an
-    # attacker who can read it already has root.
+    # Last resort. Restrict this file to root with mode 0600.
     printf '%s' "$FS_PASS" > "$FS_ETC/recovery.secret"
     chmod 0600 "$FS_ETC/recovery.secret"
     rm -f "$FS_ETC/recovery.hash"

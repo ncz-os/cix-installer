@@ -132,9 +132,15 @@ fi
 # once a second and the package temperature moves 10-14 C in one second under
 # turbo bursts, so the reading that trips the pause can reach Tjmax; the CPU's
 # own throttling covers that.
-# The warm band (75 C .. hot) renders at NCZ_FEED_FPS_WARM, compiled-in 10 fps,
-# which is above the 8 fps lock policy; T2 Macs use 6 fps there so a warmer
-# machine renders less, not more.
+# The warm band (75 C .. hot) renders at NCZ_FEED_FPS_WARM. On the validated
+# MacBookPro16,x T2 hosts the tested policy is 30 fps at half resolution
+# (NCZ_SAVER_RENDER_DIV=2, upscaled by the lock), the same rate as Auto, so a
+# warmer machine renders at the same rate as Auto rather than dropping frames.
+# Measured on MacBookPro16,1 (Radeon Pro 5500M, 3072x1920, lock-hosted saver,
+# 2026-11-18): half resolution at 30 fps gives 28.7 fps at 25 W GPU / 78 C
+# junction; full resolution is GPU-bound at about 17 fps whatever is asked,
+# at 37-41 W / 86-90 C. The previous 15 fps / full resolution policy gave
+# 14.7 fps at 20 W / 75 C.
 # Written into /etc/ncz/lock-renderer.env (sourced by the session launcher and
 # inherited by the lock and the feed) only when that file already names a lock
 # renderer (post-install/64-ncz-lock-saver-plan.sh); a value already present
@@ -146,7 +152,14 @@ SAVER_DMI="${NCZ_T2_SAVER_DMI:-/sys/class/dmi/id}"
 SAVER_HOT_MAX_MC=100000
 SAVER_HOT_MARGIN_MC=2000
 SAVER_HOT_DEFAULT_MC=85000
-SAVER_WARM_FPS=6
+SAVER_WARM_FPS=30
+# Auto frame rate of the saver on these Macs (ncz-screensavers 0.8.16+ reads
+# NCZ_SAVER_AUTO_FPS; other hardware gets 30 fps). The render divisor is 2
+# (half resolution): the GPU cannot hold more than about 17 fps at full
+# resolution here. The Settings page still lets the user pick a higher rate,
+# after a heat warning.
+SAVER_AUTO_FPS=30
+SAVER_RENDER_DIV=2
 
 # saver_min_crit_mc -> lowest tempN_crit (> 0) of the governor's sensors, or empty
 saver_min_crit_mc() {
@@ -197,6 +210,24 @@ else
             echo "[64] saver thermal cap: NCZ_FEED_TEMP_HOT_MC=$SAVER_HOT in $SAVER_ENV"
         else
             echo "[64] WARN: could not write $SAVER_ENV; saver thermal cap not set" >&2
+        fi
+    fi
+    if grep -qE '^[[:space:]]*NCZ_SAVER_AUTO_FPS=' "$SAVER_ENV"; then
+        echo "[64] saver Auto frame rate: $SAVER_ENV already sets NCZ_SAVER_AUTO_FPS; kept"
+    else
+        if printf 'NCZ_SAVER_AUTO_FPS=%s\n' "$SAVER_AUTO_FPS" >> "$SAVER_ENV" 2>/dev/null; then
+            echo "[64] saver Auto frame rate: NCZ_SAVER_AUTO_FPS=$SAVER_AUTO_FPS in $SAVER_ENV"
+        else
+            echo "[64] WARN: could not write $SAVER_ENV; saver Auto frame rate not set" >&2
+        fi
+    fi
+    if grep -qE '^[[:space:]]*NCZ_SAVER_RENDER_DIV=' "$SAVER_ENV"; then
+        echo "[64] saver render divisor: $SAVER_ENV already sets NCZ_SAVER_RENDER_DIV; kept"
+    else
+        if printf 'NCZ_SAVER_RENDER_DIV=%s\n' "$SAVER_RENDER_DIV" >> "$SAVER_ENV" 2>/dev/null; then
+            echo "[64] saver render divisor: NCZ_SAVER_RENDER_DIV=$SAVER_RENDER_DIV in $SAVER_ENV"
+        else
+            echo "[64] WARN: could not write $SAVER_ENV; saver render divisor not set" >&2
         fi
     fi
     if grep -qE '^[[:space:]]*NCZ_FEED_FPS_WARM=' "$SAVER_ENV"; then
@@ -322,6 +353,18 @@ ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:0", RUN+="/usr/local/s
 
 # Re-apply on AC plug/unplug (battery <-> AC policy switch).
 ACTION=="change", SUBSYSTEM=="power_supply", ATTR{type}=="Mains", RUN+="/usr/local/sbin/ncz-t2-power-cap apply --wait 2"
+UDEVEOF
+
+# --- udev: Apple T2 NVMe max_sectors_kb cap -----------------------------
+# Kernel 7.4.0-rc3 raises max_sectors_kb to 1024 on APPLE SSD AP0512N,
+# which reduces sequential direct IO throughput. Cap at 128 to restore
+# performance, harmless on kernels that already default to 128.
+_wr 0644 "$ROOT/etc/udev/rules.d/73-ncz-t2-nvme-max-sectors.rules" <<'UDEVEOF'
+# Apple T2 NVMe max_sectors_kb cap (post-install/64-t2-power-cap.sh).
+# See docs/T2-POWER-CAP.md for rationale. Whole disks only:
+# ENV{DEVTYPE}=="disk" keeps partitions (nvme0n1p1), which lack the
+# queue attributes, from matching and logging a write failure.
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ENV{DEVTYPE}=="disk", ATTRS{model}=="APPLE SSD*", ATTR{queue/max_sectors_kb}="128"
 UDEVEOF
 
 # --- resume: systemd-sleep hook -----------------------------------------

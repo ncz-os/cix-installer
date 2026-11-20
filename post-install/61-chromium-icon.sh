@@ -3,8 +3,9 @@
 #
 # The chromium-ncz-sky1 package ships the launcher icon `chromium-ncz-sky1` in hicolor at
 # 16 22 24 32 48 64 128 256 512 px, plus /usr/share/pixmaps/chromium-ncz-sky1.png (a copy of
-# the 256 px icon), in the 26.7 Maximilian orange. 26.10 Cygnus uses a magenta -> violet ->
-# cyan ring around the black hole (branding/cygnus/tools/render-chromium-icon.py,
+# the 256 px icon), in the old 26.7 orange palette. 26.10 Cygnus uses a
+# magenta -> violet -> cyan ring around the black hole
+# (branding/cygnus/tools/render-chromium-icon.py,
 # assets/branding/icons/chromium-ncz-sky1/).
 #
 # The package owns those files, so overwriting them would be undone by the next package

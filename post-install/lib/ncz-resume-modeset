@@ -1,0 +1,121 @@
+#!/bin/bash
+# ncz-resume-modeset -- force one full re-modeset of the INTERNAL panel after a
+# suspend/hibernate resume. Installed to /usr/local/sbin by
+# post-install/67-ncz-resume-modeset.sh and started (detached, ~0.5 s after the
+# resume) by /usr/lib/systemd/system-sleep/ncz-resume-modeset.
+#
+# WHY. Measured 2026-11-18 on a MacBookPro16,1 (amdgpu, eDP) on three different
+# kernels (the base, the base + the 7002 Navi14 patch, and that + the Wunner AER
+# series): after ANY S3 resume the internal panel flickers, on the desktop and
+# under the lock-screen saver, although the kernel log shows a clean resume.
+# A fresh boot is steady. One output off/on cycle through the compositor cures
+# it at once. A second laptop (Intel iGPU) left a greeter that stopped painting
+# after resume cycles: the same family. So the compositor is asked to
+# re-modeset the panel after every resume.
+#
+# WHAT. For every Wayland compositor socket under /run/user/<uid>/ (the logged-in
+# user's AND the greeter's), run wlr-randr as the socket's owner and, for every
+# INTERNAL connector (eDP*, LVDS*, DSI*) that is currently ENABLED, switch it off,
+# wait about half a second, and switch it on again. It is started about half a
+# second after the resume, because the flicker is visible from the moment of the
+# resume until this runs; when the compositor is not answering yet it retries for
+# a few seconds instead of giving up. Rules:
+#   * external outputs are never touched; an internal panel that is not enabled
+#     (clamshell dock, user choice) is never switched on;
+#   * the previous mode is kept (no --mode is passed);
+#   * one run at a time (flock); an overlapping run is skipped;
+#   * the --on is always attempted after the --off, so a panel is never left off;
+#   * best effort and silent: always exit 0, one journal line per action.
+#
+# NOT installed on arm64/Sky1: there an output disable->enable cycle is the DP
+# AUX-engine wedge trigger (see post-install/55-greeter.sh).
+#
+# SOCKET TRUST (the helper runs as root and then drops to the socket's owner):
+# a symlink is never followed, the socket must be owned by the owner of its own
+# /run/user/<uid> directory, and uid 0 is never used; the account name comes
+# from that checked uid.
+#
+# Test seams (default to the real thing): NCZ_RMS_RUNTIME_ROOT (/run),
+# NCZ_RMS_WLR_RANDR (wlr-randr), NCZ_RMS_RUNUSER (runuser), NCZ_RMS_LOGGER
+# (logger), NCZ_RMS_LOCK (<runtime>/ncz-resume-modeset.lock),
+# NCZ_RMS_STAT (stat), NCZ_RMS_ID (id), NCZ_RMS_OFF_DELAY (0.5), NCZ_RMS_TRIES (8), NCZ_RMS_TRY_DELAY (0.4),
+# NCZ_RMS_TIMEOUT (10).
+set -u
+RT="${NCZ_RMS_RUNTIME_ROOT:-/run}"
+WLR="${NCZ_RMS_WLR_RANDR:-wlr-randr}"
+RUNUSER="${NCZ_RMS_RUNUSER:-runuser}"
+LOGGER="${NCZ_RMS_LOGGER:-logger}"
+STAT="${NCZ_RMS_STAT:-stat}"
+IDC="${NCZ_RMS_ID:-id}"
+LOCKFILE="${NCZ_RMS_LOCK:-$RT/ncz-resume-modeset.lock}"
+OFF_DELAY="${NCZ_RMS_OFF_DELAY:-0.5}"
+TRIES="${NCZ_RMS_TRIES:-8}"
+TRY_DELAY="${NCZ_RMS_TRY_DELAY:-0.4}"
+TMO="${NCZ_RMS_TIMEOUT:-10}"
+
+log() { "$LOGGER" -t ncz-resume-modeset -- "$*" >/dev/null 2>&1 || true; }
+
+command -v "$WLR" >/dev/null 2>&1 || exit 0
+
+# One run at a time: a second resume while this one is still working is skipped.
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCKFILE" 2>/dev/null || exit 0
+    flock -n 9 || { log "skipped: another run is in progress"; exit 0; }
+fi
+
+_to=""
+command -v timeout >/dev/null 2>&1 && _to="timeout $TMO"
+
+# wl <owner> <xdg> <display> <wlr-randr args...>
+wl() {
+    local owner="$1" xdg="$2" disp="$3"
+    shift 3
+    "$RUNUSER" -u "$owner" -- env XDG_RUNTIME_DIR="$xdg" WAYLAND_DISPLAY="$disp" \
+        $_to "$WLR" "$@"
+}
+
+for sock in "$RT"/user/*/wayland-*; do
+    [ -L "$sock" ] && continue          # never follow a symlink
+    [ -S "$sock" ] || continue
+    case "$sock" in *.lock) continue ;; esac
+    xdg="$(dirname "$sock")"
+    disp="$(basename "$sock")"
+    sock_uid="$("$STAT" -c %u "$sock" 2>/dev/null)" || continue
+    dir_uid="$("$STAT" -c %u "$xdg" 2>/dev/null)" || continue
+    # The socket must belong to the owner of its own runtime directory, and the
+    # helper never acts as root: anything else is not a compositor socket we trust.
+    if [ -z "$sock_uid" ] || [ "$sock_uid" != "$dir_uid" ]; then
+        log "skipped $disp in $(basename "$xdg"): socket owner differs from its runtime directory"
+        continue
+    fi
+    [ "$sock_uid" != 0 ] || continue
+    owner="$("$IDC" -nu "$sock_uid" 2>/dev/null)" || continue
+    [ -n "$owner" ] || continue
+
+    # Connector names of the outputs that are currently enabled. Right after a
+    # resume the compositor may not answer yet: retry briefly before giving up.
+    outs=""
+    try=0
+    while [ "$try" -lt "$TRIES" ]; do
+        outs="$(wl "$owner" "$xdg" "$disp" 2>/dev/null \
+            | awk '/^[^ \t]/ {name=$1} /^[ \t]+Enabled:[ \t]*yes/ {print name}')" || outs=""
+        [ -n "$outs" ] && break
+        try=$((try + 1))
+        sleep "$TRY_DELAY"
+    done
+    [ -n "$outs" ] || { log "$owner/$disp: no enabled outputs listed after $TRIES tries"; continue; }
+
+    for out in $outs; do
+        case "$out" in
+            eDP*|LVDS*|DSI*) ;;
+            *) continue ;;
+        esac
+        wl "$owner" "$xdg" "$disp" --output "$out" --off >/dev/null 2>&1
+        off_rc=$?
+        sleep "$OFF_DELAY"
+        wl "$owner" "$xdg" "$disp" --output "$out" --on >/dev/null 2>&1
+        on_rc=$?
+        log "re-modeset $out for $owner/$disp: off rc=$off_rc, on rc=$on_rc"
+    done
+done
+exit 0

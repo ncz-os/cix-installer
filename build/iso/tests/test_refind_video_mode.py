@@ -171,13 +171,22 @@ class Arm64Unchanged(unittest.TestCase):
         self.conf = self.t["boot_conf"]
 
     def test_arm64_output_is_byte_identical_to_the_shared_text_template(self):
+        # The theme include is appended after the menu when NCZ_REFIND_THEME
+        # is on; this test pins the template BODY (its video/branding policy),
+        # so it formats with the theme off. The theme's own placement and its
+        # both-arches staging are covered by test_refind_esp_theme.py.
         expected = MODULE.REFIND_CONF_TEXT_TEMPLATE.format(
             info_line="info",
+            theme_include=MODULE.theme_include_block(False),
             install_options=MODULE.ARM64_INSTALL_OPTIONS,
             expert_options=MODULE.ARM64_EXPERT_OPTIONS,
             rescue_options=MODULE.ARM64_RESCUE_OPTIONS,
         )
-        self.assertEqual(self.conf, expected)
+        # The build appended the theme include (the default is on); strip that
+        # exact trailing block and compare the rest to the template body.
+        include = MODULE.theme_include_block(True)
+        self.assertTrue(self.conf.endswith(include), repr(self.conf[-100:]))
+        self.assertEqual(self.conf[: -len(include)], expected)
         # and the arm64 template is still the shared alias
         self.assertIs(MODULE.REFIND_CONF_TEXT_ARM64_TEMPLATE, MODULE.REFIND_CONF_TEXT_TEMPLATE)
 

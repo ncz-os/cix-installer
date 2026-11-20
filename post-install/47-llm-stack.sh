@@ -50,14 +50,17 @@ apt-get update -o Acquire::http::Timeout=8 -o Acquire::https::Timeout=8 -o Acqui
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     vulkan-tools \
     clinfo \
+    ocl-icd-libopencl1 \
     glmark2-x11 \
     glmark2-es2-x11 \
     glmark2-wayland 2>&1 | tail -5 || \
     echo "[47] some Vulkan/OpenCL runtime packages unavailable — continuing (offline mirror may not have them all)"
 
-# Keep mesa-vulkan-drivers. On arm64 it carries PanVK, the only Vulkan driver
-# the Panthor entry (sky1.gpu=mesa) has: the switcher disables the blob's
-# /etc/vulkan/icd.d/mali.json there, so purging the package left Panthor with an
+# Keep mesa-vulkan-drivers (server acceptance: dpkg shows no desktop packages
+# beyond mesa-vulkan-drivers + vulkan-tools). Mali-only image: the blob ICD
+# (/etc/vulkan/icd.d/mali.json) is the real device; the Mesa ICDs stay as the
+# vulkaninfo/llvmpipe fallback. Historical note (Panthor era): purging the
+# package left the Panthor entry with an
 # empty ICD directory (O6N 2026-10-04). The Mali entry pins
 # VK_DRIVER_FILES=/etc/vulkan/icd.d/mali.json, so the extra ICDs do not
 # interfere there. Only the Vulkan dev/build packages are purged.
@@ -101,8 +104,9 @@ if [ "$TARGET_ARCH" = "arm64" ]; then
     else
         echo "[47] Vulkan build/dev stack already absent"
     fi
-    # Idempotent: guarantee the PanVK ICD is present even if the desktop layer
-    # did not install it, so the Panthor entry always has Vulkan.
+    # Idempotent: guarantee the Mesa Vulkan ICDs are present even if the
+    # desktop layer did not install them (server acceptance keeps
+    # mesa-vulkan-drivers alongside vulkan-tools).
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mesa-vulkan-drivers 2>&1 | tail -5 || \
         echo "[47] WARN: mesa-vulkan-drivers install failed — continuing (non-fatal)"
 else

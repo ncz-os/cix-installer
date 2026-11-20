@@ -7,6 +7,7 @@
 #
 #   ncz_canon_squashfs LIST  <file>   # mode+size+path listing, host-independent
 #   ncz_canon_tar      LIST  <file>   # sorted member listing with fixed owner
+#   ncz_canon_targz    LIST  <file>   # tar(.gz) members with content sha256
 #   ncz_canon_json     <file>         # canonical JSON with volatile keys dropped
 #   ncz_canon_fat      LIST  <file>   # mtools mdir listing, normalised
 #   ncz_canon_tree     <dir>          # sha256 of every file, sorted by path
@@ -64,6 +65,28 @@ ncz_canon_tar_list() {
     tar -tvf "$1" --numeric-owner --full-time 2>/dev/null \
         | awk '{ $4=$5=""; print }' \
         | LC_ALL=C sort
+}
+
+# Compressed tar listing with CONTENT hashes: "<type> <mode> <size> <sha256|link> <name>",
+# in archive order (the order is part of the bytes, so it is part of the listing).
+# Times, owners and the gzip header are left out: equal listings mean the two
+# archives carry the same members and only container metadata differs. Used
+# for the Magnetar asset bundle and offline pool (ncz-*-<arch>.tar.gz).
+ncz_canon_targz_list() {
+    python3 -I - "$1" <<'PYEOF'
+import hashlib, sys, tarfile
+with tarfile.open(sys.argv[1]) as t:
+    for m in t:
+        if m.isfile():
+            h = hashlib.sha256()
+            f = t.extractfile(m)
+            for b in iter(lambda: f.read(1 << 20), b""):
+                h.update(b)
+            ref = h.hexdigest()
+        else:
+            ref = m.linkname or "-"
+        print(m.type.decode() or "0", oct(m.mode), m.size, ref, m.name)
+PYEOF
 }
 
 # FAT (ESP) listing via mtools: recursive mdir, normalised.

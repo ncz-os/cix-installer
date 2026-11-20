@@ -61,15 +61,16 @@ BUILD_VERSION="(unknown)"
 # KVER_NEXT sidecar baked into the image, install the shared script to its
 # permanent location, then run it once for the initial install.
 #
-# Menu (refind.conf manual entries), in order: Mali (default) / Panthor
-# (experimental) / Console (no GUI, Mali accelerators off) / Rescue
-# Partition (separate on-disk recovery rootfs, if present) / any
-# operator-staged RESCUE -tag rescue kernels.
+# Menu (refind.conf manual entries), in order: Mali (default) / Console
+# (no GUI, Mali accelerators off) / Rescue Partition (separate on-disk
+# recovery rootfs, if present) / any operator-staged RESCUE -tag rescue
+# kernels. The Panthor (experimental) entry was removed from the source by
+# operator order 2026-11-16 ("No panthor Mali only").
 #
 # TRADEOFF vs systemd-boot (deliberate, r118): rEFInd has no boot-counting,
 # so there is NO automatic rollback to another entry. The menu's `timeout`
-# always presents itself so the operator can pick rescue if a Mali or
-# Panthor boot misbehaves.
+# always presents itself so the operator can pick rescue if a Mali boot
+# misbehaves.
 run_refind_arm64() {
     KVER_NEXT=""
     [ -f "$INSTALLER_META/KVER_NEXT" ] && KVER_NEXT=$(cat "$INSTALLER_META/KVER_NEXT" 2>/dev/null || true)
@@ -147,15 +148,29 @@ run_refind_amd64() {
     # is simpler than arm64's cixmini-boot-redirect equivalent
     # (11-fix-cixmini-boot.sh): AMD64 has no special-cased kernel package to
     # redirect, just the plain standard hookpoint to use.
-    HOOK_SRC="$INSTALLER_META/assets/refind/zz1-ncz-refind-refresh-amd64"
-    HOOK_DST=/etc/kernel/postinst.d/zz1-ncz-refind-refresh-amd64
-    if [ -s "$HOOK_SRC" ]; then
-        install -D -m 0755 "$HOOK_SRC" "$HOOK_DST"
-        echo "  installed kernel postinst.d hook -> $HOOK_DST"
-    else
-        echo "  WARN: $HOOK_SRC missing -- future apt kernel upgrades will NOT regenerate refind.conf"
-    fi
+    # Two hooks, in run-parts order (2026-11-02, add-only kernel installs):
+    #   zz1  calls the tool with `--add`: stage the new pair onto the ESP and
+    #        append ONE menuentry. It never wipes and never changes the default.
+    #   zz2  the promote guard: does nothing unless the operator pinned a
+    #        default in /etc/ncz/refind-default-token, in which case it calls
+    #        `--promote <token>`, which rewrites only default_selection.
+    # Until 2026-11-02 zz1 called the generator bare, so every kernel install
+    # wiped the ESP and made the newly installed kernel the DEFAULT on the next
+    # reboot (proven on two test machines, 2026-11-02).
+    for _hook in zz1-ncz-refind-refresh-amd64 zz2-ncz-refind-promote-guard; do
+        HOOK_SRC="$INSTALLER_META/assets/refind/$_hook"
+        HOOK_DST="/etc/kernel/postinst.d/$_hook"
+        if [ -s "$HOOK_SRC" ]; then
+            install -D -m 0755 "$HOOK_SRC" "$HOOK_DST"
+            echo "  installed kernel postinst.d hook -> $HOOK_DST"
+        else
+            echo "  WARN: $HOOK_SRC missing -- future apt kernel installs will NOT update refind.conf"
+        fi
+    done
 
+    # FIRST-INSTALL PATH, UNCHANGED: the install-time generator still writes the
+    # initial menu (Default / Console / Rescue / Rescue Partition) exactly as
+    # before. Only the SUBSEQUENT kernel installs (zz1/zz2) are add-only.
     export KVER_STABLE KVER_EDGE BUILD_VERSION NCZ_PRODUCT_NAME NCZ_RELEASE_VERSION NCZ_RELEASE_CODENAME
     "$SHARED_DST"
 }

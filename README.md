@@ -9,53 +9,33 @@
 <h1 align="center">NCZ-OS</h1>
 <p align="center"><em>Debian for Arm64 (CIX Sky1) and AMD64 (Intel/AMD PCs and Apple T2 Macs) — with working GPU, VPU and NPU drivers</em></p>
 
-> ### NCZ-OS 26.10 "Cygnus" (images of 2026-10-13)
+> ### NCZ-OS 26.10 "Cygnus" — Preview 4 (images of 2026-11-19)
 >
-> **[Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)** (one release: the current images)
-> · [Release notes](docs/releases/26.10-cygnus-20261013.md)
+> **Download from [GitHub Releases](https://github.com/ncz-os/cix-installer/releases) or
+> [GitLab Releases](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest).**
+> · [Release notes and checksums](docs/releases/26.10-cygnus-preview4.md)
 > · [Hardware tested](#hardware-support--testing-status)
-> · [Documentation index](docs/INDEX.md)
 >
-> | Image | For | Kernel |
+> Build `2026.11.19-4b51adc1` (`v26.10-preview4`) includes four Debian Testing
+> (Forky) images. Back up your data before installing the release candidate kernel.
+>
+> | Architecture | For | Images |
 > |---|---|---|
-> | `ncz-os-arm64-20261013-d395bb2d.img` | CIX Sky1 boards (Radxa Orion O6N, Minisforum MS-R1) | `7.3.0-rc7-sky1-ncz` |
-> | `ncz-os-amd64-20261013-d395bb2d.img` | Intel/AMD PCs and Apple T2 Macs | `7.3.0-rc7-t2-ncz` |
+> | amd64 | Intel/AMD PCs and Apple T2 Macs | Desktop and Magnetar Server |
+> | arm64 | CIX Sky1 boards | Desktop and Magnetar Server |
 >
-> | Image | sha256 of the `.img` |
-> |---|---|
-> | arm64 | `f6de9e4f830fd5d450b1e00654cc9341aae1a5ca070bc66f9a5a76b3ca3ba4a7` |
-> | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
->
-> Each image is a raw GPT disk image, split into parts on the release page
-> (GitHub limits files to 2 GiB). Put the parts of your architecture, its
-> `PARTS-<arch>.sha256` and `SHA256SUMS-<arch>` (on older releases
-> `PARTS.sha256` and `SHA256SUMS`) and [`ncz-join-image.sh`](tools/ncz-join-image.sh) in one folder and run
-> `sh ncz-join-image.sh arm64` (or `amd64`): it checks every part, joins and
-> unpacks them and checks the finished `.img`. It never writes to a disk. Then
-> write the `.img` to a drive of at least 16 GB — see
-> [Quick start (install on hardware)](#quick-start-install-on-hardware).
->
-> Both images are built on a release-candidate kernel (7.3.0-rc7). Back up
-> anything you care about before you install.
+> Desktop includes the 2026-11-18 Singularity snapshot with the NCZ-OS patch set.
+> Magnetar Server installs over a wired network. See [Quick start](#quick-start-install-on-hardware).
 
 ## Why NCZ-OS exists
 
-Our objective is to build the most modern, hardware-exploitative Linux
-distribution possible for Arm64 and x86 systems — while extending those
-same advantages to legacy but still-useful hardware, such as Apple T2
-Macs and x86 PCs from 2012 onward, that can no longer migrate to modern
-operating systems from Apple and Microsoft.
-
-We aim to meaningfully reduce the e-waste pile by giving these
-still-capable systems new life and purpose in the age of agentic systems
-and generative AI — real, current kernel and driver work, not a
-frozen-in-time legacy distro.
+NCZ-OS brings current Linux drivers and a Debian desktop to CIX Sky1 boards, Intel and AMD PCs, and Apple T2 Macs.
 
 # cix-installer
 
 > **🌐 Language:** English · [简体中文](README.zh-CN.md)
 >
-> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 release notes](docs/releases/26.10-cygnus-20261013.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases)
+> **📚 Start here:** [Documentation index](docs/INDEX.md) · [26.10 Preview 4 release notes](docs/releases/26.10-cygnus-preview4.md) · [Design rationale — why it is built this way](docs/DESIGN-RATIONALE.md) · [AI/ML Stack Reference](docs/AI-ML-STACK.md) ([中文](docs/AI-ML-STACK.zh-CN.md)) · [Source releases](docs/SOURCE-RELEASES.md) · [Download the image](https://github.com/ncz-os/cix-installer/releases)
 
 **The installer and image build for the NCZ-OS Linux distribution.**
 
@@ -64,7 +44,7 @@ frozen-in-time legacy distro.
 architectures** that share one build pipeline and one userland:
 
 - **Arm64 — CIX Sky1** (Radxa Orion O6N, Minisforum MS-R1). Native Mali-G720
-  GLES (Panthor Vulkan as an experimental boot entry), Zhouyi V3 NPU, Linlon
+  GLES (Mali only), Zhouyi V3 NPU, Linlon
   VPU — all driven by CIX DKMS accelerator modules on top of the NCZ Sky1
   kernel.
 - **AMD64 — Intel/AMD PCs and Apple T2 Macs.** Standard Intel/AMD/NVIDIA
@@ -82,37 +62,27 @@ hand-patching d-i itself. The installer extracts a pre-built **Debian Testing
 userspace, the Singularity desktop and the opt-in NCZ agent stack, and brands
 it as NCZ-OS. See [Architecture](#architecture).
 
-> **Current release: NCZ-OS 26.10 "Cygnus"** — the Singularity
-> desktop (labwc/wlroots) in the Cygnus theme, one kernel per image:
+> **Current release: NCZ-OS 26.10 "Cygnus", Preview 4** —
+> Desktop and Magnetar Server editions, one kernel per image, all on
+> the Linux 7.4 kernel line:
 >
 > | | Sky1 (Arm64) | Intel/AMD PCs and T2 Macs (AMD64) |
 > |---|---|---|
-> | **Kernel** | `7.3.0-rc7-sky1-ncz` (build r289) | `7.3.0-rc7-t2-ncz` (package `7.3.0-rc7-2`) |
+> | **Kernel** | `7.4.0-rc3-sky1-ncz` (+r303) | `7.4.0-rc3-t2-ncz` (package `7.4.0-rc3-4`) |
 >
 > The default, installer and rescue boot entries all boot that one kernel; the
 > rescue entry blacklists the GPU/accelerator drivers
-> (`assets/kernel/KERNEL-POLICY`). The 7.2 line and the old "edge" channel
-> are retired. 7.3.0-rc7 is a **release candidate**; it will be replaced by
-> 7.3.0 final.
+> (`assets/kernel/KERNEL-POLICY`). 7.4.0-rc3 is a **release candidate**.
+> **The 7.3.x kernel line (including 7.3.4 and the 7.3 T2 kernel) is no
+> longer maintained**; the 7.2 line and the old "edge" channel were retired
+> earlier.
 >
-> **Release notes:** [26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md) ·
+> **Release notes:** [26.10 "Cygnus" Preview 4](docs/releases/26.10-cygnus-preview4.md) ·
 > [Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)
 
 > ### Remote access defaults
 >
-> NCZ-OS is built for **home users, hobbyists and lab benches**, and its
-> defaults reflect that: **telnet (port 23)**, a failsafe root console on
-> **2323**, SSH with password auth and root login, and a recovery container
-> that takes **its own IP on your LAN**. They exist so a board you have just
-> broken is still reachable — several of these machines are headless with no
-> usable serial console.
->
-> On a home LAN behind a router we do not consider this a meaningful exposure.
-> **In an enterprise, on a shared network, or on anything with a routable
-> address, turn it off** — one command, below.
->
-> **→ [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)** — exactly what is
-> enabled, why, and how to disable each part.
+> By default, telnet on port 23, a failsafe root console on port 2323, SSH with password and root login, and the `ncz-recovery` container are enabled. The failsafe console and container use published default passwords. The container has its own LAN address. The recovery option can be deselected during installation. Change the passwords or disable services you do not need before connecting to a shared network. See [Remote access](docs/REMOTE-ACCESS.md).
 
 ## What's in 26.10 "Cygnus"
 
@@ -122,20 +92,26 @@ it as NCZ-OS. See [Architecture](#architecture).
   maximize and close buttons by default, system-wide.
 - **First-login tour** of the desktop, the wallpapers and artist packs, the
   online wallpaper sources and the screensavers (plus, on Sky1, hardware video
-  decoding in Chromium). It starts 30 seconds after the first login and runs
-  once per user; to see it again, delete `~/.local/state/ncz/tour-seen` and log
-  in again.
-- **Screensavers:** NCZ Screensavers 0.8.15 (settings plugin 0.3.22) with 74
+  decoding in Chromium). It opens a few seconds after the first login, before
+  the quote of the day, the firewall notice and the update notice (they wait
+  until the tour is closed, at most 90 seconds), and runs once per user; to see
+  it again, delete `~/.local/state/ncz/tour-seen` and log in again. The tour
+  runs at idle CPU priority with animations off, so it does not heat the
+  machine while it is open.
+- **Screensavers:** NCZ Screensavers 0.8.22 (settings plugin 0.3.27) with 74
   savers, including the Black Hole (the default, in the Cygnus palette),
   Fractasia and Magmasimplex. Choose and preview them in Settings →
   *Screensaver and Lock*. Heavy savers are best on a stronger GPU.
 - **Lock screen over a live screensaver.** The saver and the lock start
   together after 5 minutes idle; the password prompt appears only on the first
   key press, click or pointer movement. Behind the lock the saver runs at
-  8 fps and half resolution and keeps animating until you touch the machine;
-  it freezes on its current frame only when the prompt appears, and starts
-  again if the prompt is left to time out. A thermal guard pauses it while the
-  machine is hot.
+  30 fps and full resolution (15 fps on battery, on a weak GPU and on T2
+  MacBooks; adjustable in Settings) and keeps animating until you touch the
+  machine. When the prompt appears the saver is paused on its current frame,
+  and it continues from there if the prompt is left alone for a minute. A
+  thermal guard pauses it while the machine is hot. On T2 MacBooks the
+  15 fps limit behind the lock is deliberate: it protects the machine's
+  power delivery.
 - **Login screen that matches the lock screen** (greetd with the native
   Singularity greeter), at the panel's native resolution on T2 MacBooks.
 - **Wallpapers:** Artist Packs (NCZ, Cygnus, Alex Jay Brady, Brandon Perlow,
@@ -144,11 +120,9 @@ it as NCZ-OS. See [Architecture](#architecture).
 - **Browsers:** on Sky1, Chromium NCZ Sky1 Edition (default) with hardware
   video decode for H.264, VP9 and AV1, plus Google Chrome and Vivaldi; on
   amd64, Vivaldi (default) and Google Chrome.
-- **Sky1:** Mali GPU driver by default with Panthor as an experimental boot
-  entry, VPU hardware video decode (verified on the Radxa Orion O6N and MS-R1), the
+- **Sky1:** Mali GPU driver (Mali only), VPU hardware video decode (verified in earlier releases on the Radxa Orion O6N and MS-R1), the
   NPU runtime, and automatic HDMI/DP audio switching.
-- **Apple T2 Macs:** a kernel with Apple T2 support (tested on
-  MacBookPro16,1), a CPU package power cap
+- **Apple T2 Macs:** a kernel with Apple T2 support, a CPU package power cap
   ([docs/T2-POWER-CAP.md](docs/T2-POWER-CAP.md)), the T2 fan/SMC drivers, and Apple Wi-Fi/Bluetooth firmware and
   audio configuration fetched from the t2-ubuntu-repo at first boot.
 - **Updates and recovery:** an NCZ-OS update manager, a rescue boot entry on
@@ -156,12 +130,23 @@ it as NCZ-OS. See [Architecture](#architecture).
   recovery container with its own SSH host keys per device (see
   [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). No SSH keys are
   preinstalled; `~/.ssh/authorized_keys` is left to you.
+- **Accessibility:** braille displays are supported on the installed system
+  after `sudo apt install brltty`; the installer itself has no braille support
+  ([docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)).
 - **Agent stack (opt-in):** `ncz install mnemos`, `ncz install zoder` and
   `ncz agent install <name>` set up MNEMOS, zoder and the agent runtimes end
   to end ([docs/NCZ-AGENT-STACK.md](docs/NCZ-AGENT-STACK.md)).
 
-What changed since Preview 1 (2026-10-12) is listed in the
-[release notes](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1).
+- **Singularity desktop snapshot:** upstream Singularity built on
+  2026-11-18 with the NCZ-OS patch set (including login screen,
+  greeter, boot splash, lock-screen and idle-backlight fixes). Its system core is built for a
+  baseline CPU, so it runs on any supported x86-64 or arm64 processor.
+
+What is new in Preview 4 is listed in the
+[Preview 4 release notes](docs/releases/26.10-cygnus-preview4.md). The
+[2026-10-13 notes](docs/releases/26.10-cygnus-20261013.md) and the
+[Preview 1 notes](docs/releases/26.10-cygnus-preview1.md) are kept as a
+historical record of the 7.3 kernel line, which is no longer maintained.
 
 ### Artist packs
 
@@ -314,23 +299,23 @@ x86 platform, when sample hardware is obtainable for validation.
 shared desktop, shared agent stack):**
 
 - **Arm64 — CIX Sky1 / CP8180** — **Radxa Orion O6N** and **Minisforum
-  MS-R1**, both tested on real hardware. This is where the CIX proprietary
-  userspace (`libmali`, NOE, VPU firmware) and the four DKMS accelerator
-  modules (`mali_kbase`, `panthor`, `amvx`, `aipu`) are wired in. Other Sky1
+  MS-R1**, both tested on earlier releases. This is where the CIX proprietary
+  userspace (`libmali`, NOE, VPU firmware) and the three DKMS accelerator
+  modules (`mali_kbase`, `amvx`, `aipu`) are wired in (Mali only). Other Sky1
   boards (Orange Pi 6, the MetaComputing Framework mainboard) are untested.
   The repo name reflects history; the
   project scope does not.
 - **AMD64 — Apple T2 Mac** — the Intel Macs with the T2 coprocessor
   (MacBookPro 15,x/16,x and MacBookAir 8,x/9,1, 2018–2020, among others);
-  only the MacBookPro16,1 has been tested. Detection is by PCI `106b:1801` — Apple's own T2 bridge
+  Detection is by PCI `106b:1801` — Apple's own T2 bridge
   device ID, the same identifier `t2linux`'s `linux-t2-patches` keys off
   of (verified directly in the
   `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch` source).
   On a T2 Mac, NCZ-OS wires `apple-bce`, `applesmc`, HID and APFS in-tree
-  (our own `7.3.0-rc7-t2-ncz` kernel) and pulls Apple firmware + audio config
+  (our own `7.4.0-rc3-t2-ncz` kernel) and pulls Apple firmware + audio config
   from AdityaGarg8's real, signed `t2-ubuntu-repo` at first boot.
 - **AMD64 — generic x86-64 PC** — same build, same userland, no CIX
-  stack. The same image boots a normal Intel/AMD desktop or server; the
+  stack. Preview 4 offers Desktop and Server images. The
   vendor-specific accelerator repos (NVIDIA CUDA, AMD ROCm, Intel
   OpenVINO) wire automatically based on `lspci -nn` PCI-class detection
   in `post-install/54-gpu-accel.sh`. A machine with no discrete GPU is
@@ -375,20 +360,24 @@ source tree.
 
 ## Hardware support & testing status
 
-> **Read this before you flash anything.** NCZ is vendor-neutral *by
-> design*, but "designed to support" is not the same as "tested on." This is
-> the honest state of hardware validation for **26.10 "Cygnus"**
-> (kernel `7.3.0-rc7`, a release candidate). Anything not listed as tested
-> below has not been booted by us on this release.
+> On build `2026.11.19-4b51adc1`, arm64 Server completed installation and
+> first boot on a Radxa Orion O6N. amd64 Server ran on an Apple MacBookPro16,1
+> (T2). amd64 Desktop reached the desktop on an Apple MacBookPro16,1 (T2)
+> and an ASUS ROG Zephyrus M15 GU502LV laptop with an NVIDIA GeForce RTX 2060.
+> These runs had zero failed units.
+> Build `2026.11.19-4b51adc1` passed the automated virtual-machine install and boot check on both architectures: the desktop images with five sets of installer options and the installer screen check, and the server images with the server rescue-partition and offline-negative sets.
+> On an earlier Preview 4 build, arm64 Desktop reached the desktop on a CIX
+> Sky1 board. The tables below record earlier 26.10 results.
 
-### Supported GPUs and tested machines (26.10)
 
-NCZ-OS 26.10 ships drivers for **AMD, NVIDIA and Intel GPUs on amd64**, **Arm Mali on CIX Sky1 (vendor Mali stack by default, open Panthor driver also available)**, and the **CIX Sky1 NPU and VPU**. Machines we ran it on:
+### Supported GPUs and earlier 26.10 test results
+
+NCZ-OS 26.10 ships drivers for **AMD, NVIDIA and Intel GPUs on amd64**, **Arm Mali on CIX Sky1 (Mali only)**, and the **CIX Sky1 NPU and VPU**. Machines we ran it on:
 
 | Machine | CPU | GPU (driver) | Tested |
 |---|---|---|---|
-| Radxa Orion O6N | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
-| Minisforum MS-R1 | CIX P1 (Sky1) | Arm Mali (vendor Mali; Panthor available) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
+| Radxa Orion O6N | CIX P1 (Sky1) | Arm Mali (vendor Mali) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
+| Minisforum MS-R1 | CIX P1 (Sky1) | Arm Mali (vendor Mali) + NPU + VPU | Installed, desktop, video (VPU hardware decode) and audio playback |
 | Radxa Orion O6 | CIX P1 (Sky1) | Arm Mali (vendor Mali) + NPU + VPU | Desktop, applications and display mode switching confirmed by a community tester (installed from an earlier release and updated with the fixed desktop library) |
 | MacBookPro16,1 (two units) | Core i9-9980HK, Core i7-9750H | AMD Radeon Pro 5300M/5500M class (Navi 14, `amdgpu`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
 | ASUS ROG GU502LV laptop | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile (proprietary `nvidia`) + Intel UHD 630 (`i915`) | Installed, boots to desktop |
@@ -454,18 +443,19 @@ way to change a ⏳ to a ✅.**
 ### Driver support matrix — Sky1 (ARM64)
 
 > **Which kernel is this table about?** NCZ-OS 26.10 ships **one**
-> Sky1 kernel, `7.3.0-rc7-sky1-ncz` (build r289;
+> Sky1 kernel, `7.4.0-rc3-sky1-ncz` (build r303;
 > the pin is `assets/kernel/sky1-manifest.json`). The default, installer and
 > rescue boot entries all boot it; the 7.2 line and the old "edge" channel are
 > gone. Most rows below were first measured on the 7.2 kernel of 26.7 and
 > re-checked at the system level on 7.3.0-rc7 on the Radxa Orion O6N and MS-R1.
 >
-> **Both GPU drivers ship.** `mali_kbase` (CIX vendor DDK, `cix-gpu-kmd`) is
-> the default and provides GLES 3.2 and OpenCL via `libmali`. `panthor`
-> (mainline open driver, `panthor-cix`, the Vulkan/PanVK path) is installed
-> alongside it and selectable. Both are blacklisted in
-> `/etc/modprobe.d/ncz-gpu-drivers.conf` so neither binds by accident; switch
-> with `ncz-gpu-select`. See
+> **Mali only.**
+> `mali_kbase` (CIX vendor DDK, `cix-gpu-kmd`) is the only GPU driver shipped
+> and selected, and provides GLES 3.2 and OpenCL via `libmali`. `panthor`
+> (mainline open driver, `panthor-cix`, the Vulkan/PanVK path) was removed
+> from the image on 2026-11-14 and its boot-menu entry was removed from the
+> source on 2026-11-16. It is blacklisted in
+> `/etc/modprobe.d/ncz-gpu-drivers.conf` so it never binds. See
 > [GPU driver notes](#gpu-drivers-and-boot-options).
 
 Sky1 boots via **ACPI, not a device tree** — `/sys/firmware/devicetree/base`
@@ -483,7 +473,7 @@ is empty on both the MS-R1 and the Radxa Orion O6N. The kernel build also produc
 | **DSP** | `cix-dsp` + `cix-dsp-rproc` | `=m` | ✅ | ✅ | Remoteproc + rpmsg (patch `0019`); confirmed loaded (`cix_dsp_rproc`) on real Sky1 hardware (MS-R1). |
 | **Audio (HDA)** | `snd-hda-cix-ipbloq` + Realtek ALC codecs | `=m` | ✅ | ✅ | Patches `2015`–`2017`. Verified ALC269VC analog + digital + HDMI/DP on real hardware (MS-R1). |
 | **Audio (SoC)** | `snd-soc-sky1-sound-card` + Cadence I2S + `snd-soc-sof-cix` | `=m` | ✅ | ✅ | Patch `2014`. SOF (`CONFIG_SND_SOC_SOF_CIX_TOPLEVEL=y`, `CONFIG_SND_SOC_SOF_CIX_SKY1=m`) is built but not observed loaded on real hardware — the machine driver (`snd-soc-sky1-sound-card`) handles audio directly; SOF appears to be a dormant/fallback path, not confirmed active. |
-| **GPU (Mali-G720)** | `mali_kbase` (default) **and** `panthor`, both DKMS; `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | DKMS | ✅ | ✅ | **Both drivers ship**, both blacklisted, one selected via `ncz-gpu-select`. Default `mali_kbase` measured on the Radxa Orion O6N: Mali-G720-Immortalis, 10 cores, **OpenGL ES 3.2 / EGL 1.5**, desktop accelerated. `panthor` is the mainline/Vulkan path. Display: `trilin_dpsub` + `linlon_dp` confirmed, DP up to 4K60. |
+| **GPU (Mali-G720)** | `mali_kbase` (Mali DKMS only); `drm-cix` + `drm-trilin-dp-cix` (DisplayPort) | DKMS | ✅ | ✅ | Sky1 uses the Mali driver. Measured on the Radxa Orion O6N: Mali-G720-Immortalis, 10 cores, **OpenGL ES 3.2 / EGL 1.5**, desktop accelerated. Display: `trilin_dpsub` + `linlon_dp` confirmed, DP up to 4K60. |
 | **VPU (Linlon MVX)** | `amvx` via `cix-vpu-driver` (DKMS) | DKMS | ✅ | ✅ | Measured on the Radxa Orion O6N: **Linlon v5276, 4 cores**. Decode H.263/H.264/HEVC/MPEG-2/MPEG-4/VP8/VP9/AV1; hardware encode H.264/HEVC/VP8/VP9 confirmed via `ffmpeg` V4L2 mem2mem. Requires the 16 `*.fwb` codec blobs staged by `post-install/12-sky1-firmware.sh`. |
 | **NPU (Zhouyi V3)** | `aipu` via `cix-npu-driver-dkms` 6.2.0 | DKMS (`CONFIG_ARMCHINA_NPU=n`) | ✅ | ✅ | Measured on **both** the Radxa Orion O6N and MS-R1: `nomic-embed-text-v1.5_256.cix` at **95.5 ms** per 256-token embed, deterministic across runs, `aipu` IRQ count advancing. The in-tree `armchina-npu` driver is superseded by the 26Q2-SDK DKMS driver. Requires a model package (`ncz-model-nomic-embed`); models are not in the image. |
 | **Ethernet** | `r8169` (RTL8125/8126/8169) | `=y` | ✅ | ✅ | `rtl_nic` firmware shipped in installer + installed system. `CONFIG_R8169=y` (built-in, not a module). |
@@ -498,7 +488,8 @@ is empty on both the MS-R1 and the Radxa Orion O6N. The kernel build also produc
 
 The MS-R1 column reflects real-hardware confirmation carried forward from
 earlier kernel lines. The Radxa Orion O6N column was validated on the 7.2 kernel and
-again, at the system level, on 7.3.0-rc7 — see
+again, at the system level, on 7.3.0-rc7; it has not yet been re-checked on
+7.4 — see
 [Hardware support & testing status](#hardware-support--testing-status). Treat
 the marks as "confirmed at the system level" rather than independently
 re-verified driver-by-driver on every kernel.
@@ -507,36 +498,15 @@ re-verified driver-by-driver on every kernel.
 kernel and firmware set serves the MS-R1 and the Radxa Orion O6N alike (and the Radxa Orion O6, confirmed by a community tester). The firmware that
 must be present is `rtl_nic` (RTL8125/8126), `mali_csffw.bin` (Mali-G720), the
 NPU firmware consumed by the `aipu` DKMS module, and the VPU firmware consumed
-by `amvx`. The installer writes the ACPI kernel command line into the rEFInd
-entry automatically:
-
-```
-acpi=force efi=noruntime arm-smmu-v3.disable_bypass=0 clk_ignore_unused panic=30
-```
+by `amvx`. The installer sets the rEFInd kernel command line.
 
 ### GPU drivers and boot options
 
-NCZ-OS ships **two GPU drivers** and lets you pick one at boot. Both are
-installed; neither loads automatically.
+Sky1 uses `mali_kbase` and `libmali` for OpenGL ES 3.2, EGL 1.5 and OpenCL. Earlier releases were tested on the Radxa Orion O6N and Minisforum MS-R1.
 
-| Boot entry | Driver | Provides | Status |
-|---|---|---|---|
-| **NCZ-OS** (default) | `mali_kbase` — CIX vendor DDK | OpenGL ES 3.2, EGL 1.5, OpenCL via `libmali` | Validated on real Radxa Orion O6N and MS-R1 hardware. This is what the desktop runs on. |
-| **NCZ-OS (Panthor)** | `panthor` — mainline open driver | Vulkan and OpenCL via Mesa PanVK / rusticl | Experimental on Sky1. |
-
-Both drivers claim the same device, so `/etc/modprobe.d/ncz-gpu-drivers.conf`
-blacklists **both**. The boot entry decides which one is bound, and
-`ncz-gpu-select` switches an installed system without a reinstall.
-
-**What each costs you.** `mali_kbase` gives the accelerated desktop but
-exposes **no Vulkan entrypoint** — `libmali` has none. `panthor` is the route
-to Vulkan and is where the ecosystem is heading, but on Sky1 it is still
-working through enumeration: the board boots via ACPI rather than device tree,
-and mainline panthor has no `.acpi_match_table`.
-
-Neither is going away. Shipping only the vendor blob would leave the
-distribution with no open successor; shipping only panthor would mean a
-desktop that does not accelerate today.
+**What that costs.** `mali_kbase` gives the accelerated desktop but exposes
+**no Vulkan entrypoint** — `libmali` has none. Panthor was the route to
+Vulkan, but it is not shipped.
 
 ### Every accelerator driver is a DKMS module
 
@@ -544,8 +514,7 @@ This is a deliberate rule, not an accident of packaging:
 
 | Accelerator | DKMS package | Module |
 |---|---|---|
-| GPU (default) | `cix-gpu-kmd` | `mali_kbase` |
-| GPU (alternate) | `panthor-cix` | `panthor` |
+| GPU | `cix-gpu-kmd` | `mali_kbase` |
 | VPU | `cix-vpu-driver` | `amvx` |
 | NPU | `cix-npu-driver-dkms` | `aipu` |
 
@@ -645,15 +614,18 @@ The MS-R1 NPU is invisible to the kernel without this override (no
 initramfs, the dmesg on an MS-R1 shows
 `armchina CIXH4000:00: sky1_npu_probe: NPU core num is 3 → AIPU KMD (v6.2.0)
 probe start... → AIPU detected: zhouyi-v3` and all three cores enumerate.
-The `.asl` source is committed at `assets/npu/ssdt-npucre.asl`; the `.cpio` is
-regenerated from it by `build/build-npu-ssdt.sh`.
+The `.asl` source is committed at `assets/npu/ssdt-npucre.asl`; it is compiled
+to `.aml` by `build/build-npu-ssdt.sh` and delivered into the initramfs as an
+uncompressed early CPIO by a dracut module / initramfs-tools hook, board-gated
+so O6/O6N are untouched. See `docs/NPU-SSDT-DELIVERY.md` for the mechanism,
+the gating table, and what still needs hardware confirmation.
 
 ### What differs for AMD64
 
 - `ARCH=amd64` routes through the AMD64 package manifests
   (`manifests/installer-base-amd64.pkgs`, `desktop-amd64.pkgs`,
   `rescue-amd64.pkgs`).
-- The kernel is the pinned `linux-image-7.3.0-rc7-t2-ncz` package
+- The kernel is the pinned `linux-image-7.4.0-rc3-t2-ncz` package
   (`assets/kernel/amd64-stable/KVER`, `PKGVERSION`); it serves T2 Macs and
   generic PCs alike, and it is also the installer's boot kernel.
 - The CIX DKMS accelerator hooks (`post-install/80-npu.sh`, `81-vpu.sh`,
@@ -705,37 +677,31 @@ it — there is no MS-R1 NPU on x86 hardware.
 > autoconfiguration failed" (plug in a cable and Retry) rather than looping
 > silently.
 >
-> The base system itself comes off the image, so there is no network-dependent
-> package resolution mid-install to fail on a flaky link or an unreachable
-> mirror. That is not the same as fully offline: some post-install steps do use
-> apt, and a few optional components (for example the NVIDIA driver) fetch from
-> the network. Those are the parts a bad link degrades — not the install itself.
+> Desktop carries the base system on the image. Magnetar Server downloads
+> the system payload during installation and verifies its SHA-256.
 
-1. **Get the image.** Download the parts for your architecture from the
-   [Releases page](https://github.com/ncz-os/cix-installer/releases),
-   then join, unpack and check them (needs `zstd`):
+1. **Get the image.** From [GitHub Releases](https://github.com/ncz-os/cix-installer/releases) or
+   [GitLab Releases](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest), download the zstd parts for your
+   architecture and flavour. Each part is under 2 GiB. Put them in one
+   folder with `PARTS-<arch>-<flavor>.sha256`, `SHA256SUMS-<arch>-<flavor>`
+   and `ncz-join-image.sh`. Run the matching command with `zstd` installed.
 
-   ```bash
-   sh ncz-join-image.sh arm64        # or amd64
+   ```sh
+   sh ncz-join-image.sh amd64 desktop
+   sh ncz-join-image.sh amd64 server
+   sh ncz-join-image.sh arm64 desktop
+   sh ncz-join-image.sh arm64 server
    ```
 
-   [`tools/ncz-join-image.sh`](tools/ncz-join-image.sh) checks every part
-   against `PARTS-<arch>.sha256`, joins and unpacks them, and checks the finished
-   `.img` against `SHA256SUMS-<arch>` (older releases: `PARTS.sha256` and
-   `SHA256SUMS`). It never writes to a disk, and it is safe to
-   re-run: it leaves the parts in place and will not overwrite an existing
-   `.img` unless you pass `-f`. To do it by hand:
-   `sha256sum -c PARTS-<arch>.sha256`, then
-   `cat ncz-os-<arch>-<date>-<sha>.img.zst.part-* | zstd -d -o ncz-os-<arch>-<date>-<sha>.img`,
-   then compare `sha256sum ncz-os-<arch>-<date>-<sha>.img` with `SHA256SUMS-<arch>`.
-   An image you build yourself has a `.sha256` beside it instead.
+   The script verifies the parts, unpacks them and verifies the raw image.
 
-2. **Write it to a USB drive of at least 16 GB** (the image is 7.6 GB; writing
-   erases the drive). Balena Etcher works on any OS. On Linux, copy the raw GPT
-   image to the **whole device** (`/dev/sdX`), not a partition (`/dev/sdX1`):
+2. **Write the image to a USB drive of at least 16 GB.** Writing erases the
+   drive. Desktop images unpack to about 7.2 GB (amd64) or 8.7 GB (arm64).
+   Balena Etcher works on any OS. On Linux, substitute your image and whole
+   USB device in the command below after checking the device name.
 
    ```bash
-   sudo dd if=ncz-os-<arch>-<date>-<sha>.img of=/dev/sdX \
+   sudo dd if=ncz-os-amd64-20261119-4b51adc1-desktop.img of=/dev/sdX \
         bs=4M status=progress oflag=direct conv=fsync
    sync
    ```
@@ -804,7 +770,7 @@ installed system.
   ([docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md)). Please include the image
   file name and its `sha256sum`, the step that failed, and on the installed
   system the output of `lsblk -f` and `sudo efibootmgr -v`.
-- **The installer uses rEFInd, not GRUB.** d-i's own GRUB and systemd-boot
+- **The installer uses rEFInd.** d-i's own GRUB and systemd-boot
   steps are skipped; the installer writes rEFInd to the ESP itself. A GRUB
   prompt on the target machine comes from another OS or an older boot entry.
 
@@ -812,11 +778,12 @@ installed system.
 
 | Entry | arm64 (Sky1) | amd64 |
 |---|---|---|
-| Default | **7.3 Mali (Default)** — desktop on the CIX Mali driver | **7.3 (Default)** |
-| Experimental GPU | **7.3 Panthor (Experimental)** — open `panthor` driver, Vulkan via Mesa | — |
-| Console | **7.3 Console** — no desktop, all accelerators | **7.3 Console** |
-| Rescue | **7.3 Rescue / No Accelerators (Console)** — same kernel, GPU/VPU/NPU drivers blacklisted | **7.3 Rescue / No Accelerators (Console)** — same kernel, discrete GPU/compute drivers blacklisted (on T2 Macs `amdgpu` is kept, because it drives the panel) |
-| Rescue partition | **Rescue Partition (Console)** — boots the separate rescue system | same |
+| Default | **7.4 Mali (Default)** — desktop on the CIX Mali driver | **7.4 (Default)** |
+| Console | **7.4 Console (All Accelerators, Mali)** — no desktop, all accelerators | **7.4 Console** |
+| Rescue | **7.4 Rescue / No Accelerators (Console)** — same kernel, GPU/VPU/NPU drivers blacklisted | **7.4 Rescue / No Accelerators (Console)** — same kernel, discrete GPU/compute drivers blacklisted (on T2 Macs `amdgpu` is kept, because it drives the panel) |
+| Rescue partition | **7.4 Rescue Partition (Console)** | **Rescue Partition (Console)** |
+
+The refresh scripts use the kernel series in boot menu labels.
 
 Entries are generated by `assets/refind/ncz-refind-refresh.sh` (arm64) and
 `assets/refind/ncz-refind-refresh-amd64.sh` (amd64), and regenerated when the
@@ -824,19 +791,14 @@ kernel is upgraded.
 
 ## Architecture
 
-NCZ-OS ships as a **raw GPT disk image** (`ncz-os-<arch>-<date>-<sha>.img`),
-one per architecture: **amd64** (Intel/AMD PCs and Apple T2 Macs) and
-**arm64** (CIX Sky1 boards). There is no ISO. The image carries a stock Debian
-Installer plus a pre-built, layered squashfs payload, so an install unpacks a
-finished system instead of running debootstrap and hundreds of package
-postinst scripts on the device. The reasons are install **speed** and
-**offline reliability**: the base system comes off the image, so there is no
-network-dependent package resolution mid-install to fail on a flaky link or an
-unreachable mirror.
+Preview 4 ships **raw GPT disk images** for **amd64** (Intel/AMD PCs and
+Apple T2 Macs) and **arm64** (CIX Sky1 boards). Both architectures have a
+Desktop and a Magnetar Server image. Desktop includes a prebuilt, layered
+squashfs payload. Magnetar Server downloads its system payload during installation.
 
 ![Architecture diagram](docs/architecture.svg)
 
-### What is on the image
+### What is on the Desktop image
 
 | Partition | Contents |
 |---|---|
@@ -872,7 +834,8 @@ After the layers are on disk, `post-install/run-all.sh` runs the numbered
 offline mirror on the image. `post-install/hooks.list.amd64` and
 `post-install/hooks.list.sky1-arm64` list which hooks run on which
 architecture. A few optional components (for example the NVIDIA driver) fetch
-from the network; the base install does not.
+from the network. Desktop includes its base system. Server downloads its
+system payload over wired Ethernet.
 
 The installed disk gets an EFI system partition (2 GB), the optional
 `NCZRESCUE` rescue partition (4 GB, ext4) and the root filesystem: **btrfs**
@@ -880,8 +843,8 @@ The installed disk gets an EFI system partition (2 GB), the optional
 
 ### The installed system
 
-- **One kernel**, Linux 7.3: `7.3.0-rc7-sky1-ncz` (Sky1 build r289) on arm64
-  and `7.3.0-rc7-t2-ncz` on amd64, which serves T2 Macs and generic PCs alike.
+- **One kernel**, Linux 7.4: `7.4.0-rc3-sky1-ncz` (+r303) on arm64
+  and `7.4.0-rc3-t2-ncz` on amd64, which serves T2 Macs and generic PCs alike.
   The default, console and rescue boot entries all use it (see
   [Boot menu on the installed system](#boot-menu-on-the-installed-system)).
 - **Singularity desktop**, native Wayland on labwc, with the greetd-based
@@ -895,7 +858,7 @@ The installed disk gets an EFI system partition (2 GB), the optional
 - **Rescue partition**: a separate rescue system with its own boot entry that
   still boots when the main root filesystem does not. It uses DHCP and offers
   SSH and telnet by design (see [Rescue partition](#rescue-partition)).
-- **Recovery container** (`ncz-recovery`, optional): a systemd-nspawn
+- **Recovery container** (`ncz-recovery`, selected by default): a systemd-nspawn
   container with its own userland and SSH, built from the recovery root
   filesystem (`post-install/38-recovery-container.sh`).
 - **The `ncz` utility** and staged agent quadlets: zeroclaw plus optional
@@ -906,12 +869,15 @@ The installed disk gets an EFI system partition (2 GB), the optional
   installed by `post-install/25-cix-proprietary.sh`); see
   [OTA channel](#ota-channel-kernel--driver-updates--persistent-apt-sources).
 
-**NCZ-OS ships ONE build.** There is no separate desktop and server image,
-and no variant picker. What used to be the "Magnetar" server variant is now
-simply a **console boot entry** on the same image
-(`systemd.unit=multi-user.target`) — same packages, the GUI is just not
-started. `ncz desktop off` does the same thing on a running system, and
-`ncz desktop on` reverses it.
+Desktop has a Console boot option. Use `ncz desktop off` to keep that setting
+and `ncz desktop on` to restore the desktop.
+
+Magnetar Server is available for both architectures. It requires wired
+Ethernet to download and verify its system payload. For amd64, the image is
+about 0.6 GB and the payload about 3.3 GB, or about 3.9 GB total. For arm64, the
+image is about 1.0 GB and the payload about 3.8 GB, or about 4.7 GB total. Server
+runs headless with a text console, SSH on port 22 and a colour ASCII black hole
+screensaver after 180 seconds of console idle.
 
 ### The build pipeline
 
@@ -929,6 +895,7 @@ layer build.
 | 30 | `refresh-sources` | Resolves the Singularity desktop sources (`--sources latest`) or reproduces the committed pins (`--sources pinned`), then builds or stages the desktop payload package. | `build/refresh-singularity-sources.sh`, `build/stage-singularity-payload.sh` (`manifests/singularity-payload.tsv`), `build/build-singularity.sh`, `build/build-singularity-deb.sh` |
 | 40 | `offline-mirror` | Builds the offline apt closure that goes on the image. | `make offline-mirror` |
 | 50 | `provenance-inputs` | Every package that will enter the image must have exactly one origin: the pinned Debian snapshot, an NCZ build, or a reviewed vendor package. No Debian kernel may be present. | `build/check-forky-provenance.sh`, `build/verify-no-debian-kernel.sh` |
+| 55 | `static-gates` | MANDATORY static gate suites on the pinned tree, before any layer or image work: the AMD64 NVIDIA CUDA design gates (`build/test-amd64-cuda-gates.sh`, amd64 only) and the greeter console-fallback gates (`build/test-greeter-console-fallback.sh`, both arches). A failure aborts the build; the stage cannot be skipped — a `--resume-from` point at or after it re-runs the suites first instead of skipping them, so every run that produces an image runs them. | `build/test-amd64-cuda-gates.sh`, `build/test-greeter-console-fallback.sh` |
 | 60 | `layers` | Builds and checks the `base`, `desktop` and `desktop-hotfix` squashfs layers. | `build/layers-preflight.sh`, `build/build-squashfs-layers.sh all` (desktop packages via `build/build-role-delta-mkosi.sh`), `build/check-layers.sh`; package lists in `manifests/*.pkgs` |
 | 70 | `image` | Assembles the raw GPT image from the substrate, the kernel, the layers and the offline mirror. | `make image` → `build/build-installer-image.sh`, `build/iso/{import-substrate,patch-initrd-t2-kernel,patch-debootstrap-stub,stage-ncz-payload,build-refind-esp,write-usb-image}.py` |
 | 80 | `provenance-gate` | The same origin and one-kernel checks over the finished image. | `build/check-forky-provenance.sh --image` |
@@ -1005,8 +972,8 @@ library is for, how to route a workload across the four compute engines
 | Path | Source | Notes |
 |---|---|---|
 | `assets/cix-debs/` | Staged CIX proprietary and NCZ-built `.deb`s (gitignored), checked against `manifests/vendor-debs.tsv` and `manifests/ncz-packages.tsv` | Partly in the public NCZ apt repository (21 of the 37 vendor packages and 5 of the 58 NCZ-built rows have the pinned sha256 there; see docs/SOURCE-RELEASES.md) |
-| `assets/kernel/mainline` → Sky1 kernel | Yocto build of `meta-cix:linux-cix-sky1-ncz` (build r289, `7.3.0-rc7-sky1-ncz`), pinned in `assets/kernel/sky1-manifest.json`; the release name is in `assets/kernel/mainline.release`; `build/link-kernel-mainline.sh` links `assets/kernel/mainline` to it under the site kernel-staging pool (`NCZ_YOCTO_SHARED_DIR`) — the link is gitignored and is left out of the image layers | the kernel `Image`, the modules tarball and `KVER`, plus a `modules-overlay/$KVER/` subdir for the rebuilt accelerator `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`). Older dated kernel dirs in `assets/kernel/` are not used by the build. |
-| `assets/kernel/amd64-stable/` → amd64 kernel | `linux-image-7.3.0-rc7-t2-ncz` `7.3.0-rc7-2`, built from [`linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz), pinned by `KVER` / `PKGVERSION` and `assets/kernel/amd64-stable-manifest.json` | Staged by `build/stage-amd64-kernel.sh`; there is no amd64 edge channel. |
+| `assets/kernel/mainline` → Sky1 kernel | Yocto build of `meta-cix:linux-cix-sky1-ncz` (`7.4.0-rc3-sky1-ncz`, +r303), pinned in `assets/kernel/sky1-manifest.json`; the release name is in `assets/kernel/mainline.release`; `build/link-kernel-mainline.sh` links `assets/kernel/mainline` to it under the site kernel-staging pool (`NCZ_YOCTO_SHARED_DIR`) — the link is gitignored and is left out of the image layers | the kernel `Image`, the modules tarball and `KVER`, plus a `modules-overlay/$KVER/` subdir for the rebuilt accelerator `.ko`s (see `post-install/80-npu.sh`, `81-vpu.sh`, `82-mali-gpu.sh`). Older dated kernel dirs in `assets/kernel/` are not used by the build. |
+| `assets/kernel/amd64-stable/` → amd64 kernel | `linux-image-7.4.0-rc3-t2-ncz` `7.4.0-rc3-4`, built from [`linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz), pinned by `KVER` / `PKGVERSION` and `assets/kernel/amd64-stable-manifest.json` | Staged by `build/stage-amd64-kernel.sh`; there is no amd64 edge channel. |
 | `assets/agent-stack/*` | This repo | systemd quadlets for the optional agent runtimes (all opt-in) |
 | `assets/branding/*` | This repo | os-release, motd, wallpapers, rEFInd banner/icons |
 | `preseed/preseed.cfg`, `preseed/late.sh` | This repo | d-i unattended preseed + late_command (pre-chroot, install-time-only) |
@@ -1026,71 +993,11 @@ exactly what runs and in what order, not a hand-maintained summary here.
 
 ## Remote diagnostics (while the installer is booted)
 
-A single, **removable, toggleable** diagnostics module gives a remote operator
-full access *while the d-i installer is running*, so an install can never wedge
-us out and failures are captured even with nobody watching.
-
-> **Login (installer only):** `root` (or `installer` for the network-console
-> menu) / `rescue` — the same documented login as the rescue partition. The
-> installer shows it in its boot banner on every console
-> (`diagnostics login: root / rescue`), on the last line of every NCZ dialog and
-> on the progress screen; it is gone once the installed system boots. Set your
-> own with `ncz_diag_pw=<pw>` on the kernel command line, or turn the module off
-> with `ncz_diag=0`. For a trusted LAN only — see the security note below and
-> **[docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)**.
-
-| Channel | Port | Access |
-|---|---|---|
-| **SSH** | 22 | `ssh root@<host>` with the diagnostics login. `network-console` + `sshd-watcher.sh` force `PasswordAuthentication yes`/`PermitRootLogin yes`; the module sets root's login so no key is needed. `installer@<host>` also reaches the network-console menu. |
-| **Telnet** | 23 | rich busybox shell (full applet farm: `vi`/`awk`/`sed`/`tar`/`less`/…) from the shipped static busybox (`assets/diag/busybox-arm64` / `busybox-amd64`) |
-| **HTTP (file pull)** | 8080 | `wget http://<host>:8080/var/log/syslog` or browse `http://<host>:8080/` for any installer file (GET-only) |
-| **Remote syslog** (opt-in) | 5514/udp | with `ncz_diag_log=<host[:port]>` on the kernel command line, every installer log line is forwarded to a collector you run; off by default |
-
-**Turning it off.** The module is **on by default** in the installer images.
-Put `ncz_diag=0` (or `off`) on the installer's kernel command line — edit the
-entry at the rEFInd menu — to disable it for that boot.
-
-**Tunables (kernel cmdline):**
-- `ncz_diag_pw=<pw>` — root/diag login (default: `rescue`, see [docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md)).
-- `ncz_diag_log=<host[:port]>` — remote syslog collector (port defaults to
-  `5514`). Unset means no forwarding at all.
-
-**How it works.** A static busybox (Debian forky `busybox-static`, with
-`telnetd`/`httpd`/`syslogd`/`klogd`/`mkpasswd`) ships in the installer; the preseed launches
-`preseed/diag-console.sh` in the background. The script self-gates on
-`ncz_diag`, installs a full applet farm for the rich shell, sets the root
-password, optionally forwards syslog to the collector, and starts telnetd +
-httpd — all **idempotent** (pidfile-guarded) and self-respawning for the whole
-install.
-
-**Collector side.** Run `build/ncz-logd.sh` on your collector host: a `socat`
-UDP listener on `:5514` appending to a dated log file in your home directory.
-`tail -f` it during an install.
-
-**File transfer.** *Pull:* `wget http://<host>:8080/<path>`. *Push:* over SSH,
-`cat local | ssh root@<host> 'cat >/tmp/x'` (httpd is GET-only).
-
-On the **installed system**, full SSH, telnet on :23
-(`post-install/36-telemetry.sh`) and the other defaults in
-[docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) take over; the installer-only
-consoles vanish with the d-i ramdisk.
-
-> **Security:** the published login (`root` / `rescue`), the telnet root shell and the
-> world-readable httpd are **for a trusted LAN only**. Boot the installer with
-> `ncz_diag=0` on any network you do not control.
+Installer diagnostics are enabled by default. Add `ncz_diag=0` to the installer boot options to disable them for that boot.
 
 ### Installed-system access posture (defaults)
 
-- **Password SSH auth is enabled by default** on the installed system for
-  convenience (`PasswordAuthentication yes`, `PermitRootLogin yes`,
-  `post-install/35-ssh.sh`). Day-to-day login is the account you create in the
-  installer. To harden an image to key-only, change those two settings.
-- **Telnet (23), the failsafe root console (2323) and the `ncz-recovery`
-  container** are also on by default — see
-  [docs/REMOTE-ACCESS.md](docs/REMOTE-ACCESS.md) for what each is and how to
-  turn it off.
-- **Hostname** defaults to a generated `ncz-…` name so every box on a LAN is
-  uniquely named; a hostname set during install always wins.
+Sign in with the account you created during installation. Review SSH and recovery service settings before connecting to a shared network. See [Remote access](docs/REMOTE-ACCESS.md).
 
 ## Rescue partition
 
@@ -1103,20 +1010,7 @@ menu entry ("Rescue Partition (Console)"), independent of the main root filesyst
 installed system's root (btrfs or ext4) won't boot, the rescue partition
 still will.
 
-**Login.** `root` / `rescue`, the published break-glass default defined in
-`build/build-rescue-rootfs.sh` (LAN-only; the rescue environment is not meant
-to be internet-facing — change it with `passwd` after first use). Hostname
-`ncz-rescue-<mac suffix>`. How to connect, change and reset it:
-[docs/RECOVERY-LOGINS.md](docs/RECOVERY-LOGINS.md).
-
-**Access channels:**
-
-| Channel | Port | Notes |
-|---|---|---|
-| SSH (openssh, password auth) | 22 | `ssh root@<host>` |
-| Dropbear (lightweight SSH) | 2222 | Alternative if openssh is misbehaving |
-| Telnet | 23 | Full busybox applet shell |
-| Serial console (Sky1) | `ttyAMA0` / `ttyAMA2` @115200 | Direct hardware console, no network needed |
+See [Recovery logins](docs/RECOVERY-LOGINS.md) to set or reset rescue access.
 
 **Networking.** DHCP only, on every network port that has a link
 (`build/build-rescue-rootfs.sh`). There is no static-address fallback: if no
@@ -1168,7 +1062,7 @@ a current index.
   snapshot.debian.org timestamp, but installed systems follow the live archive
   so `apt update` keeps working.
 - **NCZ packages** — kernels (the Sky1 kernel and boot-glue packages on Sky1,
-  `linux-image-7.3.0-rc7-t2-ncz` on amd64), the CIX userspace drivers and
+  the NCZ T2 kernel packages on amd64), the CIX userspace drivers and
   runtimes, and NCZ's own packages, from the signed **Buildkite Packages**
   registry `https://packages.buildkite.com/ncz-os/ncz/any/` (a Cloudflare R2
   mirror is written but disabled as a fallback). `post-install/24-apt-sources.sh`
@@ -1207,27 +1101,7 @@ their projects rather than in a distribution patch pile.
 
 ### Browser and codec: hardware video decode
 
-Getting hardware video decode working in a browser on this silicon took six
-patches to the CIX VA-API driver, plus patches to FFmpeg, Firefox and Chromium.
-Every one of the four underlying defects failed **silently** — nothing logged
-an error — which is why the work is written up with the evidence rather than
-just the fix:
-
-- **[docs/HW-VIDEO-DECODE-STATUS.md](docs/HW-VIDEO-DECODE-STATUS.md)** — what
-  works, measured by looking at the rendered picture rather than at a proxy
-  signal. H.264 1080p and VP9 720p decode in hardware in Chromium (renderer
-  CPU ~27% → ~3.5% on H.264). AV1 is blocked on the VA-API route, but decodes in
-  hardware through the V4L2 decoder in the NCZ Chromium build.
-- **[docs/upstream-patches/cix-vaapi/](docs/upstream-patches/cix-vaapi/)** —
-  the six VA-API patches. Without them browser hardware decode does not work
-  on this platform at all.
-- **[docs/upstream-patches/ffmpeg/](docs/upstream-patches/ffmpeg/)**,
-  **[firefox/](docs/upstream-patches/firefox/)**,
-  **[chromium/](docs/upstream-patches/chromium/)** — V4L2 M2M decoder support,
-  AV1 plumbing and timestamp handling.
-- **[docs/upstream-patches/cix-vaapi-repro/](docs/upstream-patches/cix-vaapi-repro/)**
-  — standalone C reproducers, so a driver author can confirm each defect
-  without building a browser.
+On Sky1, Chromium can decode H.264 and VP9 in hardware. AV1 uses the V4L2 decoder. See [hardware video decode results](docs/HW-VIDEO-DECODE-STATUS.md).
 
 ### Singularity desktop
 
@@ -1258,8 +1132,10 @@ front door for the things this image does that a stock Debian does not.
 | `ncz desktop on` \| `off` \| `status` | Switch between graphical and headless. `off` sets `multi-user.target`, so the next boot is headless; SSH and networking stay up. Reversible. Reboot after `off` to leave the graphical login screen. |
 | `ncz models` | List embedding models present in `/opt/ncz/models` — `.cix` graphs for the NPU, `.gguf` for CPU/GPU. |
 | `ncz models pull` | Download the host-side embedder model (nomic-embed-text-v1.5 Q8_0 GGUF, sha256-verified) to `/opt/ncz/models`. |
+| `ncz models pull <name>` | Download a catalog entry by name (pinned url + sha256) from the shipped model catalog. |
+| `ncz models add <url> --sha256 <hex>` | Install a user-supplied model that is not in the catalog. `--sha256` is required; the download is verified against it before it is installed. |
 | `ncz install mnemos` | Install and start the MNEMOS memory server (REST + OpenAI-compatible API on `:5002`, MCP on `:5004`). |
-| `ncz install zeroclaw` \| `zoder` | Install the ZeroClaw agent gateway, or the zoder CLI. |
+| `ncz install zeroclaw` \| `zoder` | Install the ZeroClaw agent gateway, or zoder, an AI coding stack built on the ZeroClaw agent engine. |
 | `ncz install nemoclaw` | Start the NVIDIA NemoClaw sandbox runtime. |
 | `ncz agent ...` | Manage the optional agent runtimes (zeroclaw, openclaw, hermes, portainer). |
 | `ncz version`, `ncz help` | Version and usage. |
@@ -1273,7 +1149,7 @@ on its own.
 ```bash
 sudo ncz install mnemos     # MNEMOS: REST + OpenAI-compatible API on :5002, MCP on :5004
 sudo ncz install zeroclaw   # ZeroClaw agent gateway on :42617
-sudo ncz install zoder      # zoder CLI, checksum-verified
+sudo ncz install zoder      # zoder AI coding stack, checksum-verified
 sudo ncz status             # service rows, embedder backend and model
 ```
 
@@ -1335,62 +1211,28 @@ The **rescue partition** is *cold*. Using it means rebooting into it, which
 means a working bootloader and usually someone at the console. It cannot help
 you while the machine is up.
 
-The **`ncz-recovery` container** is *live*. It is a `systemd-nspawn` container
-that starts at boot alongside the OS, and it is what you actually reach for when
-a running system breaks:
-
-- It gets **its own IP address on your LAN** via MACVLAN on the host uplink, so
-  it appears as a separate host and is reachable even when the host's own
-  networking or `sshd` is broken.
-- It mounts the **host root read-write at `/host`**, so it can repair the real
-  filesystem in place.
-- It runs with `PrivateUsers=no`, so container root *is* host root. Without
-  that, host files appear as `nobody` and `/host` is effectively read-only —
-  which is the difference between a recovery tool and a demo.
-- It carries its own userspace, so it survives the failure that motivated all
-  of this: a host whose `/usr/lib` has been destroyed and where every dynamically
-  linked binary, `sshd` included, refuses to run.
-
-It supplants the cold partition for most real failures. The partition stays for
-what the container cannot survive — a kernel that will not boot, a destroyed
-ESP, a failing disk.
+The recovery container is selected by default and can be deselected during installation. It runs alongside the installed system. Use it to repair the host filesystem while the kernel is running. Use the rescue partition if the installed system cannot boot.
 
 ### Using it
 
-```bash
-machinectl list          # ADDRESSES column shows the container IP
-ssh root@<container-ip>  # published default login, see docs/REMOTE-ACCESS.md
-chroot /host             # a full shell on the host system
-```
-
-The default login is a published break-glass value (defined in
-`build/build-mgmt-rootfs.sh`), and you should change it on any network you do
-not control. Note what this container is: a
-root shell with read-write access to the host root, on its own LAN address. It
-is the most privileged surface in the image, deliberately so.
-
-```bash
-# turn it off entirely
-sudo systemctl disable --now systemd-nspawn@ncz-recovery.service
-```
-
-See [`docs/REMOTE-ACCESS.md`](docs/REMOTE-ACCESS.md) for the full default-access
-posture and how to harden it.
+See [Remote access](docs/REMOTE-ACCESS.md) for recovery setup. To disable the container, run `sudo systemctl disable --now systemd-nspawn@ncz-recovery.service`.
 
 ## Sister projects
 
-- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, bypasses the d-i flow. Different use case (in-place rebuild vs fresh install).
-- [`gitlab.com/ncz-os/meta-cix`](https://gitlab.com/ncz-os/meta-cix) — Yocto BSP layer providing the Sky1 kernel recipes (26.10: `linux-cix-sky1-ncz_7.3-rc7.bb`, build r289) and the CIX userspace recipes this installer consumes. Kernel source is fetched from the public `kernel.org` tree at a pinned commit; every Sky1-specific patch is tracked in this layer. The in-repo [`kernel-source/`](kernel-source/SOURCE.md) drop vendors the shipped r289 recipe, patches and as-built config, and [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) tag `kernel-sky1-7.3.0-rc7-r289-src` holds the complete patched tree (see [docs/SOURCE-RELEASES.md](docs/SOURCE-RELEASES.md)).
-- [`gitlab.com/ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz) — corresponding source of the amd64 kernel (`7.3.0-rc7-t2-ncz` in 26.10, tag `v7.3.0-rc7-t2-ncz-2`): mainline v7.3-rc7 plus [`t2linux`](https://github.com/t2linux/linux-t2-patches)'s `linux-t2-patches` series (apple-bce, applesmc, HID, APFS, bcm5974) and our T2 fixes. One kernel serves T2 Macs and generic PCs. T2 firmware wiring lives upstream in [`AdityaGarg8/t2-ubuntu-repo`](https://adityagarg8.github.io/t2-ubuntu-repo/) (the apt source `55-t2-firmware.sh` wires at first boot). NCZ-OS does not vendor a fork of either; we consume the upstream series and ship the staged Debian-built `.deb`s.
+- [`gitlab.com/ncz-os/cix-gen`](https://gitlab.com/ncz-os/cix-gen) — script-based image builder; runs from a working aarch64 system, uses its own installer flow. Different use case (in-place rebuild vs fresh install).
+- [meta-cix](https://gitlab.com/ncz-os/meta-cix) provides Sky1 board support and CIX userspace recipes.
+- [linux-t2-ncz](https://gitlab.com/ncz-os/linux-t2-ncz) provides kernel source for Intel/AMD PCs and Apple T2 Macs.
 
 
 ## Releases
 
 Current and past release notes live in **[`docs/releases/`](docs/releases/)**.
-The latest is **[26.10 "Cygnus"](docs/releases/26.10-cygnus-20261013.md)** (images of 2026-10-13); they
-are published on the [Releases page](https://github.com/ncz-os/cix-installer/releases), which holds the one current release. The earlier
+The latest is **[26.10 "Cygnus" Preview 4](docs/releases/26.10-cygnus-preview4.md)** (images of 2026-11-19, Linux 7.4); they
+are published on the [Releases page](https://github.com/ncz-os/cix-installer/releases). The earlier
+[26.10 images of 2026-10-13](docs/releases/26.10-cygnus-20261013.md) and
 [26.10 Preview 1](docs/releases/26.10-cygnus-preview1.md) notes (2026-10-12)
-are kept for reference.
+are kept as a historical record; they describe the 7.3 kernel line, which is
+no longer maintained.
 
 Earlier releases (26.7 "Maximilian" and before) are archived in
 [`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md). Every document in the
@@ -1480,8 +1322,7 @@ are our work rather than a debt we owe.
 - **Minisforum** — the MS-R1, the board this project started on.
 - **Debian** — for treating ARM as a first-class architecture, which is why
   NCZ-OS is built on Forky.
-- **Mesa, wlroots and labwc** — the open graphics and compositor stack the
-  Panthor path depends on.
+- **Mesa, wlroots and labwc** — the open graphics and compositor stack.
 - **The t2linux community** — for maintaining the `linux-t2-patches` series
   that makes booting a T2 Mac on mainline Linux possible at all.
   AdityaGarg8's `t2-ubuntu-repo` (real WiFi/BT firmware via `apple-firmware-script`,

@@ -1,0 +1,45 @@
+#!/bin/sh
+# zz-ncz-npu-ssdt — initramfs-tools POST-UPDATE hook (runs after the initrd is
+# written, on the installed system, for every regeneration).
+#
+# Companion to /etc/initramfs-tools/hooks/ncz-npu-ssdt, which stages
+# kernel/firmware/acpi/ssdt-npucre.aml inside the initramfs being built.
+# install path: /etc/initramfs-tools/post-update.d/zz-ncz-npu-ssdt
+#
+# WHY THIS STILL EXISTS AT ALL
+# ----------------------------
+# The hook above is the real mechanism and is what should carry the override.
+# This post-update pass is a safety net for one specific, measured failure:
+# update-initramfs can be invoked in ways that skip hooks (/etc/initramfs-
+# tools/hooks is only run by mkinitramfs), and a regenerated initrd that lost
+# the table silently disables the NPU. So after the initrd exists, verify the
+# table is present, and if it is not, prepend the uncompressed early CPIO that
+# post-install/80-npu.sh persisted at /boot/npu-acpi-override.cpio.
+#
+# The prepend is idempotent: an initrd that already begins with a newc archive
+# (magic 070701) is left alone, and the check is on the actual bytes rather
+# than on a marker file that could go stale.
+#
+# Args: $1 = kernel version, $2 = initramfs path (initramfs-tools contract).
+# Never fails the initrd build: an exit non-zero here would make apt report a
+# failed package transaction for a knob that is only a mitigation.
+
+CPIO=/boot/npu-acpi-override.cpio
+INITRD="${2:-}"
+[ -n "$INITRD" ] || exit 0
+[ -f "$INITRD" ] || exit 0
+[ -s "$CPIO" ] || exit 0
+
+# Already prepended? The kernel scans the first uncompressed member only.
+if [ "$(head -c 6 "$INITRD" 2>/dev/null)" = "070701" ]; then
+    exit 0
+fi
+
+TMP="${INITRD}.npu-ssdt.$$"
+if cat "$CPIO" "$INITRD" > "$TMP" 2>/dev/null && mv "$TMP" "$INITRD" 2>/dev/null; then
+    echo "ncz-npu-ssdt: prepended ACPI override to $INITRD" >&2
+else
+    rm -f "$TMP"
+    echo "ncz-npu-ssdt: WARNING: could not prepend override to $INITRD" >&2
+fi
+exit 0

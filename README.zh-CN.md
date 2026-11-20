@@ -3,44 +3,23 @@
 </p>
 
 <h1 align="center">NCZ-OS</h1>
-<p align="center"><em>面向 Arm64（CIX Sky1）与 AMD64（Intel/AMD PC 与 Apple T2 Mac）的 Debian —— 带有可用的 GPU、VPU 与 NPU 驱动</em></p>
 
-> ### NCZ-OS 26.10 "Cygnus"（2026-10-13 镜像）
->
-> **[从 Releases 页面下载](https://github.com/ncz-os/cix-installer/releases)**（只有一个发布：当前镜像）
-> · [发布说明（英文）](docs/releases/26.10-cygnus-20261013.md)
+> ### NCZ-OS 26.10 "Cygnus" Preview 4（2026-11-19）
+
+> 从 [GitHub Releases](https://github.com/ncz-os/cix-installer/releases) 或
+> [GitLab Releases](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest) 下载。
+> · [发布说明和校验值（英文）](docs/releases/26.10-cygnus-preview4.md)
 > · [已测试硬件](#hardware-support)
-> · [文档索引（英文）](docs/INDEX.md)
 >
-> | 镜像 | 适用于 | 内核 |
-> |---|---|---|
-> | `ncz-os-arm64-20261013-d395bb2d.img` | CIX Sky1 主板（Radxa Orion O6N、Minisforum MS-R1） | `7.3.0-rc7-sky1-ncz` |
-> | `ncz-os-amd64-20261013-d395bb2d.img` | Intel/AMD PC 与 Apple T2 Mac | `7.3.0-rc7-t2-ncz` |
->
-> | 镜像 | `.img` 的 sha256 |
-> |---|---|
-> | arm64 | `f6de9e4f830fd5d450b1e00654cc9341aae1a5ca070bc66f9a5a76b3ca3ba4a7` |
-> | amd64 | `7f23dcde01bd1aac9aae4bd7cee2ec87392a94d782002e8abea7f28653886851` |
->
-> 每个镜像都是原始 GPT 磁盘镜像（`.img`），在发布页上被拆分为多个分片（GitHub 单个文件
-> 上限 2 GiB）。把对应架构的所有分片、`PARTS-<架构>.sha256`、`SHA256SUMS-<架构>`
-> （旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）与
-> [`ncz-join-image.sh`](tools/ncz-join-image.sh) 放在同一个文件夹里，运行
-> `sh ncz-join-image.sh arm64`（或 `amd64`）：脚本会校验每个分片、拼接并解压，再校验
-> 得到的 `.img`；它绝不会写入任何磁盘。然后把 `.img` 写入**至少 16 GB** 的驱动器
-> （会清空该驱动器），见下文"快速开始（在硬件上安装）"。
->
-> 两个镜像都基于候选版（release candidate）内核 7.3.0-rc7 构建。安装前请先备份重要数据。
-
-> **说明：** 本中文版只同步了 26.10 的关键内容（上方横幅、硬件测试状态、
-> 安装步骤、内核）。其余章节保留了 26.7 时期的译文，可能已过时；**一切以英文
-> [README](README.md) 为准。**
+> 构建 `2026.11.19-4b51adc1`（`v26.10-preview4`）基于 Debian Testing（Forky）。
+> amd64（Intel/AMD PC 与 Apple T2 Mac）和 arm64（CIX Sky1）各有 Desktop 和 Magnetar Server 镜像。
+> 四个镜像均使用 Linux 7.4.0-rc3 候选版内核。安装前请先备份数据。
 
 # cix-installer
 
 > **🌐 语言：** [English](README.md) · 简体中文
 >
-> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-20261013.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases)
+> **📚 从这里开始：** [文档索引](docs/INDEX.md) · [26.10 发布说明](docs/releases/26.10-cygnus-preview4.md) · [设计理据 —— 为什么这样构建](docs/DESIGN-RATIONALE.md) · [AI/ML 技术栈参考](docs/AI-ML-STACK.zh-CN.md) · [源码发布](docs/SOURCE-RELEASES.zh-CN.md) · [下载镜像](https://github.com/ncz-os/cix-installer/releases)
 
 **NCZ-OS Linux 发行版的安装程序与镜像构建。**
 
@@ -48,7 +27,7 @@
 覆盖**两个一等目标架构**，共享同一条构建流水线与同一套用户态：
 
 - **Arm64 — CIX Sky1**（Radxa Orion O6N、Minisforum MS-R1）。原生 Mali-G720 GLES
-  （Panthor 作为实验性启动项）、Zhouyi V3 NPU、Linlon VPU —— 全部基于 CIX 的 DKMS
+  （仅 Mali；Preview 4 未包含 Panthor）、Zhouyi V3 NPU、Linlon VPU —— 全部基于 CIX 的 DKMS
   加速器模块，运行在 NCZ Sky1 内核之上。
 - **AMD64 — Intel/AMD PC 与 Apple T2 Mac。** Intel/AMD/NVIDIA 标准驱动在安装时从各家
   厂商真实、已签名的 apt 源接入；T2 Mac 上使用 NCZ T2 内核，Apple 固件与音频配置来自
@@ -58,18 +37,13 @@
 内容哈希锁定，见 `manifests/base.pin`），并解压出预先构建好的 **Debian Testing（Forky）**
 系统，再叠加与硬件匹配的内核、厂商用户态、Singularity 桌面与（可选加入的）NCZ agent 栈。
 
-> **当前版本：NCZ-OS 26.10 "Cygnus"** —— Cygnus 主题的 Singularity 桌面
-> （labwc/wlroots），每个镜像只带一个内核：
->
-> | | Sky1（Arm64） | Intel/AMD PC 与 T2 Mac（AMD64） |
-> |---|---|---|
-> | **内核** | `7.3.0-rc7-sky1-ncz`（构建 r289） | `7.3.0-rc7-t2-ncz`（软件包 `7.3.0-rc7-2`） |
->
-> 默认、安装程序与救援启动项都使用这同一个内核；救援项会屏蔽 GPU/加速器驱动。7.2 系列
-> 与旧的"前沿版"通道已退役。7.3.0-rc7 是**候选版**内核，之后会换成 7.3.0 正式版。
->
-> 所有窗口默认（系统级）带有最小化、最大化与关闭按钮。屏保为 NCZ Screensavers 0.8.15
-> （设置插件 0.3.22）。自 Preview 1 以来的变化见[发布说明（英文）](docs/releases/26.10-cygnus-20261013.md#changes-since-preview-1)。
+> Desktop 包含 2026-11-18 的 Singularity 快照及 NCZ-OS 补丁，
+> 随附 NCZ Screensavers 0.8.22 和设置插件 0.3.27。
+> Magnetar Server 需要有线网络，安装时会下载系统载荷并校验 SHA-256。
+> amd64 的镜像约 0.6 GB，载荷约 3.3 GB，总计约 3.9 GB。
+> arm64 的镜像约 1.0 GB，载荷约 3.8 GB，总计约 4.7 GB。
+> Server 安装后以无图形界面的方式运行，提供文本控制台和 22 端口的 SSH。
+> 控制台空闲 180 秒后会显示彩色 ASCII 黑洞屏保。
 
 > ### 远程访问默认项
 >
@@ -110,18 +84,17 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
 **当前出货目标（两个都是一等目标——共享构建流水线、共享桌面、共享 agent 栈）**：
 
 - **Arm64 — CIX Sky1 / CP8180** —— **Radxa Orion O6N** 与 **Minisforum MS-R1**，
-  两者均已在真机上测试。这是 CIX 专有用户态（`libmali`、NOE、VPU 固件）以及四个
-  DKMS 加速器模块（`mali_kbase`、`panthor`、`amvx`、`aipu`）接入之处。其他 Sky1 主板
+  两者均在较早的版本中经过测试。这是 CIX 专有用户态（`libmali`、NOE、VPU 固件）以及三个
+  DKMS 加速器模块（`mali_kbase`、`amvx`、`aipu`）接入之处（仅 Mali；Preview 4 未包含 Panthor）。其他 Sky1 主板
   （Orange Pi 6 等）尚未测试。仓库名反映的是历史，不代表项目范围。
 - **AMD64 — Apple T2 Mac** —— 2018–2020 出货、搭载 T2 协处理器的 MacBookPro
-  （15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4）与 MacBookAir（8,1 / 8,2 / 9,1）等机型；其中只有 MacBookPro16,1 经过测试。
+  （15,1 / 15,3 / 16,1 / 16,2 / 16,3 / 16,4）与 MacBookAir（8,1 / 8,2 / 9,1）等机型。
   硬件识别通过 PCI `106b:1801` —— Apple T2 桥接设备 ID，正是 `t2linux` 的
   `linux-t2-patches` 所依凭的同一标识（已直接核对
   `9001-ACPI-x86-Apple-T2-systems-need-early-CPU-offlining.patch` 源文件）。在 T2 Mac 上，
-  NCZ-OS 把 `apple-bce`、`applesmc`、HID 与 APFS 接入内核树（我们自己的 `7.3.0-rc7-t2-ncz` 内核），
+  NCZ-OS 把 `apple-bce`、`applesmc`、HID 与 APFS 接入内核树（我们自己的 `7.4.0-rc3-t2-ncz` 内核），
   并在首次启动时从 AdityaGarg8 的真实、已签名 `t2-ubuntu-repo` 拉取 Apple 固件与音频配置。
-- **AMD64 — 通用 x86-64 PC** —— 同一份构建、同一套用户态，无 CIX 栈。同一个镜像
-  能在普通 Intel/AMD 台式机或服务器上启动；与具体硬件绑定的加速器仓库（NVIDIA CUDA、
+- **AMD64 — 通用 x86-64 PC** —— 同一份构建、同一套用户态，无 CIX 栈。提供 Desktop 和 Server 镜像。与具体硬件绑定的加速器仓库（NVIDIA CUDA、
   AMD ROCm、Intel OpenVINO）由 `post-install/54-gpu-accel.sh` 中的 `lspci -nn`
   PCI 类自动检测并接入。没有独立显卡的机器会静默跳过，这是正常行为。
 
@@ -129,19 +102,23 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
 
 ## 硬件支持与测试状态
 
-> **在你烧录任何东西之前请先读这一节。** NCZ 在**设计上**是厂商中立的，但"设计上
-> 支持"与"已经测试过"并不是一回事。以下是 **26.10**（内核 `7.3.0-rc7`，
-> 候选版）的诚实测试状态。表中未列出的硬件，我们都没有在本版本上启动过。
+> 在构建 `2026.11.19-4b51adc1` 上，arm64 Server 在 Radxa Orion O6N 上完成安装和首次启动。
+> amd64 Server 在 Apple MacBookPro16,1（T2）上运行。amd64 Desktop 在 Apple MacBookPro16,1（T2）
+> 和配有 NVIDIA GeForce RTX 2060 的 ASUS ROG Zephyrus M15 GU502LV 笔记本上进入桌面。
+> 这些测试均无失败单元。两种架构的两个版本均通过了自动化虚拟机安装和启动检查。
+> 在较早的 Preview 4 构建上，arm64 Desktop 在一块 CIX Sky1 主板上进入桌面。
+
+以下是较早版本的 26.10 测试记录。
 
 26.10 带有 **amd64 上的 AMD、NVIDIA 与 Intel GPU 驱动**、**CIX Sky1 上的 Arm Mali
-驱动（默认使用厂商 Mali 栈，也提供开源 Panthor 驱动）**，以及 **CIX Sky1 的 NPU 与 VPU**
+驱动（厂商 Mali 栈；仅 Mali，Preview 4 未包含 Panthor）**，以及 **CIX Sky1 的 NPU 与 VPU**
 驱动。我们实际运行过的机器：
 
 | 机器 | CPU | GPU（驱动） | 测试结果 |
 |---|---|---|---|
-| Radxa Orion O6N | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
+| Radxa Orion O6N | CIX P1（Sky1） | Arm Mali（厂商 Mali）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
 | Radxa Orion O6 | CIX P1（Sky1） | Arm Mali（厂商 Mali）+ NPU + VPU | 社区测试者确认：桌面、应用与显示模式切换正常（由早期版本升级并更新了修复后的桌面库） |
-| Minisforum MS-R1 | CIX P1（Sky1） | Arm Mali（厂商 Mali；可选 Panthor）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
+| Minisforum MS-R1 | CIX P1（Sky1） | Arm Mali（厂商 Mali）+ NPU + VPU | 已安装，桌面、视频（VPU 硬件解码）与音频播放正常 |
 | MacBookPro16,1（两台） | Core i9-9980HK、Core i7-9750H | AMD Radeon Pro 5300M/5500M 级（Navi 14，`amdgpu`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
 | ASUS ROG GU502LV 笔记本 | Core i7-10750H | NVIDIA GeForce RTX 2060 Mobile（专有 `nvidia`）+ Intel UHD 630（`i915`） | 已安装，可启动到桌面 |
 | HP OmniDesk 台式机 | Core Ultra 7 265 | Intel 集成显卡（Xe-LPG，`i915`） | 已安装，可启动到桌面 |
@@ -154,22 +131,17 @@ NCZ **在设计与意图上都是厂商中立的**。目标是：在能取得样
 
 ## GPU 驱动与启动项
 
-NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都会安装；两者都不会自动加载。
+NCZ-OS **只发布一个 GPU 驱动**（仅 Mali，2026-11-16 操作员指令 "No panthor Mali only"）：
+默认启动项上的 `mali_kbase`，提供 OpenGL ES 3.2、EGL 1.5，经 `libmali` 提供 OpenCL。
+已在 Radxa Orion O6N 与 MS-R1 真机验证；桌面就跑在它上面。已移除的 Panthor 实验性启动项
+（`panthor`，Mesa PanVK / rusticl）已在源码层面删除：没有任何启动项选择它，也不再发出
+`sky1.gpu=mesa` 选项。
 
-| 启动项 | 驱动 | 提供 | 状态 |
-|---|---|---|---|
-| **NCZ-OS**（默认） | `mali_kbase` —— CIX 厂商 DDK | OpenGL ES 3.2、EGL 1.5，经 `libmali` 提供 OpenCL | 已在 Radxa Orion O6N 与 MS-R1 真机验证。桌面就跑在它上面。 |
-| **NCZ-OS (Panthor)** | `panthor` —— 主线开源驱动 | 经 Mesa PanVK / rusticl 提供 Vulkan 与 OpenCL | 在 Sky1 上仍属实验性。 |
+`mali_kbase` 独占 GPU；`panthor` 留在 `/etc/modprobe.d/ncz-gpu-drivers.conf`
+黑名单中，永远不会绑定。
 
-两个驱动会认领同一个设备，因此 `/etc/modprobe.d/ncz-gpu-drivers.conf` 将**两者都**
-列入黑名单。由启动项决定绑定哪一个，`ncz-gpu-select` 可在已安装的系统上切换而无需重装。
-
-**各自的代价。** `mali_kbase` 提供加速桌面，但**不暴露任何 Vulkan 入口**——`libmali`
-本身就没有。`panthor` 是通往 Vulkan 的路，也是生态的走向，但在 Sky1 上它仍在处理枚举
-问题：该板经由 ACPI 而非设备树启动，而主线 panthor 没有 `.acpi_match_table`。
-
-两者都不会被放弃。只发布厂商二进制，会让发行版失去开源继任者；只发布 panthor，则意味着
-桌面今天无法加速。
+**代价。** `mali_kbase` 提供加速桌面，但**不暴露任何 Vulkan 入口**——`libmali`
+本身就没有。Panthor 曾是通往 Vulkan 的路，但它已不再发布；Linux 7.4 之后再议。
 
 ### 每一个加速器驱动都是 DKMS 模块
 
@@ -177,8 +149,7 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 
 | 加速器 | DKMS 包 | 模块 |
 |---|---|---|
-| GPU（默认） | `cix-gpu-kmd` | `mali_kbase` |
-| GPU（备选） | `panthor-cix` | `panthor` |
+| GPU | `cix-gpu-kmd` | `mali_kbase` |
 | VPU | `cix-vpu-driver` | `amvx` |
 | NPU | `cix-npu-driver-dkms` | `aipu` |
 
@@ -198,23 +169,27 @@ NCZ-OS **同时发布两个 GPU 驱动**，由你在启动时选择。两者都�
 > **开机前请接好有线网络。** 安装程序中没有 Wi-Fi；若检测不到链路，安装程序会明确停在
 > "Network autoconfiguration failed"（接好网线后选 Retry），而不是无声地重试。
 
-1. **获取镜像。** 从 [Releases 页面](https://github.com/ncz-os/cix-installer/releases)
-   下载对应架构的分片，然后拼接、解压并校验（需要 `zstd`）：
+1. **获取镜像。** 从 [GitHub Releases](https://github.com/ncz-os/cix-installer/releases) 或
+   [GitLab Releases](https://gitlab.com/ncz-os/cix-installer/-/releases/permalink/latest) 下载所选架构和版本的 zstd 分片。
+   每个分片小于 2 GiB。把分片、`PARTS-<arch>-<flavor>.sha256`、
+   `SHA256SUMS-<arch>-<flavor>` 和 `ncz-join-image.sh` 放在同一个文件夹里。
+   安装 `zstd` 后运行对应命令：
 
-   ```bash
-   sh ncz-join-image.sh arm64        # 或 amd64
+   ```sh
+   sh ncz-join-image.sh amd64 desktop
+   sh ncz-join-image.sh amd64 server
+   sh ncz-join-image.sh arm64 desktop
+   sh ncz-join-image.sh arm64 server
    ```
 
-   手动方式：`sha256sum -c PARTS-<架构>.sha256`，然后
-   `cat ncz-os-<架构>-<日期>-<sha>.img.zst.part-* | zstd -d -o ncz-os-<架构>-<日期>-<sha>.img`，
-   再用 `sha256sum` 与 `SHA256SUMS-<架构>` 对照（旧版本为 `PARTS.sha256` 与 `SHA256SUMS`）。
+   脚本会校验分片，拼接并解压，再校验原始镜像。
 
-2. **写入至少 16 GB 的 USB 驱动器**（镜像 7.6 GB；写入会清空该驱动器）。任何系统上都可以用
-   Balena Etcher。在 Linux 上，请把原始 GPT 镜像写入**整块设备**（`/dev/sdX`），而不是某个
-   分区（`/dev/sdX1`）：
+2. **写入至少 16 GB 的 USB 驱动器。** 写入会清空该驱动器。Desktop 的 amd64
+   镜像解压后约 7.2 GB，arm64 约 8.7 GB。可以使用 Balena Etcher。在 Linux 上，
+   请确认设备名，并把下方命令中的镜像文件及设备名换成实际值。
 
    ```bash
-   sudo dd if=ncz-os-<架构>-<日期>-<sha>.img of=/dev/sdX \
+   sudo dd if=ncz-os-amd64-20261119-4b51adc1-desktop.img of=/dev/sdX \
         bs=4M status=progress oflag=direct conv=fsync
    sync
    ```
@@ -272,28 +247,21 @@ sudo apt install ncz-model-nomic-embed   # 768 维，默认
 
 ## 内核
 
-26.10 每个镜像只带**一个**内核：Sky1 为 `7.3.0-rc7-sky1-ncz`（构建 r289，
-软件包 `linux-image-cixmini`，锁定于 `assets/kernel/sky1-manifest.json`），AMD64 为
-`7.3.0-rc7-t2-ncz`（软件包版本 `7.3.0-rc7-2`，锁定于 `assets/kernel/amd64-stable/`）。
-默认、安装程序与救援启动项都使用它；7.2 系列与"前沿版"通道已退役。
+Preview 4 每个镜像只带一个 Linux 7.4 内核。arm64（CIX Sky1）使用
+`7.4.0-rc3-sky1-ncz`（+r303），amd64 使用 `7.4.0-rc3-t2-ncz`
+（软件包版本 `7.4.0-rc3-4`）。默认、安装程序与救援启动项都使用同一个内核。
+Linux 7.3 系列已停止维护。
 
-对应源码见 [docs/SOURCE-RELEASES.zh-CN.md](docs/SOURCE-RELEASES.zh-CN.md)。Sky1 内核的配方、补丁与
-实际构建所用的 config 已收录于仓库内的 [`kernel-source/`](kernel-source/SOURCE.md)，打完补丁的完整
-源码树为 [`ncz-os/linux-cix`](https://gitlab.com/ncz-os/linux-cix) 的标签
-`kernel-sky1-7.3.0-rc7-r289-src`；AMD64 内核源码在
-[`ncz-os/linux-t2-ncz`](https://gitlab.com/ncz-os/linux-t2-ncz)（标签 `v7.3.0-rc7-t2-ncz-2`）。
+对应源码见 [源码发布](docs/SOURCE-RELEASES.zh-CN.md)。
 
 ## 架构
 
-NCZ-OS 以**原始 GPT 磁盘镜像**（`ncz-os-<架构>-<日期>-<sha>.img`）发布，每个架构一个：
-**amd64**（Intel/AMD PC 与 Apple T2 Mac）和 **arm64**（CIX Sky1 主板）。不提供 ISO。镜像
-内含原版 Debian Installer 以及预先构建好的分层 squashfs 载荷，安装时直接解开一个完整的系统，
-而不是在设备上运行 debootstrap 和数百个软件包的 postinst 脚本。这样做是为了安装**速度**和
-**离线可靠性**：基础系统来自镜像本身，安装过程中不需要联网解析软件包。
+Preview 4 为 amd64 和 arm64 各提供两个原始 GPT 磁盘镜像。
+Desktop 随镜像提供基础系统，Magnetar Server 在安装时下载系统载荷。
 
 ![架构图](docs/architecture.svg)
 
-**镜像内容：**
+**Desktop 镜像内容：**
 
 | 分区 | 内容 |
 |---|---|
@@ -310,15 +278,14 @@ NCZ-OS 以**原始 GPT 磁盘镜像**（`ncz-os-<架构>-<日期>-<sha>.img`）�
 地区、用户、可选组件、磁盘与根文件系统等 NCZ 对话框（`preseed/*.sh`）；以及一个 `debootstrap`
 替身（`build/iso/patch-debootstrap-stub.py`），d-i 调用 debootstrap 时由它把 squashfs 层解压到
 目标磁盘。随后 `post-install/run-all.sh` 在目标 chroot 中运行编号的 `post-install/*.sh` 钩子，
-apt 指向镜像上的离线镜像。少数可选组件（例如 NVIDIA 驱动）需要联网，基础安装不需要。
+apt 指向镜像上的离线镜像。Desktop 的少数可选组件（例如 NVIDIA 驱动）需要联网。Server 安装需要有线网络。
 
 安装后的磁盘包含 EFI 系统分区（2 GB）、可选的 `NCZRESCUE` 救援分区（4 GB，ext4）和根文件系统：
 **btrfs**（默认）或 **ext4**。
 
 **安装后的系统：**
 
-- **一个内核**，Linux 7.3：arm64 为 `7.3.0-rc7-sky1-ncz`（Sky1 构建 r289），amd64 为
-  `7.3.0-rc7-t2-ncz`（T2 Mac 与普通 PC 通用）。默认、控制台与救援启动项都使用它。
+- **一个内核**，Linux 7.4。arm64 使用 `7.4.0-rc3-sky1-ncz`，amd64 使用 `7.4.0-rc3-t2-ncz`。默认、控制台与救援启动项都使用它。
 - **Singularity 桌面**：基于 labwc 的原生 Wayland，greetd + Singularity 登录界面，KMS 启动画面
   取代 Plymouth。没有 X11 桌面会话；保留 Xwayland 运行 X 应用。
 - **屏保与锁屏**（`ncz-screensavers`）：先启动屏保，之后再锁定会话。
@@ -340,6 +307,7 @@ apt 指向镜像上的离线镜像。少数可选组件（例如 NVIDIA 驱动�
 | 30 | `refresh-sources` | 解析 Singularity 桌面源码（`--sources latest`）或复现已提交的锁定（`--sources pinned`），再构建或暂存桌面载荷软件包。 | `build/refresh-singularity-sources.sh`、`build/stage-singularity-payload.sh`、`build/build-singularity.sh`、`build/build-singularity-deb.sh` |
 | 40 | `offline-mirror` | 构建放入镜像的离线 apt 闭包。 | `make offline-mirror` |
 | 50 | `provenance-inputs` | 每个将进入镜像的软件包只能有一个来源：锁定的 Debian 快照、NCZ 构建或经审核的厂商软件包；不得出现 Debian 内核。 | `build/check-forky-provenance.sh`、`build/verify-no-debian-kernel.sh` |
+| 55 | `static-gates` | 在任何层或镜像工作之前对锁定的源码树强制执行静态门禁套件：AMD64 NVIDIA CUDA 设计门禁（`build/test-amd64-cuda-gates.sh`，仅 amd64）与 greeter 控制台回退门禁（`build/test-greeter-console-fallback.sh`，两种架构）。失败即中止构建，不可跳过——`--resume-from` 的续跑点位于该阶段或其后时，会先重新运行套件而不是跳过，因此任何仍能产出镜像的运行都无法绕过它们。 | `build/test-amd64-cuda-gates.sh`、`build/test-greeter-console-fallback.sh` |
 | 60 | `layers` | 构建并检查 `base`、`desktop`、`desktop-hotfix` 三个 squashfs 层。 | `build/layers-preflight.sh`、`build/build-squashfs-layers.sh all`（桌面软件包经 `build/build-role-delta-mkosi.sh`）、`build/check-layers.sh` |
 | 70 | `image` | 用基底、内核、各层与离线镜像组装原始 GPT 镜像。 | `make image` → `build/build-installer-image.sh`、`build/iso/*.py` |
 | 80 | `provenance-gate` | 对成品镜像再做一次来源与单内核检查。 | `build/check-forky-provenance.sh --image` |
@@ -450,8 +418,7 @@ Mirko 也接纳了反向流动的改动。那些属于我们的工作，因此�
 
 **此外**：**Radxa**（Radxa Orion O6N，我们的主力开发与验证平台）、**Minisforum**
 （MS-R1，本项目起步的那块板）、**Debian**（把 ARM 当作一等架构，这正是 26.7 建立在
-Forky 上的原因），以及 **Mesa、wlroots 与 labwc**（Panthor 路径所依赖的开源图形与
-合成器栈）。
+Forky 上的原因），以及 **Mesa、wlroots 与 labwc**（开源图形与合成器栈）。
 
 **t2linux 社区** —— 维护着让 T2 Mac 能在主线 Linux 上启动成为可能的 `linux-t2-patches`
 系列。AdityaGarg8 的 `t2-ubuntu-repo`（通过 `apple-firmware-script` 提供的真实 WiFi/BT

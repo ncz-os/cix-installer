@@ -21,26 +21,23 @@
 #                   pre-release. GitLab has no such flag: the GitLab release
 #                   is a normal release (never "upcoming", which
 #                   permalink/latest would skip); say "Preview" in TITLE.
-#   amd64/          ncz-os-amd64-<date>-<build>.img.zst.part-NN, PARTS-amd64.sha256,
-#                   SHA256SUMS-amd64
-#   arm64/          the same for arm64 (one or both architectures)
-#   ncz-join-image.sh, SHA256SUMS (= SHA256SUMS-amd64 followed by SHA256SUMS-arm64)
-# (the release layout, docs/IMAGE-HOSTING.md). NOTES.md has one section per
-# architecture, amd64 first, each with its images' sha256 and the
-# "ncz-join-image.sh <arch>" command.
+#   amd64/, arm64/  desktop and server parts and checksums, plus SHA256SUMS-<arch>
+#   ncz-join-image.sh, SHA256SUMS (amd64 checksums followed by arm64)
+# See docs/IMAGE-HOSTING.md for the layout and note sections.
 #
 # TAG is required and must already exist on both forges: this tool never
 # creates, moves or deletes git tags.
 #
 # Order of work (each step only runs when the previous one succeeded):
-#   1. local checks: the release layout (parts against their PARTS files),
+#   1. local checks: all four images and their checksum files (parts
+#      verified against their PARTS files),
 #      file names and size limits, TITLE/PRERELEASE, the architecture
 #      sections of NOTES.md, NOTES.md has no links to a specific release
 #      (tools/check-release-links.sh) and every screenshot it references is
 #      an absolute raw URL on main of the GitLab project whose file exists
 #      in --repo-root
 #   2. gates (--apply only): the approval file names TAG, the audit file
-#      passes every image in SHA256SUMS
+#      passes every raw image in SHA256SUMS
 #   3. GitLab: tools/publish-release-gitlab.sh --prune-old (one package per
 #      architecture plus a common package, release, links in amd64/ and
 #      arm64/ folders with stable direct paths; older versions removed per
@@ -144,7 +141,7 @@ log "ok    status: GitHub prerelease=$PRE$([ "$PREVIEW" -eq 1 ] && echo ' (previ
 [ "$(wc -c < "$DIR/NOTES.md")" -le 120000 ] || udie "NOTES.md is over the 120000 byte release body limit"
 
 W0=$(mktemp -d "${TMPDIR:-/tmp}/relsync0.XXXXXX"); trap 'rm -rf "$W0"' EXIT
-rf_layout "$DIR" --need-notes > "$W0/layout.tsv" || udie "the staged folder does not match the release layout (see above)"
+rf_layout "$DIR" --need-notes > "$W0/layout.tsv" || udie "the staged folder must contain all four images and their checksum files in the release layout (see above)"
 FILES=(); ARCHES=()
 declare -A LSHA=() LSIZE=() FPATH=()
 while IFS=$'\t' read -r g rel f; do
@@ -161,7 +158,7 @@ while IFS=$'\t' read -r st msg; do
   [ -n "$st" ] || continue
   if [ "$st" = ok ]; then log "ok    $msg"; else echo "ERROR: $msg" >&2; sec_bad=1; fi
 done < <(rf_check_sections "$DIR/NOTES.md" "${sargs[@]}")
-[ "$sec_bad" -eq 0 ] || udie "NOTES.md needs one section per architecture (amd64 first) with its image sha256 and join command"
+[ "$sec_bad" -eq 0 ] || udie "NOTES.md needs an ordered section per architecture and the sha256 and join command for each image"
 
 if ! links_out=$(bash "$HERE/check-release-links.sh" --current-tag "$TAG" --files "$DIR/NOTES.md" 2>&1); then
   echo "$links_out" >&2; udie "NOTES.md links to a specific release; use the permalink forms (docs/IMAGE-HOSTING.md)"
@@ -196,7 +193,7 @@ elif grep -qiE '^[[:space:]]*FAIL' "$AUDIT"; then
 else
   miss=""
   while read -r s img; do
-    [ -n "${img:-}" ] || continue
+    case "${img:-}" in *.img) ;; *) continue ;; esac
     grep -qE "^[[:space:]]*PASS[[:space:]]+$s([[:space:]]|\$)" "$AUDIT" || miss="$miss ${img#\*}"
   done < "$DIR/SHA256SUMS"
   if [ -n "$miss" ]; then gate_ok=0; log "gate  image audit: no PASS for$miss"

@@ -121,6 +121,31 @@ if verdict="$(ssplugin_abi_verdict "$pver" "$libsha")"; then
     ssp_log "ABI OK ($verdict): payload $pver, libsingularity $libsha; plugin built against $SSP_PAYLOAD"
     exit 0
 fi
+# --- additional gate (orchestrator ruling 1, 2026-11-06) ---------------------------
+# Identity stays authoritative: nothing below turns this failure into a pass. The
+# symbol check answers the OTHER question, so a failure reads as either "rebuild the
+# plugin" (safe) or "this plugin would not load" (not safe). Evidence, not a waiver.
+abi_symbol="skip"
+if [ -x "$ROOT/build/check-payload-plugin-abi.sh" ] && [ -n "$SSP_PAYLOAD" ]; then
+    abi_base=""
+    for _c in "$CIX_DEBS"/ncz-singularity-desktop_*_"$ARCH".deb; do
+        [ -e "$_c" ] || continue
+        [ "$(dpkg-deb -f "$_c" Version 2>/dev/null)" = "$SSP_PAYLOAD" ] && abi_base="$_c"
+    done
+    if [ -n "$abi_base" ]; then
+        if bash "$ROOT/build/check-payload-plugin-abi.sh" "$abi_base" "$PAYLOAD_DEB" "$PLUGIN_DEB" >/dev/null 2>&1; then
+            abi_symbol=pass
+        else
+            abi_symbol=fail
+        fi
+    fi
+fi
 ssp_err "FATAL: ABI MISMATCH between the plugin and the image's Singularity payload ($(basename "$PAYLOAD_DEB"), libsingularity $libsha)"
+ssp_log "identity gate: FAIL (the lock is authoritative; this is not a waiver)"
+case "$abi_symbol" in
+    pass) ssp_log "symbol gate: PASS - the plugin still resolves against $(basename "$PAYLOAD_DEB") (symbol superset, SONAME unchanged): rebuild the plugin, no crash risk" ;;
+    fail) ssp_err "symbol gate: FAIL - $(basename "$PLUGIN_DEB") would not resolve against $(basename "$PAYLOAD_DEB")" ;;
+    skip) ssp_log "symbol gate: SKIP - the payload the plugin was built against ($SSP_PAYLOAD) is not staged here; the identity failure stands" ;;
+esac
 ssplugin_rebuild_help "$ARCH" "$pver"
 exit 1

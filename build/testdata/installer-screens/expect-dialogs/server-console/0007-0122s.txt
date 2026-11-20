@@ -1,0 +1,10 @@
+# t=122s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - Step 7 of 7: Erase disk and install? ├┐
+  │ Target disk:      /dev/vda                                          │
+  │ Root filesystem:  btrfs                                             │
+  │ Rescue partition: yes                                               │
+  │ This install downloads about 3 GB after the disk is erased.         │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

@@ -1,0 +1,51 @@
+From 9ddff7a23481832552393e56a22fe36cd864b022 Mon Sep 17 00:00:00 2001
+From: Jason Perlow <jperlow@gmail.com>
+Date: Wed, 12 Aug 2026 23:18:36 -0400
+Subject: [PATCH 3/4] ncz: suppress the hot corner hint badge
+
+Downstream aesthetic choice: the corner hint ("Overview  Super+Space") is not
+shown in NCZ.
+
+It sits on GtkLayerShell.Layer.OVERLAY while the app chooser is on TOP, and
+zwlr_layer_shell orders background < bottom < top < overlay, so it always
+composites above the chooser. The badge is only cleared by on_leave(), and
+triggering a hot corner means the pointer is in the corner and usually stays
+there while the user looks at what opened -- so it sits over the UI it just
+launched. Reproduced identically on a 1080p panel and a 4K panel, which is what
+ruled out a scaling or timing explanation.
+
+Hot corner behaviour is untouched: corners still arm and still fire their
+action. Only the badge is suppressed.
+
+Reported upstream as singularityos-lab/singularity-shell#19, where the
+suggested fix is to hide the hint when its action fires rather than waiting for
+pointer-leave. If that lands, this patch can be dropped.
+---
+ src/core/hot_corner_manager.vala | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/src/core/hot_corner_manager.vala b/src/core/hot_corner_manager.vala
+index 44f182c..ce51caa 100644
+--- a/src/core/hot_corner_manager.vala
++++ b/src/core/hot_corner_manager.vala
+@@ -108,6 +108,20 @@ namespace Singularity {
+         }
+ 
+         private void show_hint(int corner, string? action) {
++            // NCZ: the corner hint badge is suppressed downstream as an
++            // aesthetic choice.
++            //
++            // It lives on GtkLayerShell.Layer.OVERLAY while the app chooser is
++            // on TOP, so it draws above the chooser it just opened: the pointer
++            // is still inside the corner region at that moment, and the hint
++            // only clears on on_leave(), so it sits over the UI the user is now
++            // looking at.
++            //
++            // Hot corner behaviour is untouched -- the corner still arms and
++            // still fires its action; only the badge is hidden.
++            hide_hints();
++            if (true) return;
++
+             if (corner < 0 || action == null) {
+                 hide_hints();
+                 return;

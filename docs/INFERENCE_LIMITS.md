@@ -174,7 +174,10 @@ for the memory/embedding lane.
   within tier — no vendor preference. On Sky1 it selects the `npu-cix` adapter
   automatically (see `docs/NPU-USAGE-GUIDE.md`).
 - The NPU runtime is baked into the image; models (such as the bge `.cix` + tokenizer) layer
-  via manual `git lfs` pull from the Cix hub (see `docs/MODELSCOPE-MODELS.md`) -- there is no `ncz model add`/working `ncz models pull` yet, that subcommand is a stub.
+  via manual `git lfs` pull from the Cix hub (see `docs/MODELSCOPE-MODELS.md`) -- or via the
+  CLI: `ncz models pull <name>` for a catalog entry, and `ncz models add <url> --sha256 <hex>`
+  for a user-supplied model outside the catalog. Both verify the download's sha256 before the
+  file is installed and record a META-INF provenance sidecar.
 - GPU is wired for display only; nothing routes ML compute to it.
 
 ## References

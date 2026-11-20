@@ -108,13 +108,14 @@ install_one(){
         echo "[10-amd64] WARN: $label incomplete (could not derive kver from '$(basename "$img" 2>/dev/null)') — skipping"
         return 0
     fi
-    # Unified 7.3 policy (2026-10-05): only the 7.3 series may be
-    # installed. A staged 7.2.x (or Debian) kernel is refused; with nothing
-    # installed the hook's final guard exits non-zero.
+    # Kernel line policy (2026-10-05 unified 7.3; line switch to 7.4 by
+    # operator 2026-11-09 22:20Z): the 7.3/7.4 lines may be installed while
+    # DEFAULT_BASE=7.3,7.4. A staged 7.2.x (or Debian) kernel is refused;
+    # with nothing installed the hook's final guard exits non-zero.
     case "$kver" in
-        7.3.*|7.3-*) ;;
+        7.3.*|7.3-*|7.4.*|7.4-*) ;;
         *)
-            echo "[10-amd64] ERROR: $label kernel '$kver' is not the unified 7.3 series (policy 2026-10-05). Refusing to install." >&2
+            echo "[10-amd64] ERROR: $label kernel '$kver' is not the unified 7.3/7.4 kernel line (2026-11-09 line switch). Refusing to install." >&2
             # Non-zero so `set -e` aborts the hook immediately; a rejected
             # series must not continue as if the line had installed.
             return 1 ;;

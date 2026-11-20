@@ -29,9 +29,9 @@
 #   <gitlab api>/projects/<project>/packages/generic/<package>/...  except the
 #     linux-* source packages (the kernel source offer; those are kept)
 #   a release file whose name changes between releases: stable on GitHub are
-#     SHA256SUMS, ncz-join-image.sh, NOTES.md, PARTS-<arch>.sha256 and
-#     SHA256SUMS-<arch>; on GitLab also <arch>/PARTS-<arch>.sha256,
-#     <arch>/SHA256SUMS-<arch> and <arch>/ncz-os-<arch>.img.zst.part-NN
+#     SHA256SUMS, ncz-join-image.sh, NOTES.md and the per-architecture and
+#     per-flavor checksums. GitLab uses <arch>/ for architecture files and
+#     keeps stable part aliases such as <arch>/ncz-os-<arch>-<flavor>.img.zst.part-NN.
 # A placeholder such as <tag>, <file> or PARTS-<arch>.sha256 is not flagged.
 #
 # Usage:
@@ -78,7 +78,7 @@ python3 -I - "$ROOT" "${NCZ_GITHUB_REPO:-ncz-os/cix-installer}" "${NCZ_GITLAB_PR
 import os, re, sys, urllib.parse as up
 root, repo, proj, pid, ghw, glw, cur, parts_ok = sys.argv[1:9]
 files = sys.argv[9:]
-GH_PART = re.compile(r"^ncz-os-(amd64|arm64)-[0-9]{8}-[0-9a-f]{6,40}\.img\.zst\.part-[0-9]+$")
+GH_PART = re.compile(r"^ncz-os-(amd64|arm64)-[0-9]{8}-[0-9a-f]{6,40}(?:-desktop|-server)?\.img\.zst\.part-[0-9]+$")
 r, p = re.escape(repo), re.escape(proj)
 def hosts(default, web):
     hs = {default, up.urlsplit(web).netloc or default}
@@ -86,11 +86,16 @@ def hosts(default, web):
 GH, GL = hosts("github.com", ghw), hosts("gitlab.com", glw)
 penc = re.escape(up.quote(proj, safe=""))
 seg = r"[^\s)\]>\"'`]+"
-GH_STABLE = {"SHA256SUMS", "ncz-join-image.sh", "NOTES.md"} | {
-    "SHA256SUMS-%s" % a for a in ("amd64", "arm64")} | {"PARTS-%s.sha256" % a for a in ("amd64", "arm64")}
-GL_STABLE = {"SHA256SUMS", "ncz-join-image.sh", "NOTES.md"} | {
-    "%s/%s" % (a, n) for a in ("amd64", "arm64") for n in ("PARTS-%s.sha256" % a, "SHA256SUMS-%s" % a)}
-GL_PART = re.compile(r"^(amd64|arm64)/ncz-os-\1\.img\.zst\.part-[0-9]+$")
+COMMON = {"SHA256SUMS", "ncz-join-image.sh", "NOTES.md"}
+CHECKSUMS = {
+    (arch, name)
+    for arch in ("amd64", "arm64")
+    for suffix in ("", "-desktop", "-server")
+    for name in (f"PARTS-{arch}{suffix}.sha256", f"SHA256SUMS-{arch}{suffix}")
+}
+GH_STABLE = COMMON | {name for _, name in CHECKSUMS}
+GL_STABLE = COMMON | {f"{arch}/{name}" for arch, name in CHECKSUMS}
+GL_PART = re.compile(r"^(amd64|arm64)/ncz-os-\1(?:-desktop|-server)?\.img\.zst\.part-[0-9]+$")
 gh_latest = re.compile(GH + "/" + r + r"/releases/latest(?:/download/" + seg + r")?", re.I)
 gh_tag = re.compile(GH + "/" + r + r"/releases/tag/(" + seg + ")", re.I)
 gh_dl = re.compile(GH + "/" + r + r"/releases/download/([^/\s)\]>\"'`]+)/(" + seg + ")", re.I)

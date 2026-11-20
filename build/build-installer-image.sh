@@ -96,16 +96,34 @@ PAYLOAD_NODE=$(sed -n -e 's/^node_dir: //p' -e 's/^node exists: //p' \
   -e 's/^OK: staged payload at //p' "$WORK_DIR/payload.log" | tail -1)
 [ -d "$PAYLOAD_NODE" ] || { echo "FATAL: payload node not reported" >&2; exit 1; }
 
-echo "[3/6] patching debootstrap installer stub"
+# shellcheck source=../release.conf
+. "$ROOT/release.conf"
+# M9 step 2 (NG-NC-02): the d-i Packages.xz index and the debootstrap-udeb
+# come ONLY from the pinned snapshot (NCZ_BASE_MIRROR_SNAPSHOT) and every
+# byte is sha256-checked via ncz_fetch_pinned_file (NG-NC-01). The old code
+# curled both from live forky, so stage 70 could install a different udeb
+# than the snapshot the provenance gate describes.
+# shellcheck source=lib/installer-network-inputs.sh
+. "$ROOT/build/lib/installer-network-inputs.sh"
+[ -n "${NCZ_BASE_MIRROR_SNAPSHOT:-}" ] || { echo "FATAL: NCZ_BASE_MIRROR_SNAPSHOT is unset in release.conf -- refusing to fetch installer inputs from an unpinned mirror" >&2; exit 1; }
+echo "[3/6] patching debootstrap installer stub (pinned inputs from snapshot $NCZ_BASE_MIRROR_SNAPSHOT)"
 UDEB_ARGS=()
 if [ ! -d "$SUBSTRATE_NODE/extract/pool" ]; then
   DEBOOTSTRAP_UDEB=${DEBOOTSTRAP_UDEB:-$(find "$ROOT/build/iso-cache/v1/nodes/$ARCH/substrate" \
     -path '*/extract/pool/*' -type f -name 'debootstrap-udeb_*_all.udeb' | head -1)}
   if [ ! -f "${DEBOOTSTRAP_UDEB:-}" ]; then
-    echo "    no cached debootstrap udeb; resolving the real forky package"
-    UDEB_INDEX="$WORK_DIR/Packages-debian-installer.xz"
-    curl -fL -o "$UDEB_INDEX" \
-      "https://deb.debian.org/debian/dists/forky/main/debian-installer/binary-$ARCH/Packages.xz"
+    echo "    no cached debootstrap udeb; fetching the pinned snapshot inputs"
+    NCZ_INSTALLER_INPUTS_DIR="$WORK_DIR/pinned-installer-inputs"
+    if ! ncz_installer_fetch_inputs "$ARCH" \
+        "$NCZ_INSTALLER_INPUTS_DIR" \
+        "${NCZ_FETCH_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ncz-fetch-pinned}"; then
+      echo "FATAL: stage 70 cannot fetch the pinned installer inputs for $ARCH" >&2
+      echo "       re-pin manifests/network-inputs.tsv from the snapshot Packages.xz" >&2
+      echo "       (snapshot.debian.org/archive/debian/$NCZ_BASE_MIRROR_SNAPSHOT/)" >&2
+      exit 1
+    fi
+    UDEB_INDEX="$NCZ_INSTALLER_INPUTS_DIR/Packages-$ARCH.xz"
+    [ -f "$UDEB_INDEX" ] || { echo "FATAL: pinned d-i index $UDEB_INDEX missing after a successful fetch" >&2; exit 1; }
     # Consume the complete index instead of exiting awk on the first match.
     # With pipefail enabled, an early awk exit closes the pipe while xz is
     # still writing, so xz receives SIGPIPE and the whole substitution exits
@@ -117,9 +135,9 @@ if [ ! -d "$SUBSTRATE_NODE/extract/pool" ]; then
         found=1
       }
     ')
-    [ -n "$UDEB_REL" ] || { echo "FATAL: debootstrap-udeb absent from forky installer index" >&2; exit 1; }
-    DEBOOTSTRAP_UDEB="$WORK_DIR/$(basename "$UDEB_REL")"
-    curl -fL -o "$DEBOOTSTRAP_UDEB" "https://deb.debian.org/debian/$UDEB_REL"
+    [ -n "$UDEB_REL" ] || { echo "FATAL: debootstrap-udeb absent from the pinned snapshot installer index" >&2; exit 1; }
+    DEBOOTSTRAP_UDEB="$NCZ_INSTALLER_INPUTS_DIR/$(basename "$UDEB_REL")"
+    [ -f "$DEBOOTSTRAP_UDEB" ] || { echo "FATAL: pinned $UDEB_REL was verified but is not staged at $DEBOOTSTRAP_UDEB" >&2; exit 1; }
   fi
   UDEB_ARGS+=(--source-udeb "$DEBOOTSTRAP_UDEB")
 fi
@@ -213,8 +231,21 @@ fi
 
 echo "[5/6] building rEFInd ESP"
 rm -rf "$WORK_DIR/esp"
+# ESP size floor: the desktop installer keeps the historical 256 MiB floor so
+# its image stays byte-identical to what this script produced before the
+# Magnetar work. The server variant opts into content sizing (--size-mib 0),
+# which is where the ~200 MiB saving comes from; build/iso/build-refind-esp.py
+# still grows the image past its floor when the kernel+initrd need the room,
+# so the 2026-09-26 "Disk full" regression cannot return either way.
+case "${NCZ_VARIANT:-desktop}" in
+  server) ESP_SIZE_MIB=0 ;;
+  desktop) ESP_SIZE_MIB=256 ;;
+  *) echo "FATAL: NCZ_VARIANT must be desktop or server, got '${NCZ_VARIANT}'" >&2; exit 2 ;;
+esac
+echo "  ESP size floor: ${ESP_SIZE_MIB} MiB (NCZ_VARIANT=${NCZ_VARIANT:-desktop})"
 python3 "$ROOT/build/iso/build-refind-esp.py" --arch "$ARCH" \
-  --out-dir "$WORK_DIR/esp" --size-mib 256 --d-i-kernel "$LINUX" --d-i-initrd "$INITRD" \
+  --out-dir "$WORK_DIR/esp" --size-mib "$ESP_SIZE_MIB" \
+  --d-i-kernel "$LINUX" --d-i-initrd "$INITRD" \
   --build-id "$BUILD_VERSION"
 
 echo "[6/6] writing and independently verifying raw GPT image"
@@ -222,6 +253,7 @@ python3 "$ROOT/build/iso/write-usb-image.py" --arch "$ARCH" \
   --esp-img "$WORK_DIR/esp/esp.img" --ncz-payload-dir "$PAYLOAD_NODE" \
   --installer-pool "$SUBSTRATE_NODE/extract/pool" \
   --patched-udeb "$PATCHED_UDEB" --build-version "$BUILD_VERSION" \
+  --di-initrd "$INITRD" --compress "${NCZ_IMAGE_COMPRESS:-none}" \
   --out "$OUTPUT" --work-dir "$WORK_DIR/writer"
 sha256sum "$OUTPUT" > "$OUTPUT.sha256"
 echo "OK: $OUTPUT"

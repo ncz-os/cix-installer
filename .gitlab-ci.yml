@@ -6,6 +6,7 @@ workflow:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
 pages:
   stage: deploy
@@ -34,3 +35,21 @@ pages:
   rules:
     - if: $CI_COMMIT_BRANCH == "recovery/26.6-take1"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ---------------------------------------------------------------------------
+# Automatic substrate CI, stage 0 (design: docs/automatic-substrate-ci.md).
+# Scheduled only: it probes the pinned snapshot and reports whether moving the
+# pin would be safe.  Read-only -- no branch, no commit, no merge.  A degraded
+# mirror intentionally exits 0 (alert, not a failed pipeline): the pipeline
+# failing every time Debian has a bad morning is how alerts get ignored.
+# ---------------------------------------------------------------------------
+substrate-ci:preflight:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    # The driver reads release.conf itself and refuses any stage that would move a
+    # pin without --apply, so the scheduled job cannot change the substrate by accident.
+    - bash build/substrate-ci.sh --stage preflight --json
+  artifacts:
+    when: always

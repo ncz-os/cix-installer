@@ -1,0 +1,8 @@
+# t=43s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - Step 1 of 7: Choose your country ├┐
+  │ Pick your country. Magnetar Server uses it to set the language, timezone │
+  │ and keyboard layout in one step.                                    │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

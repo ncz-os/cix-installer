@@ -1,0 +1,7 @@
+# t=116s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - Step 6 of 7: Choose the file system ├┐
+  │ btrfs                                                               │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

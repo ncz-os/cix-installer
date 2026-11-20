@@ -56,7 +56,15 @@ for dest in "${TARBALLS[@]}"; do
         *sky1-firmware.tar.zst)
             echo "[arm64-assets] extracted assets/sky1-firmware/ ($(find "$ROOT/assets/sky1-firmware" -type f | wc -l) files)" ;;
         *cix-debs.tar.zst)
-            echo "[arm64-assets] extracted assets/cix-debs/ ($(find "$ROOT/assets/cix-debs" -maxdepth 1 -type f -name '*.deb' | wc -l) debs)" ;;
+            # panthor-cix-dkms ships inside the historical cix-debs tarball but
+            # must never enter an image (01:35Z item 1: NO PANTHOR ANYWHERE).
+            # Its ncz-packages.tsv ledger row was removed in 4f0fe372, so a
+            # restaged copy is flagged as unknown-origin by provenance-predict
+            # ("not in the reviewed NCZ ledger") and aborts the build before
+            # layers -- and if it slipped past, hook 25 would install it. Drop
+            # it here (stage-canonical-assets.sh and hook 25 repeat the belt).
+            rm -f "$ROOT/assets/cix-debs"/panthor-cix-dkms_*.deb
+            echo "[arm64-assets] extracted assets/cix-debs/ ($(find "$ROOT/assets/cix-debs" -maxdepth 1 -type f -name '*.deb' | wc -l) debs; panthor-cix-dkms dropped)" ;;
     esac
 done
 

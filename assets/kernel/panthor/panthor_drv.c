@@ -26,7 +26,12 @@
 #include <drm/drm_ioctl.h>
 #include <drm/drm_print.h>
 #include <drm/drm_syncobj.h>
+/* drm_utils.h went away in the 7.4 DRM split (contents moved to drm_modes.h /
+ * drm_panel_quirks.h); nothing here calls its symbols, so gate it to the
+ * kernels that still carry the header (pre-7.4). */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(7, 4, 0)
 #include <drm/drm_utils.h>
+#endif
 #include <drm/gpu_scheduler.h>
 #include <drm/panthor_drm.h>
 

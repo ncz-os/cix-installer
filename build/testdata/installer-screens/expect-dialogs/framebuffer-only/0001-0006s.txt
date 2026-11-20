@@ -1,0 +1,2 @@
+# t=6s
+[framebuffer: dialog or progress on screen, 11.7% non-background pixels]

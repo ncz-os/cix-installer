@@ -90,6 +90,53 @@ add `include themes/cygnus/theme.conf` after the generated banner lines, so the
 theme overrides the fallback `banner ncz-banner.png` / `banner_scale noscale`
 pair. Every default/rescue/entry/icon path is unchanged.
 
+## The INSTALLER ESP (`build/iso/build-refind-esp.py`)
+
+Until 2026-10-17 the theme reached only the **installed** system: the installer
+ESP is built by a separate script, and it never referenced
+`assets/refind/cygnus/` at all, so the live/installation medium booted stock,
+unbranded rEFInd (MINOR-004).
+
+The ESP builder now stages the theme too, controlled by `NCZ_REFIND_THEME`:
+
+| `NCZ_REFIND_THEME` | Result |
+|---|---|
+| unset (release default) | theme staged (same as `1`) |
+| `1` | `themes/cygnus/` written under **both** SelfDir candidates -- `EFI/BOOT/` (the El Torito fallback launch) and `EFI/REFIND/` (the installed path) -- and the tracked `refind.conf.snippet` appended to `refind.conf`, so the include is the last line and its banner directives win |
+| `0` | not staged; `refind.conf` is exactly the pre-change file (no `include`, no trailing blank line), i.e. the previous bytes |
+
+`--refind-theme 0|1` overrides the environment for a single run; with no flag
+the environment decides. The theme is staged identically on **amd64 and arm64**:
+both arches read the same `themes/` loading rules from the same rEFInd, and the
+arm64 ESP had the same gap (its `refind.conf` does keep `textonly`, which is
+about the UART, not about branding -- rEFInd's banner art is not drawn in
+text mode, so the arm64 ESP gains the include and the tree and will show the
+theme anywhere its d-i screen is graphical).
+
+Where the ESP puts things, and why it mirrors `icons/`:
+
+- rEFInd resolves `include`, `banner` and `selection_*` paths **relative to the
+  running binary's directory (SelfDir)**, the same way it finds `refind.conf`.
+  Writing the tree at only one of the two candidate paths leaves the other
+  launch unbranded, so both get a full copy.
+- The snippet is read from the repository, not restated in the builder: a
+  missing snippet with the theme enabled is a **build failure**, never a
+  silently unbranded medium.
+- The include goes at the **end** of `refind.conf`. rEFInd's last-wins parsing
+  is what lets `theme.conf`'s `banner`/`banner_scale fillscreen` override
+  anything generated above it; putting it first would make the theme inert
+  without any error.
+- `theme.conf` and its `banner_scale fillscreen` rationale are copied verbatim;
+  the ESP never pins a `resolution` (the generated config keeps
+  `resolution max`).
+
+Verified by `build/iso/tests/test_refind_esp_theme.py` (via
+`build/test-installer-esp-theme.sh`, also in `make parity`): it builds the ESP
+tree both ways for both arches and asserts the theme files and config lines
+exist only when enabled -- and that the disabled tree is byte-identical to the
+pre-theme output.
+
+
 ## Proof
 
 `branding/cygnus/tests/test-refind-theme.sh` boots the real shipped rEFInd

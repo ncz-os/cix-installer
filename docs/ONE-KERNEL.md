@@ -1,12 +1,27 @@
-# One-kernel policy (project decision 2026-10-10: "ship only OUR kernel")
+# One-kernel policy
 
-Every NCZ-OS image must contain **exactly one kernel**: the NCZ kernel. In
-26.10 that is `7.3.0-rc7-t2-ncz` on amd64 (package
-`linux-image-7.3.0-rc7-t2-ncz`, version `7.3.0-rc7-2`) and
-`7.3.0-rc7-sky1-ncz` on arm64 (package `linux-image-cixmini`, build r289);
-the pins live in `assets/kernel/amd64-stable/` and
-`assets/kernel/sky1-manifest.json`. (The audit below was written against the
-earlier r202 images, which carried 7.3.0-rc6 builds.) There must be no Debian `linux-image-*`,
+Preview 4 ships one Linux 7.4 kernel per architecture:
+`7.4.0-rc3-t2-ncz` on amd64 (package `linux-image-7.4.0-rc3-t2-ncz`, version
+`7.4.0-rc3-4`) and `7.4.0-rc3-sky1-ncz` on arm64 (package
+`linux-image-cixmini`, version `7.4.0-rc3-sky1-ncz+r303`, staged as
+`r303-7.4.0-rc3-sky1-ncz-20261115`). The single source of truth is
+`assets/kernel/default-kernel.json`; the per-arch pins live in
+`assets/kernel/amd64-stable/{KVER,PKGVERSION}` and
+`assets/kernel/{mainline.release,sky1-manifest.json}` and every one of them must
+equal it. (The audit below was written against the earlier r202 images, which
+carried 7.3.0-rc6 builds.)
+
+- **7.4 is the only kernel line.** `7.4.0-rc3` is the accepted base for this
+  release and must move to the final 7.4 kernel in a later PATCH release.
+- **7.3.x is retired** -- no default, no rescue, no installer, no
+  previous-kernel entry and not in any apt component for the image. See
+  `assets/kernel/KERNEL-LIFECYCLE` (`MIN_VERSION=7.4.0-rc3`, `RETIRED=...`) and
+  `RETIRED_KERNELS_*` in `assets/kernel/KERNEL-POLICY`.
+- The edge channel is disabled. Rescue boots the same kernel with accelerator drivers disabled.
+- **Sky1 is Mali only**: the vendor Mali out-of-tree modules (`mali_kbase`,
+  `memory_group_manager`, `protected_memory_allocator`) are built against the
+  7.4 tree, `CONFIG_DRM_PANTHOR` is off and no panthor module or package is
+  built or installed. `build/refind/` entries carry no Panthor boot entry. There must be no Debian `linux-image-*`,
 `linux-headers-*`, `linux-modules-*`, `*-modules-<kver>-*-di` kernel-module d-i
 udeb, or second kernel/initrd anywhere — installed rootfs (squashfs layers),
 `/cdrom` pool + offline mirror, ESP/boot files, d-i boot assets, installer
@@ -70,6 +85,31 @@ the installer booted OUR kernel, reached the finish stage with no ship-critical
 hook failure, and the installed system booted.
 `build/iso/tests/test_patch_initrd.py` unit-tests the prune both directions
 (wired into `make parity`).
+
+## Substrate input scan (provenance-predict, operator rulings 2026-11-07)
+
+`build/forky-provenance.py --substrate-iso` checks the pinned netinst BEFORE the
+mirror and layers stages. Two things in it can never have an archive origin, and
+both are cleared only while scanning the netinst whose sha256 `manifests/base.pin`
+pins (any other ISO is checked without them):
+
+1. **d-i's own installer-kernel udebs** (`*-modules-<abi>-di`, `linux-base-<abi>-di`,
+   `linux-binary-<abi>-di`, `kernel-image-<abi>-di`: a kernel-artifact name ending
+   in `-di`). With `NCZ_ONE_KERNEL_SUBSTRATE_UDEBS=exempt` in `release.conf` they
+   are cleared by name in the pool records, the pool orphan walk and the initrd
+   dpkg status, because Step 1 and Step 2 above remove them from the medium
+   (`build/build-image.sh` exports `NCZ_ONE_KERNEL=1`, the Makefile default). Any
+   other name (`linux-image-*`, an unknown udeb) still needs a reviewed origin, and
+   the finished-image gate scans the medium without the exemption.
+2. **The `debian-installer` build-marker records** (Version
+   `cdrom-<variant>-<YYYYMMDD>-<HH:MM:SS>`, no Architecture) in the initrd dpkg
+   status. They are accepted by identity only, for the exact (name, version) a
+   `manifests/di-build-markers.tsv` row ties to the pinned substrate sha256; a
+   changed stamp, another substrate or the same identity on a hashed pool record
+   still fails. A re-pinned substrate needs new rows, taken from its
+   provenance-predict FAIL lines.
+
+`build/test-provenance-predict.sh` section 5 tests both in each direction.
 
 ## Residual after the one-kernel fix
 

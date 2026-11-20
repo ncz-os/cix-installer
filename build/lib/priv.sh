@@ -13,7 +13,9 @@
 #                             (default sudo_password), with `python3 -I`
 #                             and feed it to `sudo -S` ON STDIN.  It is never
 #                             written to a file, never passed on a command line,
-#                             never echoed, and never logged.
+#                             never echoed, never logged, and never xtraced
+#                             (the secret-bearing region runs with `set +x`
+#                             even when the caller has xtrace on).
 #
 #   . build/lib/priv.sh
 #   ncz_sudo mount --bind A B        # run as root by the model above
@@ -42,10 +44,30 @@ ncz_priv_model() {
     printf 'none\n'; return 1
 }
 
-# Read the sudo password into a variable without exposing it.  We use a
-# dedicated fd (3) so the value never touches argv or a file.  Prints nothing.
+# xtrace (`set -x` / `bash -x`) traces every expansion -- including the
+# NCZ_SUDO_PASS assignment and the `printf` that feeds `sudo -S`, so any caller
+# debugging a failed step with `bash -x` would leak the sudo-pass file content
+# into the build log (2026-11-13 side finding, cycle 232).  The secret-bearing
+# region below therefore runs with xtrace forced off and the caller's setting
+# restored on every exit path.
+_ncz_secret_begin() {
+    _NCZ_XTRACE_RESTORE=""
+    case "$-" in *x*) _NCZ_XTRACE_RESTORE="set -x"; set +x ;; esac
+}
+_ncz_secret_end() {
+    if [ -n "${_NCZ_XTRACE_RESTORE:-}" ]; then
+        eval "$_NCZ_XTRACE_RESTORE"
+        _NCZ_XTRACE_RESTORE=""
+    fi
+    return 0
+}
+
+# Read the sudo password into a variable without exposing it.  The value is
+# captured from python3's stdout only; nothing is traced, and error paths stay
+# silent.  Prints nothing.
 _ncz_read_sudo_pass() {
     [ -f "$NCZ_SUDO_PASS_FILE" ] || return 1
+    _ncz_secret_begin
     NCZ_SUDO_PASS="$(python3 -I - "$NCZ_SUDO_PASS_FILE" "$NCZ_SUDO_PASS_KEY" <<'PYEOF'
 import json, sys
 try:
@@ -63,8 +85,9 @@ if not isinstance(node, str) or not node:
 # No newline: sudo -S strips one; we add exactly one when writing.
 sys.stdout.write(node)
 PYEOF
-)" || return 1
-    [ -n "$NCZ_SUDO_PASS" ] || return 1
+)" || { _ncz_secret_end; return 1; }
+    [ -n "$NCZ_SUDO_PASS" ] || { _ncz_secret_end; return 1; }
+    _ncz_secret_end
     return 0
 }
 
@@ -82,15 +105,30 @@ ncz_sudo() {
     fi
     # _ncz_read_sudo_pass populates NCZ_SUDO_PASS; feed THAT to sudo -S (a
     # separate local alias was never assigned here -- review caught it).
+    # xtrace must stay off across the feed line too (see _ncz_secret_begin).
+    _ncz_secret_begin
     printf '%s\n' "$NCZ_SUDO_PASS" | sudo -S -p '' -- "$@"
     local rc=$?
     unset NCZ_SUDO_PASS
+    _ncz_secret_end
     return $rc
 }
 
 # Run a whole command STRING as root (for callers that build a shell line).
 ncz_sudo_bash() {
     local line="$1"; shift
+    # Same hand-back as ncz_container_run(): this helper runs the command as root
+    # and its output lands in the clone and the run dir.  The trap must be
+    # installed in the CALLER's shell so it fires at the END OF THE STAGE (the
+    # stage body runs in a subshell), not at build exit -- otherwise the
+    # per-stage ownership post-check sees the root-owned files and fails the
+    # build after all the work (measured cycle 502: the layers stage left
+    # 134,821 root-owned paths and aborted itself).
+    if [ -n "${NCZ_CHOWN_BACK_PATHS:-}" ]; then
+        local -a _cbp=()
+        IFS=':' read -r -a _cbp <<< "$NCZ_CHOWN_BACK_PATHS"
+        [ "${#_cbp[@]}" -gt 0 ] && ncz_trap_chown_back "${_cbp[@]}"
+    fi
     ncz_sudo bash -c "$line" "$@"
 }
 
@@ -125,13 +163,31 @@ ncz_chown_target() {
 # never reads a gate verdict.  NCZ_CHOWN_BACK_FORCE=1 lets the regression test
 # drive it as a normal user (with a stub chown); it only affects cleanup.
 ncz_chown_back() {
-    if [ "${NCZ_CHOWN_BACK_FORCE:-0}" != "1" ] && [ "$(id -u)" != "0" ]; then return 0; fi
     local target; target="$(ncz_chown_target)" || return 0
     [ -n "$target" ] || return 0
     local d
     for d in "$@"; do
         [ -e "$d" ] || continue
-        chown -R "$target" "$d" 2>/dev/null || true
+        if [ "$(id -u)" = "0" ] || [ "${NCZ_CHOWN_BACK_FORCE:-0}" = "1" ]; then
+            chown -R "$target" "$d" 2>/dev/null || true
+        else
+            # ...and only pay for the privileged walk when the tree really holds
+            # root-owned entries.  This trap fires once per stage, so a blind
+            # sudo chown -R over a whole clone would cost seconds every time.
+            # The PROBE must be privileged as well: an unprivileged find cannot
+            # descend into a directory the container made root-only, so it would
+            # report "nothing to chown" exactly in the case that matters (review,
+            # cycle 501).
+            ncz_sudo find "$d" -user root -print -quit 2>/dev/null | grep -q . || continue
+            # The EXIT trap runs in the INVOKING user's shell, not in the root
+            # container.  This branch used to not exist -- a non-root caller
+            # returned early, so the host-side trap silently did nothing and every
+            # container stage left its output uid 0 (measured: 1730 paths under
+            # build/forky-mirror, cycle 500, which then failed the stage's own
+            # post-check).  ncz_sudo handles passwordless sudo and the master key;
+            # cleanup never fails the caller and never reads a gate verdict.
+            ncz_sudo chown -R "$target" "$d" >/dev/null 2>&1 || true
+        fi
     done
     return 0
 }

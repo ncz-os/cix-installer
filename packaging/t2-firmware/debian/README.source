@@ -1,0 +1,48 @@
+apple-firmware-script for Debian
+===============================
+
+This package repackages the upstream t2linux firmware helper
+(`docs/tools/firmware.sh` from https://github.com/t2linux/wiki) for Debian.
+
+The pristine upstream source is shipped as documentation at
+`/usr/share/doc/apple-firmware-script/upstream-firmware.sh` (also present in
+the source tree as `upstream/firmware.sh`). The installed helper
+`/usr/libexec/get-apple-firmware` is a minimal, reviewed patch of that
+source; the patch is limited to (a) pinning the runtime-downloaded helper
+code to an immutable commit and (b) verifying its SHA-256 before execution.
+A `/usr/bin/get-apple-firmware` symlink is provided.
+
+Upstream source pin
+-------------------
+commit `c16ca396f638727f943d577a24dcc0d7e5f0cdd8`, path `docs/tools/firmware.sh`,
+sha256 `c1c1d8aa25bb5f089e46ccd0d9738fc13bfbd784f499aa924466c690f059961e`
+(31831 bytes).
+
+The script carries an in-file MIT grant (lines 3-24) and a nested Python
+`SPDX-License-Identifier: MIT` tag. The embedded Python archive renamer is
+derived from acidanthera/OpenCorePkg's `macrecovery` (BSD-3-Clause); both
+grants are reproduced in `debian/copyright`. See `SOURCE-MANIFEST.md` in the
+installed documentation directory for the full provenance and rights audit,
+including the pinned identity of the nested code asset that the optional
+`get_from_online` path fetches at run time.
+
+Runtime-downloaded code
+-----------------------
+The optional `get_from_online` path downloads helper code at run time. The
+installed helper pins that fetch to an immutable commit and verifies the
+SHA-256 of the downloaded bytes before executing them; a mismatch aborts
+without execution. The downloaded code is NOT bundled in this package and
+its license is NOT asserted by this package; see `SOURCE-MANIFEST.md`.
+
+Version rationale
+-----------------
+The upstream source bytes differ from the previously shipped vendor payload
+(`apple-firmware-script` 1.4-3). Because this package ships new upstream
+bytes, it uses a distinct date-based version (`20261015+ncz1`) rather than
+reusing `1.4-3`.
+
+Testing
+-------
+Offline, non-hardware tests live in `tests/` and run at build time via
+`debian/rules`. They never download Apple firmware, mount images, or touch
+live devices. They exercise only extracted functions with mocked commands.

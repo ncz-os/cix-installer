@@ -1,0 +1,7 @@
+# t=47s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] Magnetar Server - Step 2 of 7: Choose a user name ├─┐
+  │ This is the only account on the installed system.                   │
+  │ NCZ-OS 26.10 Magnetar Server | arm64 (Sky1) | build abc1234         │
+  └────────────────────────────────────────────────────────────────────┘

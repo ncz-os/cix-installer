@@ -1,0 +1,147 @@
+From: Jason Perlow <jperlow@gmail.com>
+Subject: [PATCH] kernel-open: build against Linux 7.4 (vma flag helpers, drm fbdev helper header)
+
+Linux 7.4 removed three things the NVIDIA open kernel modules use, and
+nvidia-kernel-open-dkms 620.70.06 fails to build:
+
+  nvidia-uvm/uvm_hmm.c: error: 'VM_SPECIAL' undeclared
+  nvidia-uvm/uvm_hmm.c: error: implicit declaration of function
+      'is_vm_hugetlb_page'
+  nvidia-drm/nvidia-drm-drv.c: fatal error: drm/drm_fb_helper.h: No such
+      file or directory
+
+* The legacy vm_flags_t masks (VM_SPECIAL) and is_vm_hugetlb_page() are gone.
+  A vma is now tested with vma_test_any(vma, VMA_IO_BIT, ...) and
+  vma_is_hugetlb(vma). The two helpers did not arrive together:
+  vma_test_any() already exists in 7.3.x, vma_is_hugetlb() only in 7.4. Add a
+  separate conftest probe for each and use whichever the kernel has. (NVIDIA's
+  "functions" probes are inverted: the snippet must fail to compile when the
+  function exists, so vma_is_hugetlb() is probed with a wrong-arity call.)
+* The fbdev helper declarations moved from drm/drm_fb_helper.h to
+  drm/clients/drm_fbdev_helper.h. Add the header to the presence tests and
+  include whichever exists.
+
+Applied by NCZ-OS ncz-cuda-setup (via /etc/dkms/nvidia-<version>.conf) to any
+NVIDIA open kernel-module source that lacks the fix (fixed-upstream marker) and
+to which it applies exactly (fuzz 0). With 620.70.06 it builds nvidia,
+nvidia-modeset, nvidia-drm, nvidia-uvm and nvidia-peermem against both the
+7.4.0-rc3 and the 7.3.4 kernel headers.
+615.71.x additionally needs a DRM atomic reset API port in nvidia-drm-crtc.c
+and is not covered by this set.
+---
+diff --git a/kernel-open/conftest.sh b/kernel-open/conftest.sh
+index 3996afc..64647e5 100755
+--- a/kernel-open/conftest.sh
++++ b/kernel-open/conftest.sh
+@@ -499,6 +499,39 @@ check_for_ib_peer_memory_symbols() {
+ 
+ compile_test() {
+     case "$1" in
++        vma_is_hugetlb)
++            #
++            # Determine if the vma_is_hugetlb() function is present.
++            #
++            # Linux 7.4 replaced is_vm_hugetlb_page() with vma_is_hugetlb().
++            #
++            CODE="
++            #include <linux/mm.h>
++            void conftest_vma_is_hugetlb(void) {
++                vma_is_hugetlb();
++            }"
++
++            compile_check_conftest "$CODE" "NV_VMA_IS_HUGETLB_PRESENT" "" "functions"
++        ;;
++
++        vma_flags_all_vma_test_any)
++            #
++            # Determine if the vma flag test helper vma_test_any() is present.
++            #
++            # It exists since the vma flags became a bitmap (before 7.4) and
++            # 7.4 removed the legacy vm_flags_t masks (VM_SPECIAL, ...), so a
++            # vma is tested with vma_test_any(vma, VMA_IO_BIT, ...).
++            #
++            CODE="
++            #include <linux/types.h>
++            #include <linux/mm.h>
++            void conftest_vma_flags_all_vma_test_any(struct vm_area_struct *vma) {
++                vma_test_any(vma, VMA_IO_BIT, VMA_PFNMAP_BIT);
++            }"
++
++            compile_check_conftest "$CODE" "NV_VMA_FLAGS_ALL_VMA_TEST_ANY" "" "types"
++        ;;
++
+         set_memory_uc)
+             #
+             # Determine if the set_memory_uc() function is present.
+diff --git a/kernel-open/header-presence-tests.mk b/kernel-open/header-presence-tests.mk
+index a1a0e63..546336d 100644
+--- a/kernel-open/header-presence-tests.mk
++++ b/kernel-open/header-presence-tests.mk
+@@ -14,6 +14,7 @@ NV_HEADER_PRESENCE_TESTS = \
+   drm/drm_client_setup.h \
+   drm/drm_probe_helper.h \
+   drm/clients/drm_client_setup.h \
++  drm/clients/drm_fbdev_helper.h \
+   dt-bindings/interconnect/tegra_icc_id.h \
+   generated/autoconf.h \
+   generated/compile.h \
+diff --git a/kernel-open/nvidia/nvidia.Kbuild b/kernel-open/nvidia/nvidia.Kbuild
+index e1e33a5..8865be3 100644
+--- a/kernel-open/nvidia/nvidia.Kbuild
++++ b/kernel-open/nvidia/nvidia.Kbuild
+@@ -188,6 +188,7 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += mm_pasid_drop
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += iommu_sva_bind_device_has_drvdata_arg
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += shrinker_alloc
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += vma_flags_set_word
++NV_CONFTEST_FUNCTION_COMPILE_TESTS += vma_is_hugetlb
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += vm_flags_set
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += get_dev_pagemap_has_pgmap_arg
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += iommu_is_dma_domain
+@@ -273,6 +274,7 @@ NV_CONFTEST_TYPE_COMPILE_TESTS += register_shrinker_has_format_arg
+ NV_CONFTEST_TYPE_COMPILE_TESTS += nr_kernel_misc_reclaimable
+ NV_CONFTEST_TYPE_COMPILE_TESTS += pci_resize_resource_has_exclude_bars_arg
+ NV_CONFTEST_TYPE_COMPILE_TESTS += dmem_cgrp_id
++NV_CONFTEST_TYPE_COMPILE_TESTS += vma_flags_all_vma_test_any
+ NV_CONFTEST_TYPE_COMPILE_TESTS += dmem_cgroup_register_region_has_init_arg
+ NV_CONFTEST_TYPE_COMPILE_TESTS += misc_cgrp_id
+ NV_CONFTEST_TYPE_COMPILE_TESTS += is_vma_write_locked_has_mm_lock_seq_arg
+diff --git a/kernel-open/nvidia-drm/nvidia-drm-drv.c b/kernel-open/nvidia-drm/nvidia-drm-drv.c
+index de784e2..486731e 100644
+--- a/kernel-open/nvidia-drm/nvidia-drm-drv.c
++++ b/kernel-open/nvidia-drm/nvidia-drm-drv.c
+@@ -64,8 +64,12 @@
+ #endif
+ 
+ #if defined(NV_DRM_FBDEV_AVAILABLE)
++#if defined(NV_DRM_CLIENTS_DRM_FBDEV_HELPER_H_PRESENT)
++#include <drm/clients/drm_fbdev_helper.h>
++#else
+ #include <drm/drm_fb_helper.h>
+ #endif
++#endif
+ 
+ #if defined(NV_DRM_DRM_CLIENT_SETUP_H_PRESENT)
+ #include <drm/drm_client_setup.h>
+diff --git a/kernel-open/nvidia-uvm/uvm_hmm.c b/kernel-open/nvidia-uvm/uvm_hmm.c
+index 6f38ef4..d11e837 100644
+--- a/kernel-open/nvidia-uvm/uvm_hmm.c
++++ b/kernel-open/nvidia-uvm/uvm_hmm.c
+@@ -4040,9 +4040,18 @@ bool uvm_hmm_must_use_sysmem(uvm_va_block_t *va_block,
+     // TODO: Bug 3660968: add support for file-backed migrations.
+     // TODO: Bug 3368756: add support for transparent huge page migrations.
+     return !vma_is_anonymous(vma) ||
++#if defined(NV_VMA_FLAGS_ALL_VMA_TEST_ANY)
++           vma_test_any(vma, VMA_IO_BIT, VMA_DONTEXPAND_BIT,
++                        VMA_PFNMAP_BIT, VMA_MIXEDMAP_BIT) ||
++#else
+            (vma->vm_flags & VM_SPECIAL) ||
++#endif
+            vma_is_dax(vma) ||
++#if defined(NV_VMA_IS_HUGETLB_PRESENT)
++           vma_is_hugetlb(vma);
++#else
+            is_vm_hugetlb_page(vma);
++#endif
+ }
+ 
+ static NV_STATUS hmm_ats_pte_snapshot_locked(uvm_va_block_t *va_block,

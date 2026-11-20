@@ -106,6 +106,19 @@ mkdir -p "$CHROOT" "$(dirname "$OUT")"
 echo "[mgmt-rootfs] debootstrap $SUITE..."
 DEBOOTSTRAP_ARGS=(--arch="$ARCH" --variant=minbase --include=ca-certificates,apt-utils)
 DEBOOTSTRAP_ARGS+=(--keyring "$DEBOOTSTRAP_KEYRING")
+# Optional persistent .deb cache.  debootstrap never retries a package it
+# failed to fetch, so against a flaky mirror (snapshot.debian.org answers
+# 503/504 on pool objects while its index listing still works) every retry
+# restarts from zero and can never converge.  With a cache directory the
+# retries are monotonic: each run keeps what it downloaded and only the
+# missing packages are fetched again.  Off by default, so the default build
+# path is byte-for-byte unchanged.  debootstrap verifies every cached .deb
+# against the signed Packages index, so a corrupt entry is rejected, never
+# trusted.
+if [ -n "${NCZ_DEBOOTSTRAP_CACHE:-}" ]; then
+    mkdir -p "$NCZ_DEBOOTSTRAP_CACHE"
+    DEBOOTSTRAP_ARGS+=(--cache-dir "$NCZ_DEBOOTSTRAP_CACHE")
+fi
 debootstrap "${DEBOOTSTRAP_ARGS[@]}" "$SUITE" "$CHROOT" "$MIRROR"
 
 # debootstrap writes its own sources.list with no deb options. A pinned
@@ -130,6 +143,36 @@ cleanup() {
     done
 }
 trap cleanup EXIT
+
+# Stage 2 fetches with apt, which keeps its own archive cache - the stage-1
+# debootstrap cache does not help it, so it refetches the same packages and fails
+# when the mirror is degraded. Seed the chroot archive directory from that cache.
+#
+# TRUST CHAIN, measured rather than assumed (2026-11-06): apt does NOT re-hash a
+# .deb that is already in /var/cache/apt/archives. Planting a one-byte-corrupted
+# hostname_3.25_amd64.deb there and running apt-get install --reinstall handed it
+# straight to dpkg ("lzma compression failure"), with no hash-mismatch and no
+# re-fetch. So the safety of this shortcut rests entirely on the files in
+# NCZ_DEBOOTSTRAP_CACHE having been verified when debootstrap fetched them from the
+# pinned snapshot - which it does - and on nobody being able to write that cache
+# afterwards. The cache is therefore kept root-owned and mode 0700.
+if [ -n "${NCZ_DEBOOTSTRAP_CACHE:-}" ] && [ -d "$NCZ_DEBOOTSTRAP_CACHE" ]; then
+    mkdir -p "$CHROOT/var/cache/apt/archives/partial"
+    # The cache must be root-owned and mode 0700 *before* the copy, because the
+    # comment above is only true if nobody can write it. A silent failure here would
+    # leave the shortcut running with none of its stated protection, so it stops the
+    # build instead.
+    chmod 700 "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null || true
+    if [ "$(stat -c %u "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null)" != "0" ] || \
+       [ "$(stat -c %a "$NCZ_DEBOOTSTRAP_CACHE" 2>/dev/null)" != "700" ]; then
+        echo "[mgmt-rootfs] FATAL: $NCZ_DEBOOTSTRAP_CACHE is not root-owned 0700;" >&2
+        echo "  apt does not re-hash cached archives (measured 2026-11-06), so an" >&2
+        echo "  unprotected cache is an unverified package path. Refusing to seed." >&2
+        exit 1
+    fi
+    cp -n "$NCZ_DEBOOTSTRAP_CACHE"/*.deb "$CHROOT/var/cache/apt/archives/" 2>/dev/null || true
+    echo "[mgmt-rootfs] seeded $(ls -1 "$CHROOT/var/cache/apt/archives/"*.deb 2>/dev/null | wc -l) cached .deb into the chroot archive dir"
+fi
 
 # Surface apt-get update failures (E:/W: lines) instead of letting a later
 # install hide an expired snapshot Release behind a bare non-zero exit.

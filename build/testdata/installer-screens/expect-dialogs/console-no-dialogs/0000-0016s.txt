@@ -1,0 +1,23 @@
+# t=16s
+
+
+
+
+
+
+
+
+=== NCZ CONSOLE DIAG ===
+-- /proc/consoles:
+tty0                 -WU (EC  p  )    4:1
+ttyAMA0              -W- (E  Np a)  204:64
+-- /sys/class/tty/console/active: ttyAMA0 tty0
+-- /dev/tty1 exists: yes
+-- /proc/fb: 0 EFI VGA;
+-- cmdline consoles: 1
+-- reopen-console decisions:
+-- inittab d-i entries:
+# busybox init configuration for debian-installer
+::sysinit:/sbin/reopen-console /sbin/debian-installer-startup
+ttyAMA0::respawn:/sbin/debian-installer
+=== END CONSOLE DIAG ===

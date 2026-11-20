@@ -111,7 +111,8 @@ echo "[26] libOpenCL.so.1 -> $(ldconfig -p 2>/dev/null | awk '/libOpenCL.so.1 /{
 # --- system-wide Mali EGL vendor (never-software-render) ---------------------------------------------------
 # glvnd's default search path has only Mesa; without this entry any process that does not inherit the compositor's
 # __EGL_VENDOR_LIBRARY_FILENAMES (ssh, cron, systemd --user, D-Bus activation, portals) renders with llvmpipe on a
-# Mali board. The shipped default is Mali; ncz-gpu-switcher removes the entry on a Panthor boot.
+# Mali board. The shipped default is Mali; ncz-gpu-switcher removes the entry on a Panthor boot
+# (historical: the Panthor boot entry was removed by operator order 2026-11-16, "No panthor Mali only").
 if [ -r /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json ]; then
     mkdir -p /etc/glvnd/egl_vendor.d
     ln -sfn /opt/cixgpu-compat/share/glvnd/egl_vendor.d/40_cix.json /etc/glvnd/egl_vendor.d/10_cix.json

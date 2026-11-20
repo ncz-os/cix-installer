@@ -1,5 +1,9 @@
 # path	class	feature	reason
 # class: common|sky1|amd64|mixed.  feature: - or comma list of t2,nvidia-cuda.  A path ending in / is a directory prefix; the longest matching row wins.
+# 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
+# theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
+# palette/terminal palettes/tokens.tsv). All platform-neutral; no sky1/cixmini/t2/nvidia
+# tokens inside.
 .gitignore	common	-	repo config
 .gitlab-ci.yml	common	-	CI
 LICENSE	common	-	license
@@ -8,8 +12,20 @@ README.md	common	-	readme
 README.zh-CN.md	common	-	readme
 assets/agent-images/	common	-	agent OCI image staging notes
 assets/agent-stack/	common	-	quadlet container definitions
+build/lib/installer-network-inputs.sh	common	-	pinned fetch of the installer image network inputs (M9 step 2, docs/BUILD-STABILITY.md)
+build/test-about-logo-mark.sh	common	-	MINOR-006: proves the square Cygnus mark (tokens, sizes, reproducible from make-cygnus-mark.py) is installed by 55-greeter.sh into the sized hicolor dirs under the LOGO name and never as scalable (greeter wordmark kept), and that shell patch 0025 is queued
+build/test-build-image-dev-bind.sh	common	-	NG-NC-03: the host /dev must not leak into package-installing container stages
+build/test-console-saver-single-owner.sh	common	-	exactly one install step may write ncz-console-saver.service (2026-11-14 hook-48/61 ordering-cycle guard)
+build/test-gpu-switcher-compat-guard.sh	sky1	-	regression guard for ncz-gpu-switcher: the switcher must never enable/disable 01-cixgpu-compat.conf (runs the real switcher in a stubbed sandbox; fails if the userspace_mali re-enable of the Mesa-24/26 collision stack returns)
+build/test-installer-image-network-pin.sh	common	-	M9 step 2: the installer image fetches its d-i network inputs pinned and cached
+build/test-mali-only-image.sh	common	-	one GPU driver (vendor Mali) on desktop and server, no Panthor boot option (operator 2026-11-14)
+build/test-no-panthor-boot.sh	common	-	Mali-only boot menu: no Panthor entry, any-case Panthor default discarded (operator 2026-11-16)
+build/test-sky1-mali-only-74.sh	common	-	sky1 7.4 line: Mali-only kernel pin, no 7.3.x rows, Panthor entry removed at the source (operator 2026-11-16)
+build/test-priv-xtrace.sh	common	-	the sudo password must never reach an xtrace log
 build/test-publish-release-gitlab.sh	common	-	mocked-curl regression test for tools/publish-release-gitlab.sh (dry run, per-architecture packages and link folders, sha256 verification, layout refusals, idempotent re-run, stable link paths, per-package retention, token handling)
 build/test-release-parity.sh	common	-	mocked GitHub+GitLab regression test for tools/check-release-parity.sh, tools/sync-release-pages.sh and tools/check-release-links.sh (parity diffs, release layout and group order, one release page per forge, gates, retirement, stable links, join script, token handling)
+build/test-stage-release.sh	common	-	regression test for tools/stage-release.sh (staging layout, part sizes, checksum files, refusal of partial or mismatched inputs)
+build/test-public-binaries-manifest.sh	common	-	checks manifests/public-binaries.tsv: every listed binary exists with its recorded size and sha256, none is 100 MiB or larger, each has a licence and a source
 build/test-ncz-cli-basics.sh	common	-	shell-level test for the embedded ncz CLI (parses, help, exit codes, status on non-systemd hosts)
 build/test-ncz-cli-embedder.sh	common	-	embedder/model-pull/status wiring for ncz install mnemos (HuggingFace sha256, SQLite backfill, status labels)
 build/test-ncz-cli-install-zoder.sh	common	-	ncz install zoder guards (arch dispatch, pinned sha256, smoke test, offline diagnostic, public-safe config template)
@@ -21,10 +37,6 @@ assets/audio/	sky1	-	Sky1 audio autoswitch (ncz-sky1-audio-autoswitch)
 assets/branding/	common	-	logos, icon theme, wallpapers, quotes
 assets/branding/tour-slides/85-ncz-chromium-vpu.slide	sky1	-	NCZ Chromium VPU tour slide; installed only on arm64/Sky1 (the platform that ships chromium-ncz-sky1); gated in post-install/51-ncz-tour-slides.sh
 assets/branding/singularity-theme/	common	-	installable Cygnus Singularity theme + generated gschema override (staged by both ISO build paths)
-# 2026-09-30: Cygnus 26.10 branding tree (merged from feat/cygnus-26-10-2026-09-30) --
-# theme assets + generators + generated consumer files (gtk/plymouth/newt/css/screensaver
-# palette/terminal palettes/tokens.tsv). All platform-neutral; no sky1/cixmini/t2/nvidia
-# tokens inside.
 branding/cygnus/	common	-	Cygnus 26.10 branding tree (theme assets + generators + generated consumer files)
 branding/cygnus/generated/singularity/99-ncz-cygnus.gschema.override	common	-	generated Cygnus accent/theme gschema block consumed by 20-desktop.sh
 branding/cygnus/tests/test_cygnus_singularity.py	common	-	Cygnus Singularity theme/accent integration gate
@@ -33,9 +45,10 @@ assets/cix-deb-repo.gpg	sky1	-	CIX vendor apt repo key
 assets/cix-debs/	sky1	-	CIX closed-source userspace debs
 assets/cix-mm/	sky1	-	CIX multimedia bundle
 assets/cix-py/	sky1	-	CIX NPU python glue
-assets/dev/	common	-	developer/diag helpers (disabled hook, art generator)
+assets/dev/	common	-	developer/diag helpers (disabled hook)
 assets/diag/busybox-amd64	amd64	-	static busybox for failsafe console (x86_64)
 assets/diag/busybox-arm64	sky1	-	static busybox for failsafe console (aarch64)
+manifests/di-build-markers.tsv	common	-	the d-i build-marker records (debian-installer cdrom-<variant>-<stamp>) the substrate provenance scan accepts by identity only, each tied to the base.pin substrate sha256
 manifests/diag-busybox.tsv	common	-	origin pin (Debian forky busybox-static deb + binary sha256) of assets/diag/busybox-<arch>
 build/stage-diag-busybox.sh	common	-	check / fetch / repin the diag busybox from the pinned Debian snapshot (sha256 + provenance-verified)
 assets/docs/	common	-	on-image documentation
@@ -58,7 +71,7 @@ assets/kernel/sky1-manifest.json	sky1	-	Sky1 r286 7.3 default kernel artifact ma
 assets/kernel/t2gmux/	amd64	t2	T2 gmux DKMS source
 assets/kernel/t2gmux/patches/	amd64	t2	local hardening patches applied by DKMS (t2gmux G2/G3/G4)
 assets/kernel/t2smc/	amd64	t2	T2 SMC DKMS source
-assets/kernel/t2smc/patches/	amd64	t2	local hardening patches applied by DKMS (t2smc S1-S4/S8 + range rework)
+assets/kernel/t2smc/patches/	amd64	t2	local hardening patches applied by DKMS (t2smc range rework + cache-init + telemetry; the temp-discovery and charge-limit fixes are upstream since 8c7f725)
 assets/kernel/t2smc/tests/	amd64	t2	userspace unit tests for the t2smc validators
 assets/kernel/t2smp/	amd64	t2	T2 SMP DKMS source
 assets/kernel/t2smp/patches/	amd64	t2	local hardening patches applied by DKMS (t2smp M1)
@@ -75,7 +88,7 @@ assets/refind/ncz-refind-refresh.sh	sky1	-	rEFInd refresh for Sky1 kernels (Imag
 assets/refind/refind_aa64.efi	sky1	-	rEFInd arm64 binary
 assets/refind/refind_x64.efi	amd64	-	rEFInd x86_64 binary
 assets/refind/zz1-ncz-refind-refresh-amd64	amd64	-	kernel postinst hook for amd64 rEFInd refresh
-assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection helper (ncz_is_t2_hardware / ncz_t2_pci_bridge_present / ncz_t2_detect_detail); sourced by the amd64 rEFInd refresh (gates the rescue blacklist; pcie_ports=compat removed 2026-10-06) and by post-install/56-t2-dkms.sh; single source of truth for the T2 model list
+assets/refind/ncz-t2-detect.sh	amd64	t2	DMI-based Apple T2 detection helper (ncz_is_t2_hardware / ncz_t2_pci_bridge_present / ncz_t2_detect_detail); sourced by the amd64 rEFInd refresh (gates the rescue blacklist; pcie_ports=compat removed 2026-10-06) and by post-install/56-t2-dkms.sh; single source of truth for the T2 model list; also carries the table-driven per-laptop DMI quirk helper (ncz_dmi_quirk_matches; today pcie_ports=native on the ASUS ROG Zephyrus M15 GU502LV), same NCZ_DMI_ROOT override and fail-closed rule
 assets/rescue/	common	-	rescue notes
 assets/singularity/	common	-	Singularity patch series
 assets/sinty-nm/	common	-	sinty-nm service files
@@ -85,6 +98,8 @@ assets/ssh-udebs/arm64/	sky1	-	arm64 d-i ssh udebs
 assets/update-manager/	common	-	update manager
 assets/wallpaper/	common	-	wallpaper tooling
 build/70-bootloader.sh	sky1	-	legacy Sky1 bootloader copy with MS-R1 efi=noruntime gating
+build/analyze-build-log.py	common	-	build-log failure classifier (chunked, OpenAI-style chat model, strict JSON per chunk)
+build/check-sky1-scmi-boot-gate.sh	sky1	-	kernel-side SCMI boot gate: journal must show SCMI activation + clk-sky1-acpi Mapped, zero 'mailbox not free' (ORCHESTRATOR 2026-11-11 16:00Z)
 build/arch-parity-allowlist.tsv	common	-	reviewed manifest divergence between platforms (canonical, dual-arch parity)
 build/boot-timeline.py	common	-	boot log timeline analysis
 build/boot-speed-scan.py	common	-	static detector for boot-blocking systemd oneshots (boot-speed item F)
@@ -111,9 +126,14 @@ build/build-squashfs-layers.sh	common	-	shared layer builder; per-arch branches 
 build/build-usb-recovery-deb.sh	sky1	-	ncz-usb-recovery deb (Architecture: arm64) for the Sky1 USB2 bug; never published to amd64 mirrors
 build/build-vendor-mirror.sh	common	-	vendor mirror index regeneration
 build/build-wallpaper-contrib-deb.sh	common	-	wallpaper pack debs
-build/check-early-command-size.sh	common	-	preseed size gate
+build/check-early-command-initrd.sh	common	-	runs the real d-i loader chain (debconf-set-selections, db_get, the initrd's sh -n) from an unpacked netinst initrd against preseed.cfg; root + native arch, else SKIP
+build/check-early-command-size.sh	common	-	preseed/early_command loader-shape gate: size budget, comments or backslashes inside the value, sh -n parse, set +e / trailing true (cdebconf lookup_directive hazard)
+build/check-release-identity-gate.sh	common	-	MINOR-001 build-time gate: generated RELEASE/os-release/issue strings in a staged medium or baked rootfs carry no retired codename, a non-empty product label and a variant label matching BUILD_VARIANT (runs for both variants in write-usb-image.py and build-baked-rootfs.sh)
 build/check-extract-rootfs-consistency.sh	common	-	extract-rootfs consistency gate
+build/check-default-kernel.sh	common	-	7.3.3 default-kernel gate: boot evidence must name the 7.3.3 default from assets/kernel/default-kernel.json or the build fails (2026-11-12 01:35Z order)
+build/test-default-kernel-gate.sh	common	-	proves check-default-kernel.sh fires on a wrong default and passes on the 7.3.3 record (red-then-green)
 build/check-kernel-deb-pin.sh	sky1	-	pins Sky1 kernel debs to the mainline KVER
+build/check-pin-coherence.sh	common	-	M3 static check: base.pin/release.conf/forky-snapshot/determinism snapshot agree, sid-exceptions and rootfs rows at the pin, Sky1 kernel revision == kernel-manifest.json == ledger, tracked assets/ debs have ledger rows
 build/singularity-pins.sh	common	-	Singularity upstream pin reader: validate, pinned clone/checkout, patch-queue check against pins
 build/stage-accel-overlays.sh	sky1	-	builds and stages the mali/panthor/vpu/npu overlays for a kernel; fails on compile error or CRC/source mismatch
 build/test-singularity-pins.sh	common	-	offline test for the Singularity upstream pins and their build/preflight wiring
@@ -138,7 +158,6 @@ build/first-boot-failed-allowlist.txt	common	-	KVM gate first-boot allowlist
 build/gen-components-registry.py	common	-	deterministic generator for manifests/components.tsv (manifests + NCZ_LOCAL_DEBS + KERNEL-POLICY + sky1/amd64 manifests + t2 dkms.conf; edge channel retired)
 build/gen-branding-assets.py	common	-	branding art generator
 build/gen-hooks-lists.sh	common	-	generates post-install/hooks.list.<platform> from the inventory
-build/gen-maximilian-art.py	common	-	procedural art generator
 build/google-chrome-apt-keyring.asc	common	-	Google apt key
 build/hook-arch-allowlist.tsv	common	-	hooks exempt from the heuristic arch-gate lint
 build/interactive-install.py	common	-	interactive d-i QEMU driver
@@ -153,7 +172,12 @@ build/iso/tests/prove-arm64-stage2-fixes.py	sky1	-	arm64 stage-2 proof
 build/iso/write-usb-image.py	common	-	USB image writer
 build/kernel-manifest.py	sky1	-	Sky1 accelerator module overlay manifest
 build/kernel-port-watch.sh	sky1	-	Sky1 kernel forward-port watcher
+build/kvm-gate-dead-manifest.sh	common	-	rewrites the pinned URL authorities in a run copy's NCZDATA ncz-fetch-payload.manifest to a refused endpoint (KVM gate negative run; names, sha256s and modes preserved, read-back verified)
+build/test-kvm-gate-dead-manifest.sh	common	-	shell test for kvm-gate-dead-manifest.sh (ext4 round-trip, pins dead-ended, non-URL fields preserved entry-by-entry, a dead pin fails the real fetcher loudly)
 build/kvm-install-gate-gpt.sh	common	-	architecture-generic KVM gate for raw GPT images
+build/kvm-gate-server-lib.sh	common	-	shared payload-server library for the KVM gate (local and online fetch)
+build/kvm-install-gate-matrix.sh	common	-	runs the KVM gate once per install-option set (rescue partition / management container / desktop off)
+build/kvm-installer-probe.sh	common	-	samples the running installer over its diagnostics SSH during the KVM gate (no brltty, console not clamped)
 build/kvm-kernel-gate.sh	sky1	-	Sky1 kernel boot gate
 build/lib/release-identity.sh	common	-	shared release label + ISO volume-id derivation from release.conf
 build/lib/mirror-apt-opts.sh	common	-	sources.list options and apt-get update failure helper for a pinned snapshot mirror
@@ -163,6 +187,14 @@ build/logs/	sky1	-	Sky1 bitbake/KVM resume logs
 build/ncz-logd.sh	common	-	syslog collector
 build/ncz-yocto.sh	sky1	-	Yocto bootstrap for the CIX vendor stack
 build/npu-ssdt-gate.sh	sky1	-	NPU SSDT gate
+build/test-npu-ssdt-delivery.sh	sky1	-	proves the MS-R1 NPU SSDT is actually DELIVERED into the initrd: iasl compile, uncompressed newc early-CPIO layout, DMI gate both directions, idempotency, and that the dracut module / initramfs-tools hook act only on an MS-R1
+manifests/network-inputs.tsv	common	-	pinned installer network-inputs definitions (M9 step 2)
+manifests/public-binaries.tsv	common	-	the binary files this release tree carries (size, sha256, what, licence, source); checked by build/test-public-binaries-manifest.sh
+post-install/lib/npu-ssdt.sh	sky1	-	shared MS-R1 NPU-SSDT decision helper + early-CPIO builder (DMI-gated, same allow-list convention as ncz_efi_rt_workaround)
+assets/dracut/modules.d/91ncz-npu-ssdt/	sky1	-	dracut module that stages the NPU SSDT .aml and builds the uncompressed early CPIO on every initrd rebuild
+assets/initramfs/hooks/ncz-npu-ssdt	sky1	-	initramfs-tools hook: stages kernel/firmware/acpi/ssdt-npucre.aml into the initramfs root
+assets/initramfs/post-update.d/zz-ncz-npu-ssdt	sky1	-	initramfs-tools post-update safety net: re-prepends the early CPIO if a regeneration dropped it
+docs/NPU-SSDT-DELIVERY.md	sky1	-	why the MS-R1 NPU SSDT must come from the initramfs, the delivery mechanism, the board gate, and what is unproven
 build/ops/	common	-	operations and publishing scripts
 build/ota-image-digest.txt	sky1	-	OTA image digest record
 build/pin-forky-snapshot.sh	common	-	snapshot pin bump
@@ -190,8 +222,8 @@ build/stage-canonical-assets.sh	sky1	-	restages CIX-NCZ gitignored blobs (183 ar
 build/stage-kernel.sh	sky1	-	stages a Sky1 kernel
 build/stage-screensaver-plugin.sh	common	-	copies the pinned ncz-screensavers-plugin deb from the project build store into build/ncz-screensavers-out (sha256 + control fields checked); make ssplugin-stage
 build/systemd/	common	-	singularity patch reconcile units
-build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, DKMS compile-failure record and same-inputs back-off, local DKMS patch staging, installed-target fixture, chooser)
-build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (container on a build host, SKIP without podman/docker or headers): stock NVIDIA DKMS source fails against CONFIG_CGROUP_DMEM=y 7.3 headers, the staged assets/nvidia/dkms patch builds all five modules
+build/test-amd64-cuda-gates.sh	amd64	nvidia-cuda	AMD64 dynamic NVIDIA driver + CUDA gate tests (Turing plan, R580 plan, Kepler skip, ncz-cuda-setup simulation, removals refused, status/retry/park/backoff, toolkit resolved from the index, driver fallback ladder and all-fail path, DKMS compile-failure record and same-inputs back-off, content-matched DKMS patches with the real patch, apt hooks, installed-target fixture, chooser)
+build/test-nvidia-dkms-patch-build.sh	amd64	nvidia-cuda	Build-level test (container on a build host, SKIP without podman/docker or headers): stock NVIDIA DKMS source (any version) fails against CONFIG_CGROUP_DMEM=y 7.3 headers, the patches ncz-cuda-setup dkms-stage selects by content build all five modules
 build/test-amd64-dracut-isolation.sh	amd64	-	amd64 base must not stage the Sky1 dracut config (static checks + the real staging loop)
 build/test-amd64-intel-vaapi.sh	amd64	-	amd64 desktop closure ships intel-media-va-driver (Intel VA-API gap, a MacBookPro16,1 UHD 630)
 build/test-amd64-kernel-classifier.sh	amd64	-	amd64 unified-7.3 kernel classifier test
@@ -200,6 +232,7 @@ build/test-amd64-t2-detect.sh	amd64	t2	T2 DMI detection test; the shipped detect
 build/test-arm64-freshness-gate.sh	sky1	-	arm64 unified-7.3 freshness gate test
 build/test-arm64-gates.sh	sky1	-	verify-arm64-inputs test (incl. overlay MODVERSIONS wiring)
 build/test-boot-speed.sh	common	-	regression tests for boot-blocking systemd units
+build/test-kvm-gate-server.sh	common	-	source test for the KVM gate server payload server (local, no QEMU)
 build/test-components.sh	common	-	hermetic fixture test for build/components.py check (pristine passes; injected drifts fail)
 build/test-components-gate.sh	common	-	hermetic fail-before/pass-after for components.py check --gate (phase 2)
 build/test-components-generate.sh	common	-	hermetic fail-before/pass-after for the phase 3 registry generators (seeds, NCZ_LOCAL_DEBS, allowlist)
@@ -217,12 +250,18 @@ build/test-fresh-clone-inputs.sh	common	-	a fresh clone stages every build input
 build/test-gate-chown-back.sh	common	-	the privileged KVM/provenance gates chown their run-dir scratch back to the invoking user on every exit path, preserving the exit status (r203 open items)
 build/test-apt-sources-offline-canary.sh	common	-	24-apt-sources offline live-update canary test
 build/test-dkms-prep-keep-going.sh	sky1	-	79-dkms-prep modules_prepare keep-going test
+build/test-headers-prepare-pristine.sh	sky1	-	modules_prepare on the installed header tree keeps the kernel's Kconfig output byte-for-byte (headers postinst, 79-dkms-prep, 10-our-kernel)
+build/test-kernel-hook-no-downgrade.sh	sky1	-	10-our-kernel installs zstd and its libraries from the pool without downgrading a package the installer already upgraded
 build/test-kernel-deb-pin.sh	sky1	-	Sky1 kernel deb pin test
+build/test-kernel-revision-pin.sh	sky1	-	M7 fixture tests: Sky1 kernel debs pinned by full +rNNN Version and sha256 to kernel-manifest.json; malformed manifest fatal; build-kernel-debs packaging revision
+build/test-pin-coherence.sh	common	-	M3 fixture tests for check-pin-coherence.sh (one negative per rule) plus the real tree against manifests/pin-coherence-known-fail.tsv
 build/test-kernel-default-policy.sh	common	-	fixture tests for verify-kernel-default-policy.sh (positive ship states + every failure path)
 build/test-nouveau-runpm.sh	amd64	-	amd64-only nouveau.runpm=0: installer entries, installed-system rEFInd entries, late.sh modprobe.d (arm64 untouched)
+build/test-install-options.sh	common	-	every install-option combination ends bootable: rescue preflight, rEFInd entries, per-arch bootability, option skips, KVM gate option sets
 build/test-rescue-kernel-channel.sh	common	-	proves 72-rescue-partition.sh stages the arm64 rescue kernel from assets/kernel/mainline, not the retired edge channel
 build/test-kernel-purity-pin.sh	common	-	apt simulation proving the Debian-kernel preferences pin blocks dependencies while NCZ's own kernel still installs
 build/test-kernel-purity-guards.sh	common	-	behavioural test of the rEFInd Debian-kernel guards + static test of the legacy amd64 installer-kernel swap
+build/test-kernel-line-switch-74.sh	common	-	7.4 line-switch guard tests (install/publish/target case blocks accept 7.3+7.4 while DEFAULT_BASE=7.3,7.4)
 build/test-no-debian-kernel.sh	common	-	fixture tests for verify-no-debian-kernel.sh (clean 7.3 trees pass; every Debian-kernel leak and wrong default fails)
 build/test-image-assets.sh	common	-	no SSH public key body, retired key comment, authorized_keys writer, private 192.168 address or rescue static fallback in any image-bound file (planted fixtures prove each rule fires)
 build/test-pipefail-grep.sh	common	-	WRITER | grep -q under pipefail: large-input control (grep -q fails, grep >/dev/null passes) and a scan of build/, build/lib/ and tools/ for the unsafe form
@@ -236,7 +275,9 @@ build/test-gpu-install-progress.sh	common	-	GPU/DKMS install-step feedback: step
 build/test-progress-bar-drive.sh	common	-	late.sh drives finish-install's progress bar at runtime: stub debconf records PROGRESS, cdebconf model asserts forward-only to 100%, GPU weight, flat-stretch creep, text-only fallbacks, no bad number under sh/busybox/bash
 build/test-platform-lint.sh	common	-	unit tests for lint-platform.sh and gen-hooks-lists.sh
 build/test-gitlab-registry-cleanup.sh	common	-	mocked-curl regression test for tools/gitlab-registry-cleanup.sh (dry run, keep newest N, duplicate files, release-linked and unnamed packages kept, manifest before removal, token handling)
-build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set fail)
+build/test-overlay-modversions.sh	sky1	-	fixture tests for verify-overlay-modversions.py (stale CRC, unresolved, no __versions, vermagic, missing set, struct module size fail)
+build/test-module-abi-gate.sh	common	-	verify-module-abi.py, the in-guest ncz-module-abi-probe and their packaging/KVM-gate wiring (struct module size drift, vermagic, loader rejections)
+build/test-reboot-countdown.sh	common	-	installer auto-reboot countdown (preseed/late.sh ncz_reboot_countdown) waits, shows status, can be skipped, never runs unattended
 build/test-release-identity.sh	common	-	release identity/label + Cygnus logo wiring regression test
 build/validate-accelerators.sh	sky1	-	GPU/NPU/VPU binding validation
 build/verify-arm64-inputs.sh	sky1	-	Sky1 input preflight (firmware, cix-debs, rescue, mirror, overlay MODVERSIONS CRCs)
@@ -248,6 +289,7 @@ build/verify-desktop-mirror-seeds.sh	common	-	desktop seed verifier
 build/verify-dkms-modules.sh	sky1	-	DKMS coverage verifier (20 arm64/cix refs)
 build/verify-dual-arch-parity.sh	common	-	dual-arch parity gate: manifests, screensaver debs, hook lint
 build/verify-singularity-depends-seeded.sh	common	-	gate: every ncz-singularity-desktop Depends is in the desktop seed closure on the pinned snapshot
+build/verify-singularity-payload.sh	common	-	offline gate: built payload and settings plugin debs match the manifest, determinism pin, plugin lock and ABI, and every patch queue applies to its pinned upstream commit
 build/verify-firmware-bom.sh	common	-	firmware BOM verifier
 build/verify-installed-target-arm64.sh	sky1	-	installed-target accelerator verifier
 build/verify-installed-target.sh	common	-	shared installed-target verifier for both arches
@@ -255,6 +297,7 @@ build/verify-local-package-versions.sh	common	-	local package version gate
 build/verify-offline-mirror-seeds.sh	common	-	mirror seed verifier
 build/verify-overlays.py	sky1	-	module overlay verifier
 build/verify-overlay-modversions.py	sky1	-	committed Sky1 overlay .ko MODVERSIONS CRCs vs the pinned kernel Module.symvers (assets/kernel/mainline staging)
+build/verify-module-abi.py	common	-	every out-of-tree .ko under lib/modules/<kver>/{updates,extra} must have an in-tree module's struct module size (.gnu.linkonce.this_module) and vermagic
 build/verify-packages.sh	common	-	package seed verifier
 build/verify-udebs.sh	common	-	udeb verifier
 build/yocto-layers.conf	sky1	-	Yocto layer pins for the CIX stack
@@ -262,12 +305,16 @@ build/yocto/	sky1	-	Yocto config templates
 docker/	common	-	host build containers and notes
 docker/Containerfile.yocto	sky1	-	Yocto build container
 docs/	common	-	documentation
+docs/ACCESSIBILITY.md	common	-	braille support: not in the installer, apt install brltty afterwards
 docs/GITHUB-SYNC.md	common	-	how the GitHub copies of the GitLab projects are built and verified
 docs/NCZ-AGENT-STACK.md	common	-	operator guide for ncz install mnemos / zeroclaw / zoder / nemoclaw + models pull (embedder stack on amd64 + Sky1)
 docs/platform-deny-exceptions.tsv	common	-	reviewed exceptions to the deny patterns
 docs/platform-inventory.tsv	common	-	this inventory
+docs/T2-RESUME-EFIVAR-RESYNC.md	common	-	code-level investigation of the efivarfs thaw-time resync ("resyncing variable state" then "removing variable" / "creating variable") that runs after S3 on T2 (a test machine, MacBookPro16,1, 7.3.0-rc7-t2-ncz): which commit introduced it, that removal is a VFS-only dentry operation and cannot write NVRAM, the three distinct efivarfs read/open failure shapes behind the fwupd errors, the on-host protocol that tells a transient firmware view from a real deletion, and the recommended action (none in the image)
 docs/upstream-patches/	sky1	-	chromium v4l2 and cix-vaapi patch series
 kernel-source/	sky1	-	corresponding source of the Sky1 kernel
+manifests/secret-hashes.example.json	common	-	TEMPLATE (no digests) for the shipped-artifact credential gate hash list; the real list lives outside the repository (NCZ_SECRET_HASHES_FILE or ~/.config/ncz/secret-hashes.json) and is never committed
+manifests/secret-scan-allow.tsv	common	-	reviewed PUBLIC token-shape matches (upstream FIPS self-test keys, vendor browser API keys) the shipped-artifact credential gate clears by sha256 of the match; holds no values
 manifests/components.tsv	common	-	component registry (one row per package per install path); generated by build/gen-components-registry.py, audited by build/components.py check
 manifests/desktop-amd64.pkgs	amd64	t2,nvidia-cuda	full amd64 desktop closure (microcode, intel media, T2/GPU conditionals)
 manifests/desktop.pkgs	sky1	-	full arm64/Sky1 desktop closure (chromium-ncz-sky1, ncz-ffmpeg, singularity); phase C: split into common plus delta
@@ -335,7 +382,7 @@ post-install/52-vivaldi.sh	mixed	-	Vivaldi from staged deb; selects arch by BUIL
 post-install/53-chrome.sh	mixed	-	Google Chrome apt wiring; dpkg architecture aware; on arm64 applies lib/sky1-browser-policy.sh (r201); TODO split
 post-install/54-gpu-accel.sh	amd64	nvidia-cuda	AMD64 GPU/accelerator stack (ROCm, CUDA, Intel); guard exits when arch != amd64
 post-install/55-greeter.sh	common	-	greetd plus singularity-greeter; generic
-post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; T2 modprobe.d boot-noise quirks (brcmfmac P2P off, blacklist snd_pcsp and hid_sensor_rotation); guard exits when arch != amd64
+post-install/55-t2-firmware.sh	amd64	t2	Apple T2 WiFi/BT firmware and audio; every-amd64 boot-noise fixes from lib/amd64-boot-noise.sh before the T2 gate; T2 modprobe.d boot-noise quirks (brcmfmac P2P off, blacklist snd_pcsp and hid_sensor_rotation); guard exits when arch != amd64
 post-install/56-icon-theme.sh	common	-	icon theme; generic; also installs the libpeas-plugin fallback icon into hicolor (Plugins page rows)
 post-install/56-t2-dkms.sh	amd64	t2	builds t2smc/t2gmux DKMS on Apple T2 hardware only (DMI gate via ncz_is_t2_hardware); t2smp is dropped (in-kernel 9001 owns CPU offline) and blacklisted; t2thunderbolt is opt-in (NCZ_T2_DKMS_EXTRA) and blacklisted by default; apple_gmux (in-kernel) is blacklisted on T2 hardware only; KVERs come from KVER_LIST_AMD64, never -rc-skipped, never --fallback to /lib/modules or uname -r; -rc kernel trees still build t2smc/t2gmux; missing KVER_LIST on T2 is fatal
 post-install/57-qotd.sh	common	-	quote of the day; generic
@@ -348,6 +395,7 @@ post-install/62-cygnus-screensaver-default.sh	common	-	default screensaver = bla
 post-install/63-ncz-idle-lock-order.sh	common	-	desktop auto-lock ordered AFTER the ncz screensaver: GSETTINGS default override dev.sinty.lockscreen idle-delay = hack-idle-delay + lock-delay (300+60=360), validated before install (2026-10-11)
 post-install/64-ncz-lock-saver-plan.sh	common	-	NCZ lock renderer: one idle/lock/blank owner -- writes /etc/ncz/lock-renderer.env (SINGULARITY_LOCK_RENDERER=/usr/libexec/ncz-screensaver-feed) ONLY when the patched lock (built with -Dlock_framesrc=enabled) and the feed are installed, exports it via /etc/environment.d, and when the lock hosts the saver holds the session lock from the saver start (dev.sinty.lockscreen idle-delay = dev.ncz.screensaver hack-idle-delay, interim 360 override removed), else the hook-63 fallback stands; validated before install (2026-10-11)
 post-install/64-t2-power-cap.sh	amd64	t2	Apple T2 CPU package power cap (MacBookPro16,x): battery PL1=25 W/PL2=35 W + no-turbo + max_perf=50, AC PL1=45 W/PL2=60 W; helper + intel-rapl:0 udev (boot race) + Mains-change (plug/unplug) + systemd-sleep (resume) + thermald ExecStartPre drop-in; /etc/ncz/power-cap.conf override with a performance opt-out; reversible; lock-screen saver thermal cap NCZ_FEED_TEMP_HOT_MC = 100 C, or 2 C under a critical trip at or below 100 C (98 C on MacBookPro16,1) + NCZ_FEED_FPS_WARM=6 in /etc/ncz/lock-renderer.env (post-install/64-t2-power-cap.sh)
+post-install/67-ncz-resume-modeset.sh	amd64	-	after any suspend/hibernate resume re-modeset the INTERNAL panel (eDP/LVDS/DSI) through the compositor: installs the helper + a system-sleep hook (post => systemd-run --no-block --on-active=500ms); all amd64 hardware, not T2-gated; never on arm64/Sky1 (an output off/on cycle wedges the DP AUX engine)
 post-install/65-ncz-titlebar-buttons.sh	common	-	minimize, maximize and close on every window by default: system-wide GSettings default overrides org.gnome.desktop.wm.preferences button-layout=appmenu:minimize,maximize,close (every schema dir carrying that schema) and dev.sinty.desktop legacy-titlebar=true; unowned override files, validated before install, recompiled on upgrade by the glib trigger and the payload postinst
 post-install/70-bootloader.sh	mixed	-	rEFInd on both arches via run_refind_arm64 and run_refind_amd64; TODO split into per-platform bodies
 post-install/72-rescue-partition.sh	mixed	-	rescue partition; arm64 stages assets/kernel/mainline, amd64 copies the installed amd64-stable kernel; TODO split
@@ -355,7 +403,8 @@ post-install/79-dkms-prep.sh	sky1	-	makes Sky1 kernel headers DKMS-usable; insta
 post-install/80-npu.sh	sky1	-	Zhouyi/aipu NPU driver and SSDT; own arch guard
 post-install/81-vpu.sh	sky1	-	amvx VPU module overlay; own arch guard
 post-install/82-mali-gpu.sh	sky1	-	mali_kbase DKMS; own arch guard
-post-install/83-panthor-gpu.sh	sky1	-	panthor DKMS and ncz-gpu-select; own arch guard
+build/test-mali-overlay-abi-guard.sh	sky1	-	82-mali-gpu refuses an overlay whose struct module size differs from the kernel's and force-installs a DKMS build dkms declined to install
+post-install/83-panthor-gpu.sh	sky1	-	panthor DKMS and ncz-gpu-select; own arch guard; ncz-gpu-switcher.service is gated by ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00 so it never runs (or fails) off Sky1 (r287)
 post-install/83-vpu-ffmpeg.sh	sky1	-	cix-ffmpeg VPU build
 post-install/84-vpu-mpv.sh	sky1	-	mpv v4l2m2m-copy on the amvx VPU
 post-install/84-vpu-vaapi.sh	sky1	-	cix VA-API driver detection fix under /usr/lib/aarch64-linux-gnu
@@ -369,7 +418,7 @@ post-install/91-dbus-broker.sh	common	-	dbus-broker; generic
 post-install/92-apparmor-enable.sh	common	-	AppArmor; generic
 post-install/93-zram-swap.sh	common	-	zram swap; generic
 post-install/94-dracut-config.sh	sky1	-	stages 10-ncz-sky1.conf dracut config
-post-install/95-console-font-autosize.sh	common	-	VT font autosize; generic; early-boot unit before the boot splash, skips graphics-mode consoles
+post-install/95-console-font-autosize.sh	common	-	VT font autosize; generic; early-boot unit before the boot splash, skips graphics-mode consoles and a dummy console (deferred fbcon takeover); udev re-runs it on fbcon takeover / fb0 add
 post-install/96-setuid-audit.sh	common	-	setuid audit; generic
 post-install/97-firstboot-report.sh	common	-	first-boot failed-unit report; arch-neutral
 post-install/99-diagnostics.sh	common	-	final diagnostics dump; generic
@@ -383,7 +432,9 @@ post-install/lib/cuda-select.sh	amd64	nvidia-cuda	AMD64 GPU-family -> driver bra
 post-install/lib/firstboot-gpu.sh	common	-	ncz-firstboot package-configure step: live on-screen status for a needed first-boot DKMS build (reuses lib/gpu-progress.sh's monitor), skips builds that already failed with a compiler error at install, final ready/failed line (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/gpu-progress.sh	mixed	-	GPU/DKMS install-step feedback for the d-i screen (named step, live DKMS build status, reserved bar weight); per-platform step profiles keyed on hook name + arch, the monitor itself is platform-neutral (docs/GPU-INSTALL-PROGRESS.md)
 post-install/lib/hw-detect.sh	common	-	shared hardware detection helpers
+post-install/lib/amd64-boot-noise.sh	amd64	-	boot-log fixes for every amd64 host sourced by 55-t2-firmware.sh before its T2/variant gates: snd_pcsp blacklist (ncz-pcspkr.conf) when an installed kernel ships both pcspkr and snd_pcsp; ucsi_ccg blacklist only on operator opt-in UCSI_CCG_BLACKLIST (docs/AMD64-BOOT-NOISE.md)
 post-install/lib/ncz-t2-power-cap	amd64	t2	the T2 CPU package power cap helper copied to /usr/local/sbin by 64-t2-power-cap.sh (apply/restore/status; reads /etc/ncz/power-cap.conf; env-overridable sysfs roots for the fake-tree test)
+post-install/lib/ncz-resume-modeset	amd64	-	the post-resume panel re-modeset helper copied to /usr/local/sbin by 67-ncz-resume-modeset.sh (every wayland socket under /run/user, as its owner; enabled internal outputs only; off, wait, on; flock; always exit 0; env test seams)
 post-install/lib/kernel-purity.sh	common	-	shared Debian-kernel apt preferences pin sourced by both kernel install hooks
 post-install/lib/pci-sysfs.sh	common	-	PCI enumeration from sysfs vendor/device/class (no lspci, no config-space reads) for install-time hooks
 post-install/lib/sky1-kernels.sh	sky1	-	Sky1 kernel list (KVER_NEXT sidecar + *-sky1-ncz module trees) sourced by 80-npu.sh and 81-vpu.sh
@@ -426,21 +477,30 @@ tools/sync-github-mirror.sh	common	-	build and push the filtered GitHub copies o
 build/test-sky1-audio-policy.sh	sky1	-	Sky1 audio default-sink policy fixture tests
 build/testdata/sky1-audio/	sky1	-	fake pactl/aplay/pw-dump/amixer for the Sky1 audio autoswitch daemon-loop tests
 build/test-sky1-media-defaults.sh	sky1	-	Sky1 media defaults: chromium-ncz-sky1 wrapper flags, mpv V4L2 hwdec, audio/media runtime seeds
+build/test-desktop-app-set.sh	common	-	desktop app set: dropped stock GNOME apps seeded nowhere and named by no hook/asset/build script, shared libraries kept, dock pins Singularity apps (Leafs terminal), lib/ncz-default-apps.sh defaults images/PDF/text/folders/fonts/calendars to the Singularity apps
 build/test-sky1-serial-diag.sh	sky1	-	Sky1 installer serial diagnostics (diag-console kmsg mirror/getty/no-iface dump) + ACPI PCIe mode (sky1_pcie_native=off pcie_pnp_en) on arm64 installer entries; amd64 entries pinned unchanged
-build/boot-screens.py	common	-	installer console capture harness (qemu screendump + VT text over the diag telnet)
+build/boot-screens.py	common	-	installer console capture harness (qemu screendump + pyte text of the UART d-i draws on; --serial-console gives amd64 its text channel on the test copy)
 preseed/ncz-ui.sh	common	-	shared d-i dialog look (brand, arch, build id)
+preseed/hw-summary.sh	common	-	installer HARDWARE SUMMARY note dialog (vendor/model, CPU + generation, memory, disks, GPU + screensaver-strength expectation from the existing saver class, accelerators, T2/Thunderbolt); never fails or blocks, silent on ncz_hwsummary=0 and automated installs
+build/test-hw-summary.sh	common	-	HW summary dialog tests: dialog text rendered from fixture /proc + /sys trees for a T2 MacBook, an Arrow Lake NPU desktop, an NVIDIA box and O6N/cixmini; ASCII-only, skip rules, never-fail and registration checks
 build/test-ncz-ui.sh	common	-	ncz-ui.sh tests
+build/test-debconf-choices.sh	common	-	static test: debconf select/multiselect templates keep values in Choices-C and labels in Choices
+build/test-t2-wifi-no-unload.sh	amd64	t2	static test: no installer file (preseed.cfg included) unloads or unbinds brcmfmac, and none unbinds a wireless device through dev/driver/unbind (T2 BCM4364 D3cold)
+build/test-sinty-adopt.sh	common	-	static test: Inter default font, xdg-user-dirs and the 90-ncz-hardening sysctl file
 build/check-installer-screens.py	common	-	console-screen content checker
-build/test-installer-brltty-banner.sh	common	-	installer checks: brltty-udeb generic USB-serial answer, brltty autodetect token on Install/Expert, one-shot boot banner, build id on installer entries
+build/test-installer-brltty-banner.sh	common	-	installer checks: no braille stack (no brltty cmdline token, preseed, manifests; initrd/pool/layer/KVM gates wired), probe judge, one-shot boot banner, build id on installer entries
 build/test-installer-media-lookup.sh	common	-	installer checks: install media from USB drives only, USB-only screen without one, non-USB image disks never a target, d-i GRUB and systemd-boot steps skipped
 build/test-installer-screens.sh	common	-	console-screen checker tests
+build/test-check-installer-screens.sh	common	-	--expect-dialogs contract of the console-screen checker: the empty dialog sequence is checked against the capture's variant (desktop/server/none) instead of being reported as NOT VERIFIED
 build/test-installer-flow.sh	common	-	installer dialog flow tests (choosers once per boot, region template, NIC pick)
 build/test-component-selection.sh	common	-	component answer end to end: nothing-ticked is honoured by the selector re-runs and every consumer; dialog failures stop the install
+build/test-provenance-medium-receipt.sh	common	-	asserts the provenance gate accepts a self-contained (medium) server receipt, refusing one that stages no base.squashfs
+build/test-magnetar-medium-receipt.sh	common	-	asserts the magnetar receipt check accepts a self-contained (medium) server receipt whose success line must not assume an online payload_name
+build/test-magnetar-server-accel.sh	common	-	SCOPE-002: server variant opts in to every accelerator on detected hardware when the COMPONENTS record omits it, desktop stays byte-for-byte unchanged; rEFInd server menu is Console + Rescue Partition only
 post-install/98-gpu-health.sh	common	-	never-software-render health check unit (both architectures)
 assets/gpu/ncz-gpu-hw-present	common	-	shared hardware-GPU-present probe
 build/lint-no-software-render.sh	common	-	grep-deny for software-rendering settings
 build/test-no-software-render.sh	common	-	never-software-render fixture tests
-build/test-panthor-vulkan.sh	sky1	-	Panthor must keep the Mesa PanVK ICD (arm64 47-llm-stack purge regression)
 build/software-render-allowlist.tsv	common	-	software-render lint allowlist
 assets/singularity/patches/singularity-session/0001-session-no-software-fallback-with-gpu.patch	common	-	labwc-session: no software retry on a machine with a GPU
 assets/singularity/patches/libsingularity/0002-user-theme-loads-above-base.patch	common	-	NCZ overlay: load user themes above the base palette (proposed upstream, not filed)
@@ -451,6 +511,7 @@ build/ship-image.sh	common	-	publish a gated image (the project build store + re
 build/assert-mirror-has-screensavers.sh	common	-	pre-flight: every desktop mirror must carry ncz-screensavers >= the floor in build/screensavers-version.env (item S4)
 build/screensavers-version.env	common	-	single source of truth for the ncz-screensavers version floor + mandated error message (item S4; shared with the install hook, the mirror builder, the squashfs/role-delta pre-flights and the post-install verifier)
 build/test-wallpaper-probe.sh	common	-	Bing helper offline probe test
+build/test-wallpaper-helper-symlink.sh	common	-	the singularity-wallpaper-* symlinks resolve to the ncz-wallpaper-* helpers and produce identical stdout (the helpers dispatch on argv[1], not argv[0])
 build/test-wallpaper-market.sh	common	-	Bing helper market get/set test
 build/kvm-installer-ui-check.sh	common	-	installer console UI gate (dialogs, chatter, blank screen)
 docs/installer-ux/	common	-	installer console before/after evidence
@@ -458,9 +519,12 @@ build/test-usb2-rescan-sky1-only.sh	common	-	regression tests: ncz-usb2-rescan i
 build/test-usb2-rescan-greetd.sh	common	-	regression tests: greetd drop-in tolerates an absent/condition-skipped ncz-usb2-rescan.service; bounded input probe stays
 build/test-timesync-retry.sh	common	-	regression tests for the timesyncd fast-retry drop-in + no time-sync gating of the greeter
 build/test-boot-sequence.sh	common	-	regression tests for installer NIC-wait/clock bounds, Sky1-only display pin, bounded NM-wait-online
+build/test-wpa-cfg80211-order.sh	common	-	regression test: wpa_supplicant.service drop-in (33-network.sh) orders After/Wants systemd-modules-load and adds a net-only bounded udevadm settle ExecStartPre, so cfg80211/nl80211 exists before start (O6N .3 7.3.4-sky1-ncz)
 build/test-greeter-output-mode.sh	common	-	regression test: greeter labwc autostart never scans out 4K, keeps the panel aspect via ncz-display-scale, falls back to the fixed 1080p loop
 build/test-boot-splash-select.sh	common	-	regression test: 60-boot-splash.sh selects the KMS splash (singularity-boot-splash) by canonical name, never the GTK4/Wayland session splash (singularity-splash) that cannot paint at early boot
-build/test-console-font-autosize.sh	common	-	regression test: VT font autosize skips a graphics-mode console or missing display with exit 0, sets the font on a text console, still fails on real setfont errors; unit ordered before the boot splash and greetd
+build/test-console-font-autosize.sh	common	-	regression test: VT font autosize skips a graphics-mode console or missing display with exit 0, sets the font on a text console, still fails on real setfont errors; dummy console (deferred fbcon takeover) exits 0 and the udev rule re-runs the unit; unit ordered before the boot splash and greetd
+build/test-efi-boot-label.sh	common	-	rEFInd NVRAM entry is labelled NCZ-OS; both refresh scripts delete rows with the new and the old 'nclawzero (rEFInd)' label (exact match, other rows untouched) before creating one; stubbed efibootmgr
+build/test-guest-ext4-recover.sh	common	-	regression test: a needs_recovery guest root (bad inode-bitmap checksum) is unreadable by debugfs until lib/guest-ext4.sh repairs the scratch copy; the gate recovers before the first-boot dump
 build/test-chromium-icon.sh	common	-	chromium icon assets (Cygnus colours, crisp) and the 61 hook (divert + install + idempotent, package before/after/upgrade)
 build/test-run-all-baked-allowlist.sh	common	-	run-all.sh in baked mode against every hook on both hooks.list files: no ORPHAN, every listed hook runs
 build/test-idle-lock-order.sh	common	-	regression test for the idle-lock ordering hook (lock default strictly after the saver, tracks the schema, idempotent, skips without the lockscreen schema)
@@ -482,6 +546,7 @@ build/test-singularity-supervisor-forensics.sh	common	-	singularity supervisor p
 build/test-sibling-mirror-apt-opts.sh	common	-	hermetic fixture test that sibling rootfs scripts put snapshot apt options on every sources.list line
 build/test-sibling-empty-index.sh	common	-	hermetic fixture test that an empty package manifest or Packages index exits with an explicit error
 build/test-refind-rescue-promotion.sh	common	-	rEFInd rescue auto-promotion guard: rc/edge kernels are never promoted; existing rescue survives a failed copy (item RRH)
+build/test-installer-esp-theme.sh	common	-	installer ESP carries the Cygnus rEFInd theme: theme files + include line staged only when NCZ_REFIND_THEME=1, both arches and both SelfDir candidates; 0 restores the pre-theme bytes (MINOR-004)
 build/test-wallpaper-rotator-relogin.sh	common	-	ncz-wallpaper-rotator.service is wanted by the per-login session target (item RRH)
 build/test-wallpaper-rotator-interval.sh	common	-	the wallpaper daemon rotates only when the configured interval has elapsed, not on (re)start
 build/test-wallpaper-deb-repro.sh	common	-	the Artist Pack debs are byte-reproducible (umask, caller epoch, home checkout) and a pack.json that does not match the packaged images fails the build
@@ -504,8 +569,11 @@ build/test-t2-dkms-provenance.sh	amd64	t2	proves every vendored T2 DKMS module h
 build/test-t2smc-range.sh	amd64	t2	userspace unit test of the t2smc range checks (fan min/target, charge limit, RTC offset) and the patch applying cleanly
 build/test-t2-dkms-hook.sh	amd64	t2	proves 56-t2-dkms.sh builds t2smc/t2gmux only (t2smp dropped), blacklists t2smp + apple_gmux on T2 DMI only, leaves t2gmux alone on non-T2 hardware, removes stale DKMS registrations on upgrade, honours NCZ_T2_DKMS_EXTRA=t2thunderbolt opt-in, fails loudly on missing KVER_LIST_AMD64 on T2, builds against -rc KVERs (7.3.0-rc6-1-t2-edge-aerfix), and is idempotent
 build/test-t2-console-noise.sh	amd64	t2	contract test that 55-t2-firmware.sh disables brcmfmac P2P (feature_disable=0x10), blacklists snd_pcsp, blacklists hid_sensor_rotation, and verifies BT chip-class firmware, and that 58-boot-hygiene.sh keeps the console loglevel floor at 3 (never hides KERN_CRIT/MCE)
+build/test-amd64-boot-noise.sh	amd64	-	fixture test for post-install/lib/amd64-boot-noise.sh: pcspkr blacklist on every amd64 kernel shipping both drivers (modules/builtin/compressed), idempotent, ucsi_ccg only on opt-in, hook 55 applies it before its early exits
 build/test-t2-mce-nobootlog.sh	amd64	t2	runs the shipped NCZ-T2-CMDLINE + NCZ-DEFAULT-OPTIONS blocks against fake DMI trees: the Default entry gains mce=nobootlog on every known T2 model and ONLY there -- never on the Console/Rescue/Rescue-Partition entries; empty on non-T2/VM/pre-T2 and when the helper is absent; installer media unchanged
+build/test-amd64-pcie-native.sh	amd64	-	runs the shipped NCZ-PCIE-NATIVE-CMDLINE + NCZ-DEFAULT-OPTIONS + NCZ-ADDONLY-HELPERS blocks against fake DMI trees: the Default AND Console entries gain pcie_ports=native on the ASUS ROG Zephyrus M15 GU502LV only, never on the Rescue/Rescue-Partition entries, and an --add entry carries it exactly once; empty on non-matching/Apple T2/generic/VM/missing-DMI hardware and when the helper is absent; installer media unchanged
 build/test-t2-power-cap.sh	amd64	t2	regression test for the T2 package power cap hook + helper: battery 25/35 W + no-turbo + max_perf 50, AC 45/60 W, never writes constraint_N_max_power_uw, restore, performance opt-out, product DMI gate, bounded wait for a late intel-rapl:0, --strict, registration
+build/test-resume-modeset.sh	amd64	-	regression test for the resume re-modeset installer, helper and system-sleep hook: stubs for wlr-randr/runuser/logger/systemd-run and real fake sockets: internal-only, enabled-only, off-before-on, user + greeter sockets, failure isolation, flock skip, no-op paths, non-blocking hook, amd64-only install, registration
 assets/display/	common	-	NCZ output-scale policy helper (ncz-display-scale): greeter mode/scale and first-login HiDPI safety net (docs/HIDPI-SCALING.md)
 build/test_display_scale.py	common	-	unit tests for ncz-display-scale: density policy, greeter mode choice, first-login session rules
 build/test-splash-logo-fit.sh	common	-	manual harness: renders the loginui splash at several resolutions and checks the logo is uncropped and <= 60% wide
@@ -515,21 +583,27 @@ build/test-telnet-inetd.sh	common	-	proves every active inetd telnet line execs 
 build/test-timezone-region.sh	common	-	proves the installer region timezone reaches the target (late.sh NCZ-REGION-PERSIST copies /tmp/ncz-region; 37-ntp-hostname NCZ-TIMEZONE applies it once) and that /etc/timezone always matches /etc/localtime (r201)
 build/test-amd64-serial-console.sh	amd64	-	proves installed amd64 rEFInd entries carry console=ttyS0 only when ttyS0 is a real UART (sysfs type / proc fallback / override), and that the installer media, KVM gate and arm64 ttyAMA0 consoles are unchanged (r201)
 build/test-greeter-display-detect.sh	common	-	proves the greetd drop-ins order on cix-detect-display.service on arm64 only (amd64 pulled the disabled unit in, 7.4 s on a MacBookPro16,1) while ncz-usb2-rescan ordering stays on both (r201)
+build/test-greeter-console-fallback.sh	common	-	greetd OnFailure gives tty1 a text login with the reason when the greeter cannot start
 assets/gpu/ncz-gpu-status	common	-	GPU stack report + never-software-render health check; installed on both platforms by 98-gpu-health.sh (Sky1 switcher report on Sky1, per-card driver report elsewhere, r201)
 build/test-gpu-status-arch.sh	common	-	proves ncz-gpu-status reports the bound DRM drivers (amdgpu/i915/nouveau/none) and not the Sky1 Mali selection on non-Sky1 machines, and keeps the switcher report on Sky1 (r201)
+post-install/lib/ncz-default-apps.sh	common	-	default handlers for images/PDF/text/folders/fonts/calendars point at the native Singularity apps (only when installed); sourced by 59-desktop-curate.sh
 post-install/lib/sky1-browser-policy.sh	sky1	-	Sky1 browser defaults sourced by 52-vivaldi/53-chrome on arm64: chromium-ncz-sky1 default (alternatives, mimeapps), VA-API-off .desktop overrides in /usr/local/share/applications and /usr/local/bin wrappers for Vivaldi/Chrome (CIX VA-API decode hangs, docs/HW-VIDEO-DECODE-STATUS.md; r201)
-build/test-panthor-entry-gate.sh	sky1	-	proves the Panthor (Experimental) rEFInd entry is written only when a panthor module exists for its kernel and carries no cmdline kbase blacklist (Radxa Orion O6N r201)
-build/test-gpu-switcher-fallback.sh	sky1	-	proves ncz-gpu-switcher falls back to Mali (or fails loudly when the cmdline blocks it) when Panthor is selected but not bound, in a stubbed sandbox (Radxa Orion O6N r201)
+build/test-gpu-switcher-fallback.sh	sky1	-	proves ncz-gpu-switcher falls back to Mali (or fails loudly when the cmdline blocks it) when Panthor is selected but not bound, that it is a no-op exit 0 when CIXH5000 is absent, and that the unit gates on ConditionPathExists=/sys/bus/platform/devices/CIXH5000:00, in a stubbed sandbox (Radxa Orion O6N r201, KVM gate r287)
 assets/intel/	amd64	-	Intel apt signing key (vendored, sha256-pinned in lib/intel-accel.sh) and the ncz-intel-accel-setup deferred service/timer (r201)
-post-install/lib/intel-accel.sh	amd64	-	Intel GPU/NPU userspace installer sourced by 54-gpu-accel.sh and installed as ncz-intel-accel-setup: vendored key, Debian Level Zero/OpenCL/VA + Intel OpenVINO plugins, apt simulation gate, deferred retry (r201)
-build/test-intel-accel-deferred.sh	amd64	-	proves the Intel userspace path uses the vendored key, arms the retry marker/timer when the repo is unreachable, installs once the network is up, and refuses a transaction that would remove packages (r201)
+post-install/lib/intel-accel.sh	amd64	-	Intel GPU/NPU userspace installer sourced by 54-gpu-accel.sh and installed as ncz-intel-accel-setup: vendored key, Debian Level Zero/OpenCL/VA + Intel OpenVINO plugins, apt simulation gate, deferred retry; after the fast budget a 75 caused only by unpublished native candidates defers (status deferred:native-candidates-unpublished, marker kept) and a failed:gave-up-* system re-arms when hardware is present (2026-10-17)
+build/test-intel-accel-deferred.sh	amd64	-	proves the Intel userspace path uses the vendored key, arms the retry marker/timer when the repo is unreachable, installs once the network is up, refuses a transaction that would remove packages, defers instead of giving up when only native candidates are unpublished, resolves the GPU and NPU plugin classes independently so a published class still installs while the other is unpublished, and re-arms a failed:gave-up-* system whose hardware is still present (2026-10-17)
+assets/amd/	amd64	-	AMD GPU/NPU deferred service/timer (ncz-amd-accel-setup.service, ncz-amd-accel-setup.timer), same pattern as assets/intel/ (2026-10-17)
+post-install/lib/amd-accel.sh	amd64	-	AMD GPU/NPU userspace installer sourced by 54-gpu-accel.sh and installed as ncz-amd-accel-setup: Debian-only mesa-vulkan-drivers/libvulkan1 (no native NCZ package needed), NPU PCI class 0x118000/[1022:1502] detection, apt simulation gate, deferred retry sharing the same re-arm/budget state machine as lib/intel-accel.sh (2026-10-17)
+build/test-amd-accel-deferred.sh	amd64	-	proves the AMD userspace path arms the retry marker/timer when the repo is unreachable, installs once the network is up, refuses a transaction that would remove packages, defers instead of giving up when only native candidates are unpublished, resolves the GPU and NPU classes independently, and re-arms a failed:gave-up-* system whose hardware is still present (2026-10-17)
+build/test-claude-code-deferred.sh	common	-	proves 40-claude-code.sh stages the ncz-claude-code-install.service first-boot retry (oneshot, After/Wants network-online.target, bounded backoff retries, ConditionPathExists=! done marker, disables itself on success) when the chroot npm install fails, and leaves no unit/helper/marker behind when it succeeds (2026-11-12)
 build/test-stage-canonical-dkms.sh	sky1	-	contract test: stage-canonical-assets.sh restages every checked DKMS deb incl. vpu and the stale-deb failure names the fix (r201)
-build/test-panthor-hook-overlay-fallback.sh	sky1	-	proves 83-panthor-gpu.sh installs the prebuilt panthor overlay when the staged DKMS deb leaves no module (r201)
 post-install/lib/apt-separation.sh	common	-	single source for the NCZ/Debian/T2 apt separation: NCZ namespace, Debian-name override allowlist, T2 package set, pin text, single-enabled-NCZ-repo writer and the ncz-apt-source switch helper
 build/check-ncz-repo-policy.sh	common	-	gate: fails when a Debian-named package is published or seeded in the NCZ suite without an allowlist row (index files, components.tsv, --live)
 build/check-installed-apt-config.sh	common	-	audit of an apt config tree or rootfs: separation pin present and current, kernel-purity pin present, exactly one NCZ repo enabled, T2 pin present
 build/lib/deb-version-gate.sh	common	-	version discipline: refuses a rebuilt .deb that reuses an already-published version with different content (apt 1.0 -> 1.0)
 build/build-ncz-apt-policy-deb.sh	common	-	builds the ncz-apt-policy package that delivers the apt separation pins to already-installed systems
+build/test-analyze-build-log.sh	common	-	unit tests for analyze-build-log.py (stdlib stub model server; spec cases a-d)
+build/test-sky1-scmi-boot-gate.sh	sky1	-	tests for check-sky1-scmi-boot-gate.sh (both-directions: rc1-shaped pass, rc2-shaped + missing-pattern fails)
 build/test-apt-separation.sh	common	-	real apt resolution against throwaway Debian/NCZ/T2 repos, old behaviour vs new, plus the single-source writer and ncz-apt-source helper
 build/test-ncz-repo-policy.sh	common	-	behavioural tests for the repo-content gate, installed-config audit, version gate, publisher policy and update classification
 build/test-reprepro-publish-pool-arch.sh	common	-	end-to-end tests of the apt publisher against a mocked reprepro and registry: uploads exactly the piped deb (arm64 next to an older all build) and fails unless the index serves it
@@ -548,14 +622,19 @@ build/test-stale-singularity-prune.sh	sky1	-	proves the base layer drops a stale
 build/test-libpeas-plugin-icon.sh	common	-	proves the generic libpeas-plugin fallback icon (NCZ puzzle-piece svg under assets/branding/icons) is a plain scalable svg and that 56-icon-theme.sh installs it into hicolor (idempotent, no clobber, never fails)
 build/stage-build-inputs.sh	common	-	stages the gitignored rescue/mgmt rootfs, python311 and wallpaper debs from the project build store build-inputs store, sha256-pinned (r201)
 manifests/build-inputs.tsv	common	-	sha256 pins for the the project build store build inputs staged by build/stage-build-inputs.sh
+manifests/pin-coherence-known-fail.tsv	common	-	check-pin-coherence.sh rules the tree is known to fail, with owner and exact fix; read by preflight and test-pin-coherence.sh
 build/test-build-inputs.sh	common	-	proves stage-build-inputs publish/fetch/check/refusal and that hooks 20/25/38 packages are seeded (r201)
 manifests/build-inputs-public.tsv	common	-	public source URL (+ tar member) for the build inputs a stranger can fetch with stage-build-inputs.sh --public; sha256 must equal the build-inputs.tsv pin
 build/test-build-inputs-public.sh	common	-	proves stage-build-inputs --public: download/extract, pin verification, refusal of drift and tampering, INTERNAL-ONLY reporting, and the real manifest against the pins
 build/test-deb-rev-defaults.sh	common	-	proves libdrm (+ncz2) and DKMS (+ncz3, byte-reproducible) debs build at the release.conf revisions with no env, and a libdrm patch edit without a bump fails (r201)
 build/test-desktop-apt-require.sh	common	-	proves 20-desktop.sh ncz_apt_require propagates apt failures and checks install ok installed (r201)
 build/test-firmware-bom-hook.sh	common	-	proves 13-firmware-bom.sh preseeds the firmware licence questions and fails on any not-installed package (r201)
-build/test-panthor-fallback-real-overlay.sh	sky1	-	executes hook 83 against the real tracked panthor overlay of the shipping Sky1 kernel (r201)
 build/test-npu-dkms-deferral.sh	sky1	-	proves 25-cix-proprietary.sh installs the vendor NPU DKMS deb with a register-only postinst so apt-get install -fy cannot fail on unrepaired headers (r201)
+build/test-cix-deb-server-skip.sh	sky1	-	proves 25-cix-proprietary.sh skips libgtk4-layer-shell0 on a server root (its libgtk-4-1 dependency would come from the offline pool) and keeps it on desktop
+build/test-remote-access-wayvnc.sh	common	-	proves 31-remote-access.sh installs wayvnc on desktop variants and ships a localhost-only ncz-wayvnc.service bound to the Singularity session, installed but disabled, while server/headless variants skip
+build/test-boot-splash-unit.sh	common	-	proves the singularity-boot-splash unit start timeout outlives the wrapper cap (total <= 8 s), the cap/handoff exits are clean, a crash still fails the unit, and greetd is ordered After= the splash (no parallel DRM handoff)
+build/test-greeter-scanout-gate.sh	common	-	fixture for the post-greetd scanout assertion: passes on an active CRTC, restarts greetd once on a dead pipeline, falls back to the text console after the second failure, no-ops when greetd is not active (oneshot, cannot loop)
+build/test-backlight-default.sh	common	-	fixture for the first-boot laptop backlight default: raises to >= 40 % of max once, never clobbers a later user value, skips desktop/VM chassis and max<16 dummies
 build/test-splash-brand-aspect.sh	common	-	renders the session splash through the real singularity-loginui sources and checks the wordmark keeps its aspect ratio
 build/test-hooks-fail-loudly.sh	common	-	proves hook 86 fails on an aipu build failure, hooks 36/55 read the apt status behind | tail, and the deb version gate fails closed when the index is unreachable (r201)
 build/check-no-ubuntu.sh	common	-	gate: no Ubuntu deb/archive/userland (offline; make lint-platform + image target): SRC scan of build sources + Ubuntu evidence in debs/rootfs
@@ -566,6 +645,7 @@ build/layers-preflight.sh	common	-	pre-layer fail-fast checks (harden-the-layer-
 build/test-layer-gates.sh	common	-	both-direction tests for strip_build_host_state, check-layers leftovers/ownership/content/no-ubuntu, allow-list regexes, tracked symlinks and the mainline link
 build/test-layers-hardening.sh	common	-	both-direction tests for build/layers-preflight.sh + build/check-layers.sh (bad fixtures FAIL, good PASS)
 build/forky-provenance.py	common	-	implementation of check-no-ubuntu.sh / check-forky-provenance.sh (debs, Packages, dpkg status, rootfs, squashfs, finished .img via debugfs)
+build/test-iso-rockridge.sh	common	-	forky-provenance.py's ISO reader on xorriso fixture ISOs (Rock Ridge NM/CE/SL/CL/RE names, plain ECMA-119) and the real netinst when present; --iso-evidence lsdl listing accepted by iso_verify, tampered listings refused
 build/test-no-ubuntu.sh	common	-	positive+negative fixtures for the no-Ubuntu and forky-provenance gates (fonts-liberation 1:2.1.5-3build1 must fail)
 manifests/vendor-repos.tsv	common	-	complete reviewed apt-SOURCE allowlist; every source/pin must match a row exactly on scheme/host/path/suite (Debian pin+runtime, NCZ, Chrome, Vivaldi, NVIDIA; Intel OpenVINO + t2linux approved in r203 with justification)
 manifests/vendor-aliases.tsv	common	-	vendor apt aliases (google-chrome-stable, vivaldi-stable): signed repo, key fingerprints, store dir; discovery only, builds use the staged pinned deb
@@ -583,10 +663,11 @@ build/pin-snapshot-suites.py	common	-	fetch + gpgv-verify each declared snapshot
 build/check-substrate-pin.sh	common	-	build preflight: base.pin vs release.conf snapshot, substrate freshness (<= 8d), coverage floor (>= 99%)
 manifests/keys/debian-archive-keyring.gpg	common	-	official Debian archive signing keyring used by gpgv to verify the pinned snapshot Release
 docs/ONE-KERNEL.md	common	-	one-kernel policy: audit of every kernel artifact in the r202 images by place, the correct mechanism (installer initrd from OUR kernel), the gate rule, and the residual; KVM-UNPROVEN
-build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261012T023456Z, the substrate-derived pin) fixture used to prove production keyring/digest compatibility offline
+build/testdata/forky-snapshot/InRelease	common	-	the real pinned snapshot.debian.org InRelease (20261026T022331Z, the substrate-derived pin) fixture used to prove production keyring/digest compatibility offline
 build/preseed-known-keys.txt	common	-	allow-list of debconf keys preseed/preseed.cfg may set; a new key must be added here with a reason; enforced by build/test-preseed-consistency.sh
 build/preseed-runtime-overrides.txt	common	-	debconf keys intentionally set by both preseed.cfg and a runtime helper (db_set); unlisted double-sets fail build/test-preseed-consistency.sh
 build/test-preseed-consistency.sh	common	-	guards the one-authoritative-preseed contract: conflicting/duplicate keys, unknown keys, unlisted runtime double-sets, per-arch variants; --self-test proves the guard by mutation
+build/test-early-command-shape.sh	common	-	pins every preseed/early_command shape check-early-command-size.sh must refuse (the d9d64be1 comment block, comment-ended value, syntax error, escapes, non-zero exit, budget) and accept (real file, column-0 comment); optional real-initrd chain
 build/test-install-feedback.sh	common	-	acceptance test: milestone INFO feedback from post-install/lib/progress-msg.sh, ASCII, bounded, in hook order (run-all end to end)
 post-install/lib/progress-msg.sh	common	-	ncz_msg(): one-line milestone feedback into run-all progress.tsv/progress.state + the d-i log VT, for long user-visible post-install steps (never FAIL/WARN)
 build/build-image.sh	common	-	single build entrypoint: stages, scopes (full/respin/rebuild-*/components/only-image), gates, both-arch orchestration, publish rule
@@ -599,8 +680,14 @@ build/lib/reproducible.sh	common	-	shell surface of the determinism contract (en
 build/lib/compare-lib.sh	common	-	normalising helpers for compare-images (squashfs/fat/tar/json/tree)
 build/lib/priv.sh	common	-	the ONE privilege model: root / passwordless sudo / sudo -S with a sudo password on stdin (no FIFO)
 build/lib/ncz-site.sh	common	-	per-site settings lookup (env var, else ~/.config/ncz/<name>): store mount points, build hosts, push targets; nothing site-specific in code
+build/lib/pin-coherence-gate.sh	common	-	build-image.sh preflight decision on check-pin-coherence.sh: known-fail rule WARNs with owner + fix, any other failure aborts
+build/lib/guest-ext4.sh	common	-	KVM gate helper: e2fsck -fy a scratch copy of the timed-out guest root so debugfs can read the first-boot report
 build/test-build-determinism.sh	common	-	unit proof of the determinism primitives (+ negative controls) and compare-images both directions
 build/test-build-image.sh	common	-	CLI/plan/fingerprint/both-arch orchestration tests for the single entrypoint
+build/make-secret-hashes.py	common	-	salted-SHA-256 hash-list generator for the shipped-artifact credential gate (run on a trusted machine; never ships plaintext)
+build/scan-shipped-secrets.py	common	-	shipped-artifact credential gate: read-only GPT/FAT/ext4 walk, squashfs/cpio/tar/deb extraction, hashed + token-shape matching, JSON receipt
+build/test-shipped-secret-scan.sh	common	-	fixture-image tests for the shipped-artifact credential gate (leaky image fails, clean image passes, fail-closed cases)
+build/test-shipped-secret-scan-payload.sh	common	-	fixture tests for the credential gate's --payload mode (Magnetar base.squashfs + asset bundle off the medium): planted secret caught in squashfs/tar.gz/tar/tar.zst/nested rescue tar.zst, clean passes, unknown/truncated/empty fail closed
 manifests/determinism.pin	common	-	the local determinism aggregate (input-ledger digests + singularity pins); generated by build/gen-base-pin.sh; the build hashes it (pin-digest)
 manifests/singularity-payload.tsv	common	-	reviewed prebuilt Singularity Desktop payload .deb pins: one row per arch (arch sha256 version); sha256 feeds determinism.pin (singularity_payload_sha256_<arch>) and the layers frozen-deb handshake (NCZ_SINGULARITY_PREBUILT_DEB/SHA256)
 manifests/sid-exceptions.tsv	common	-	the reviewed per-package ledger of installer-substrate sid d-i exceptions the forky-provenance gate authorizes (exact name/version/arch/sha256, chained to the signed sid index); replaces the blanket sid suite grant
@@ -611,7 +698,138 @@ build/rebuild-sid-udeb.sh	common	-	rebuild a small-gap (class B) installer udeb 
 build/test-github-sync.sh	common	-	fixture tests for the GitHub copy sync (size limit, text list, mailmap, determinism, backups, release-held refs)
 docs/SID-EXCEPTIONS.md	common	-	GENERATED sid-exceptions tracker report (per-package status + per-arch count + trend); do not hand-edit
 build/test-tour-slides.sh	common	-	tour slide data validation: keys, unique Order (NCZ + upstream), built-in Scene, {os} only brace, title length, Action prefix
-build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock (stubbed environment)
+build/test-ncz-first-login-tour.sh	common	-	first-login tour guard logic: once-only marker, opt-out, headless/DRM, root, live, other-first-run, lock, adaptive settle, SCHED_IDLE, animations off, session state (stubbed environment)
+build/test-login-notice-order.sh	common	-	first-login notice order: wait-done states (seen, pending, open, closed, stale, bound) and the quote, firewall and update notices waiting for the tour (stubbed environment)
 build/test-xdg-autostart.sh	common	-	system XDG autostart entries vs the Singularity AutostartManager rule: session entries need OnlyShowIn=Singularity, systemd-unit fallbacks must not launch, every entry classified (control: OnlyShowIn=XFCE)
 post-install/51-ncz-tour-slides.sh	mixed	-	NCZ tour slides (wallpapers, online wallpapers, screensavers, lock screen) generic + first-login tour launcher; the arm64-only 85-ncz-chromium-vpu slide is gated on NCZ_TARGET_ARCH/BUILD_ARCH/dpkg (chromium-ncz-sky1 is Sky1-only); TODO split the Sky1 slide into a platform hook
 build/test-recovery-logins.sh	common	-	installer diagnostics login = documented rescue login (root / rescue), shown in the boot banner, dialogs, progress screen and diag summary; docs/RECOVERY-LOGINS.md names only existing paths and commands
+build/apt-sim-tests.sh	common	-	shared APT argument/removal gates and disk workspace/cache guard regression fixtures
+build/apt-sim-zero-removals.sh	common	-	shared simulate-then-install helper enforcing identical APT arguments and zero removals
+build/lib/ncz-work-dir-guard.sh	common	-	shared disk workspace guard rejecting volatile, overlay and unavailable filesystem probes
+build/test-stage-screensaver-plugin-public.sh	common	-	offline public plugin staging fixtures; pinned local preference, HTTPS fetch, checksum/control rejection, atomic output and cleanup
+build/test-boot-manifest-parity.py	sky1	-	boot helper manifest and reviewed ledger parity with stale metadata negative cases
+build/test-installer-ui-wrapper.sh	mixed	-	both-arch serial dialog UI contract fixtures, amd64 UART text channel, framebuffer continuity; no VM
+build/test-boot-screens-testcopy.py	common	-	boot-screens.py --serial-console test-copy staging (UART last on the Install entry, preseed hook, shipped image untouched); no VM
+build/test-native-apt-overrides.sh	common	-	native package namespace and architecture override policy fixtures
+build/test-rescue-network-owner.sh	common	-	container-only actual rescue systemctl ownership fixtures
+build/test-t2-native-packages.sh	amd64	t2	native T2 acquisition, simulation refusal, source cleanup and staged firmware fixtures
+packages/apple-t2-audio-config/	amd64	t2	independent MIT T2 UCM generator, facts, package recipe and route contract tests
+build/check-hook-registration.sh	common	-	gate: every post-install hook is registered in run-all.sh (fails on orphans)
+build/test-installer-disk-labels.sh	common	-	test: human-readable labels in the installer disk selector
+build/lib/magnetar_substrate.py	common	-	Magnetar server substrate selection: parses the d-i keep-manifest, splits kept vs dropped udebs by anna/main-menu load path, and computes the compressed-medium budget used by build/iso/write-usb-image.py
+manifests/magnetar-substrate-keep.tsv	common	-	pinned keep-list of substrate udebs the server installer actually loads (proven from the d-i main-menu path), with the d-i reason column for each entry
+assets/lite/	amd64	-	NCZ-OS lite profile for weak GPUs / old PCs: ncz-profile CLI + first-login helper, labwc/compositor fragments, dev.ncz.profile schema key, first-login user service; amd64 only (guard exits when arch != amd64)
+post-install/66-ncz-lite-profile.sh	amd64	-	installs the lite profile (weak GPU / old PC): ncz-profile CLI, labwc + themerc fragments, dev.ncz.profile schema, first-login user service; guard exits when arch != amd64
+build/test-lite-profile.sh	common	-	regression test for the lite-profile rule table (fake renderer strings), apply/restore idempotence, and the install-hook verifier assertions
+docs/lite-profile.md	common	-	measured design of the NCZ-OS lite profile, the auto-select rule, the before/after ablation table and the user controls
+post-install/lib/ncz-brand.sh	common	-	the one place that names the Magnetar Server edition and decides server vs desktop from the medium (fetch manifest / MEDIUM_VARIANT); sourced by ncz-ui.sh, late.sh, component-selector.sh via ncz-ui.sh, 50-brand.sh, 48-server-variant.sh, the rEFInd generators and the ncz CLI; read by build-refind-esp.py
+build/test-server-branding.sh	common	-	Magnetar Server branding + no component selector on a server medium, desktop strings unchanged: renders every server/desktop string from the real helpers (d-i dialogs, late.sh, os-release/issue/motd, issue.d, rEFInd titles, ESP info line, ncz version) and the gate's installed-system assertion
+build/check-server-codename.sh	common	-	static guard: no non-comment "Cygnus" in Magnetar Server install-path files outside manifests/server-codename-allowlist.tsv (stale rows fail)
+manifests/server-codename-allowlist.tsv	common	-	allow-list for build/check-server-codename.sh with a reason per row
+build/iso/ncz_ssdt.py	common	-	NPU ACPI SSDT stager: compiles the MS-R1 table from the committed .asl, stages .aml + early CPIO, hard-fails when it cannot (called by write-usb-image.py)
+build/test-no-lan-urls.sh	common	-	HARD RULE: no image carries a LAN URL (writer refusal + shipped-surface scan)
+post-install/58-screensaver-shader.sh	common	-	installs the current black-hole shader + probe tooling (card, flight plans, VT323) over the package
+assets/screensaver/blackhole.frag	common	-	current black-hole shader (installed over the 0.8.18 package by 58-screensaver-shader)
+assets/screensaver/ncz-bh-flightplan-rotate	common	-	applies a real probe encounter from flight-plans.json and advances the set
+assets/screensaver/flight-plans.json	common	-	ten real deep-space encounters mapped onto the camera options
+assets/screensaver/VT323-Regular.ttf	common	-	card typeface, SIL OFL 1.1 (DEC VT320 face; MU/TH/UR lookalike lineage)
+assets/screensaver/VT323-OFL.txt	common	-	SIL Open Font License text for VT323
+assets/screensaver/amd64/blackhole_gles3	common	-	0.8.20 x86-64 engine (0.8.20 build: telemetry overlay on by default, composition envelope)
+assets/screensaver/arm64/blackhole_gles3	common	-	0.8.20 aarch64 engine (0.8.20 build: telemetry overlay on by default, composition envelope)
+assets/screensaver/dev.ncz.screensaver.gschema.xml	common	-	0.8.20 schema (blackhole-telemetry on by default, plan-jitter), compiled after install
+assets/screensaver/amd64/ncz-screensavers_0.8.22_amd64.deb	common	-	0.8.22 package for amd64: the 0.8.20 feature set plus the Sky1 and T2 GPU class fix (a Mali-G720 or a discrete AMD display GPU is no longer forced to the weak class); installed over apt by post-install/59
+assets/screensaver/arm64/ncz-screensavers_0.8.22_arm64.deb	common	-	0.8.22 package for arm64: the 0.8.20 feature set plus the Sky1 and T2 GPU class fix (a Mali-G720 or a discrete AMD display GPU is no longer forced to the weak class); installed over apt by post-install/59
+build/test-kernel-artifact-predicates.sh	common	-	the one-kernel kernel-artifact predicate must be identical in the ISO writer, the provenance gate and the classifier; drifting copies exempt a file the writer keeps (cycle 487)
+build/test-one-kernel-entrypoint-parity.sh	common	-	Makefile and build-image.sh must apply NCZ_ONE_KERNEL identically; XFAIL while they diverge, hard-red once NCZ_EXPECT_ONE_KERNEL_ALIGNED=1 (cycle 488)
+build/test-one-kernel-exemption.sh	common	-	the substrate kernel-udeb exemption is opt-in, covers all three places the installer's udebs appear, and never widens to the finished image (cycles 495, 497)
+build/test-one-kernel-strip.sh	common	-	the one-kernel strip must delete the Debian kernel artifacts and then prove it did: list, delete, assert, fail closed (cycle 494)
+build/test-timestamped-registry.sh	common	-	ncz-timestamped.tsv rows must match the version the tree actually ships, so a rename cannot silently block every build (cycle 482)
+build/probe-sing-fleet.sh	common	-	retrying SING-TEST poll: 3 attempts per host, UNREACHABLE vs NO-CREDS kept distinct, --json per row (cycles 471-479)
+build/test-probe-sing-fleet.sh	common	-	the poll's failure paths: dead host, no credential inventory row, JSON escaping, missing tools (cycle 479)
+build/image-ci-poll.py	common	-	the five image-CI triggers with per-trigger state files (cycle 449)
+build/image-ci-run.sh	common	-	turns a moved trigger into one detached build; dry run by default, marker, launched.jsonl, state advanced only on a live pid (cycles 449, 483)
+build/test-image-ci-run.sh	common	-	the runner's contract: nothing publishes, one build per host, marker released by its own child, state advanced only on success (cycles 449, 483)
+build/image-ci-matrix.sh	common	-	the image CI matrix: desktop + server (Magnetar) x amd64 + arm64, two clean builds + compare per cell, host lock, Hive marker, --status candidate grid
+build/test-image-ci-matrix.sh	common	-	the matrix contract on a stub build: plan, refusals, order, gate media, marker, determinism verdicts, cleanup, candidate grid
+build/lib/apt-release.sh	common	-	reproducible apt Release (Date from SOURCE_DATE_EPOCH, written outside the scanned tree) for the offline mirror the Magnetar pool packs
+build/test-image-ci-units.sh	common	-	the systemd units and env example: no %h in EnvironmentFile, paths host-agnostic, nothing installs itself (cycle 477)
+build/deb-retention.py	common	-	n-2 deb retention: plan by default, --apply requires --yes-really, refuses a non-directory source (cycle 478)
+build/test-deb-retention-apply.sh	common	-	the deleting half of retention: only the plan goes, newest build per release survives, out-of-scope untouched (cycle 478)
+build/lib/deb-fixture.sh	common	-	shared guard: exit 3 when the host cannot build deb fixtures, so a missing toolchain is not read as a failure (cycle 466)
+build/test-deb-fixture-guard.sh	common	-	every suite that builds debs uses the guard; the count is enforced (cycle 466)
+build/check-grepq-conversion.py	common	-	mechanical grep -q conversions must not corrupt quoted patterns (cycle 4xx)
+build/test-grepq-conversion-check.sh	common	-	regression test for the grep -q conversion checker
+build/test-singularity-patch-queues.sh	common	-	the singularity patch queues still apply to their pinned bases (cycle 4xx)
+build/test-module-dkms-collision.sh	common	-	ruling-7 reproduction: two packages owning updates/dkms/t2gmux.ko; XFAIL until NCZ_EXPECT_COLLISION_FIXED=1 (cycle 470)
+build/lib/yocto-layers.sh	common	-	store-first yocto layer fetch, with upstream kept reachable (M9, cycle 4xx)
+build/test-yocto-layer-fetch.sh	common	-	store-first fetch with a negative control (M9)
+build/audit-dpkg-state.sh	common	-	build/audit-dpkg-state.sh: audit dpkg without lying about it, and name the DKMS overlap
+build/check-inputs-provenance.sh	common	-	check-inputs-provenance: forward --root to the verifier as --root-dir
+build/check-metal-bundle.sh	common	-	build: check a metal bundle before a human spends a session on it
+build/check-payload-plugin-abi.sh	common	-	build: check whether a plugin still resolves on a new payload (symbols, not shas)
+build/check-payload-ships-patches.sh	common	-	build: check that a payload actually ships the patches it claims
+build/host-ready.sh	common	-	WIP: preserve uncommitted work from an unfinished run
+.buildkite/singularity-weekly.yml	common	-	singularity: weekly both-arch head build pipeline and its runbook (design only)
+build/lib/fetch-pinned-rev.sh	common	-	M9: the GStreamer build fetches a revision, not a branch head
+build/lib/verify-build-input.sh	common	-	M9: the Python fetch trusts its pin instead of the network
+build/refresh-forky-inrelease-fixture.sh	common	-	build: generate the pinned-InRelease fixture from the pin, with checksum assertions (M4)
+build/rehearse.sh	common	-	M6: add --rehearse, the gates that need no host
+build/repin.sh	common	-	repin: one all-or-nothing re-pin for both arches (M2)
+build/singularity-patch-drift.sh	common	-	build: ordered-queue diagnostic for the singularity patch stack
+build/substrate-ci.py	common	-	substrate-ci: decision core + stage-0 scheduled job (design 7b6d81ce)
+build/substrate-ci.sh	common	-	substrate-ci: add the stage driver and point the scheduled job at it
+build/test-audit-dpkg-state.sh	common	-	build/audit-dpkg-state.sh: audit dpkg without lying about it, and name the DKMS overlap
+build/test-bootsplash-patch-queue.sh	common	-	singularity: gate the boot-splash patch-queue wiring
+build/test-build-log-dedup.sh	common	-	BUILD-STABILITY M11: provenance-gate before secret-scan, single stage-log writer
+build/test-check-metal-bundle.sh	common	-	build: check a metal bundle before a human spends a session on it
+build/test-classify-sid-exceptions-ledger.sh	common	-	classify: report a real version drift and pin it with a ledger test
+build/test-container-ownership-audit.sh	common	-	BUILD-STABILITY M10: audit container stages for uid-0 files, and chown back
+build/test-fetch-pinned-rev.sh	common	-	M9: the GStreamer build fetches a revision, not a branch head
+build/test-forky-inrelease-fixture.sh	common	-	build: generate the pinned-InRelease fixture from the pin, with checksum assertions (M4)
+build/test-host-ready.sh	common	-	host-ready: fix check_kvm default-gates logic; add build/test-host-ready.sh
+build/test-kvm-gate-arch-symbols.sh	common	-	gate: x86 support with per-arch required symbols
+build/test-no-pin-literals.sh	common	-	test: lint that no test or fixture hard-codes the release.conf snapshot pin (M4)
+build/test-provenance-predict.sh	common	-	test-provenance-predict: valid fixtures, and a summary that can fail
+build/test-provenance-di-marker.sh	common	-	the debian-installer build-marker exemption and its three refusals: opt-in + initrd origin exempts, no opt-in / non-initrd record / non-stamp version all FAIL (drives the real classify_noarch)
+build/test-recovery-netparent.sh	common	-	recovery: resolve the macvlan parent after udev settles and the route exists
+build/test-refind-addonly.sh	common	-	rEFInd: ship the add-only kernel hooks so a kernel install keeps the default
+build/test-refind-kernel-series-label.sh	common	-	rEFInd titles and default tokens take the kernel series from the booted kernel (arm64 and amd64 scripts), server menus, amd64 server panic=30
+build/test-refind-image-install.sh	common	-	rEFInd: ship the add-only kernel hooks so a kernel install keeps the default
+build/test-refresh-substrate-pin-safety.sh	common	-	refresh-substrate: validate the pin stamp and gate the test digest override
+build/test-repin.sh	common	-	repin: one all-or-nothing re-pin for both arches (M2)
+build/test-rootfs-snapshot-binding.sh	common	-	M8: bind prebuilt rootfs inputs to their snapshot
+build/test-stage-singularity-payload-store.sh	common	-	build: stage the pinned payload from the artifact store, not just the network
+build/test-substrate-ci-http.sh	common	-	substrate-ci: exercise preflight over real HTTP against a fault-injecting server
+build/test-substrate-ci.sh	common	-	substrate-ci: decision core + stage-0 scheduled job (design 7b6d81ce)
+build/test-verify-build-input.sh	common	-	M9: the Python fetch trusts its pin instead of the network
+build/warm-debootstrap-cache.sh	common	-	build: warm the debootstrap cache from a failed run instead of re-running it
+PLAN-FB152.md	common	-	FB152: static gate over post-install scripts
+build/check-kernel-lifecycle.py	common	-	kernel lifecycle gate: pins must equal the promoted CURRENT kernel in assets/kernel/KERNEL-LIFECYCLE, not RETIRED, not below MIN_VERSION
+build/test-kernel-lifecycle.sh	common	-	fixture tests for check-kernel-lifecycle.py (retired, too old, unpromoted, inconsistent pins; real tree)
+build/test-stage-amd64-kernel.sh	amd64	-	stage-amd64-kernel.sh takes the manifest pool dir and checks every deb sha256 (same-KVER pool dirs)
+assets/kernel/KERNEL-LIFECYCLE	common	-	kernel promotion state (MIN_VERSION, CURRENT per arch, RETIRED) written by the kernel-ci registry; read by check-kernel-lifecycle.py
+build/resolve-kernel-from-registry.py	mixed	-	resolves the kernel-ci registry current pointer per arch into build env (KVER, staged dir, retirement); consumed by build-image.sh
+build/test-image-ci-matrix-stage-inputs.sh	common	-	asserts image-ci-matrix.sh stages the gitignored build inputs per cell before build-image.sh
+build/test-kernel-debs-arch-policy.sh	common	-	asserts the kernel-debs gate verifies the target arch instead of always arm64 (pending arm64 pin must not block amd64)
+build/test-kernel-registry-resolve.sh	common	-	fixture tests for resolve-kernel-from-registry.py: current/retired/hash-chain, committed-manifest fallback, pin drift
+build/test-release-kernel-manifest-order.sh	common	-	asserts release-kernel.sh regenerates the kernel manifest before the accelerator-overlay gate
+build/test-stage-accel-overlays-pahole.sh	sky1	-	contract tests: the overlay container uses the kernel's native pahole, BTF_MODULES without native pahole is refused
+build/test-stage-kernel-skip-packaging.sh	common	-	contract tests: skip-packaging leaves kernel-debs alone; a failing gate still fails stage-kernel
+build/test-receipt-gates.sh	common	-	contract tests: gates.json evidences one_kernel and ui, and a FAIL gate is not summarized as passed
+build/receipt-gates.py	common	-	derive gates.json from a run's result files, carrying one_kernel (provenance) and ui (kvm gate)
+build/test-server-time-sync.sh	common	-	contract test: the installer-base manifests seed a time daemon and the server gate asserts an enabled time-sync unit
+build/test-console-blank.sh	common	-	contract test: server console burn-in protection (config, unit, udev, cmdline, gate assertion)
+build/test-server-online-release.sh	common	-	contract test: the release server medium uses the online (option B) payload with a published https base and never publishes
+build/build-server-online.sh	common	-	release wrapper: builds the ONLINE (option B) server medium against a published https payload base; refuses LAN URLs and never publishes
+build/test-ui-socket-path.sh	common	-	contract test: the UI capture harness keeps its qemu UNIX sockets in a short base, not the deep run dir
+assets/console-saver/	mixed	-	Magnetar server console saver payload (B3, 04:40Z): per-arch release binaries ncz-console-saver + ncz-bh-console (ncz-screensavers tools/bh-console, b3 branch 2c5b2bfe) plus ncz-console-saver.service, console-saver.conf and README.md; staged to the medium's ncz-payload/assets/console-saver/ by write-usb-image.py, installed by post-install/61-ncz-console-saver.sh
+post-install/61-ncz-console-saver.sh	common	-	mandatory server-variant install + enable of the console saver from the payload path (desktop untouched; existing /etc/ncz/console-saver.conf never overwritten; missing assets = exit 1)
+build/test-console-saver-wiring.sh	common	-	contract test: console-saver payload staging, the 61 hook's server-only/mandatory/idempotent behaviour, the unit ExecStart path contract, the no-bundle-coupling rule and the run-all.sh dispatch classification (required/ship-critical, not MACHINE_HOOKS_RE)
+build/check-amd64-manifest.sh	amd64	t2	amd64 kernel pin drift gate: staged pool pair-count + ncz-packages.tsv sha256 re-hash + KVER/PKGVERSION/manifest/tsv version coherence (review fix for the amd64 7.3.3 repin)
+build/lib/fetch-pinned-file.sh	common	-	M9 pin-and-cache network input helper (docs/BUILD-STABILITY.md): a cache hit copies verified bytes with no network call; a miss downloads to a temp file, checks sha256 against the pin, then stores
+build/test-fetch-pinned-file.sh	common	-	behavioural tests for build/lib/fetch-pinned-file.sh (offline cache hit, poisoned cache refused, verified miss stores, pin mismatch never lands)
+build/test-ui-check-tcg-scale.sh	common	-	contract test: the UI check capture budget scales exactly when the harness runs tcg (kvm only for a native x86_64 guest or 4 KiB-page aarch64 host; a build host 16 KiB and cross-arch are tcg)
+build/check-t2-dkms-modules.sh	mixed	t2	KVM-gate DKMS assertion (ORDER #27(2)/#30(3)): amd64 proves the forced 56-t2-dkms build installed t2smc+t2gmux for the shipped kernel; arm64 asserts its 6 out-of-tree modules (aipu amvx mali_kbase memory_group_manager protected_memory_allocator panthor) via the first-boot probe (SKIP-blacklist is a skip, not a failure)
+build/test-late-t2-force.sh	amd64	t2	proves preseed/late.sh translates the ncz_t2_dkms_force=1 cmdline token into NCZ_T2_DKMS_FORCE=1 via the t2-dkms-force-env marker block (NCZ_CMDLINE_FILE override), tokens are exact matches, other tokens never force
+build/test-ncz-cli-models-catalog.sh	common	-	behavioural tests for ncz models add <url> --sha256 <hex> user-supplied model catalog entries (NG-NC-36)
+build/test-bh-flightplan-path.sh	common	-	flight-plan rotate script must search the path hook 58 installs flight-plans.json to (service failed every 5 min on installed images); proven red on the old script

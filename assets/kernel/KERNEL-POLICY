@@ -2,24 +2,41 @@
 # Read by build/verify-kernel-default-policy.sh. KEY=value, no spaces.
 # Human text and rationale: docs/ONE-KERNEL.md
 #
-# ONE kernel: 7.3, the SAME pinned build on every architecture. It is the
+# ONE kernel, the SAME pinned build on every architecture. It is the
 # DEFAULT boot kernel, the installer boot kernel, and the kernel the RESCUE
-# entry boots. 7.2.x (including 7.2.9) is retired everywhere: no default, no
-# rescue, no edge, no installer. There is no EDGE channel any more.
+# entry boots. 7.2.x, and since 2026-11-16 the whole 7.3.x series, is retired
+# everywhere: no default, no rescue, no edge, no installer, no previous-kernel
+# entry, no apt component for the image. There is no EDGE channel any more.
 #
-# The exact pinned version lives in the per-arch sidecars/manifests, not here:
-#   arm64: assets/kernel/mainline/KVER  (manifest variants.mainline.kver)
-#   amd64: assets/kernel/amd64-stable/KVER
-# Today both are 7.3.0-rc6 builds, replaced by 7.3.0 final builds later.
-DEFAULT_BASE=7.3
+# LINE DECISION (operator 2026-11-16, 26.10 Cygnus PR4: "release will use 7.4
+# kernel, no edge and 7.3 will be retired"): the line is 7.4.x on BOTH arches
+# and it is the ONLY line -- this supersedes the 2026-11-13 7.3.4 decision and
+# cancels the earlier 7.4 line switch (the edge-kernel lane is cancelled and
+# unmerged). The 7.4.0-rc3 base is ACCEPTED for this release; it must move to
+# the final 7.4 kernel in a later PATCH release.
+#
+# The exact pinned version lives in the per-arch pins, all of which must equal
+# the single source of truth assets/kernel/default-kernel.json:
+#   arm64: assets/kernel/mainline.release (r303-7.4.0-rc3-sky1-ncz-20261115;
+#          manifest variants.mainline.kver)
+#   amd64: assets/kernel/amd64-stable/KVER + .PKGVERSION
+# amd64 is 7.4.0-rc3-t2-ncz, package revision 7.4.0-rc3-4 (the rebuild that
+# carries 7002 and the 7101-7107 AER/DPC series, replacing 9013; the earlier staged
+# -1 and -2 debs are NOT the release kernel). arm64 is 7.4.0-rc3-sky1-ncz, package version 7.4.0-rc3-sky1-ncz+r303
+# (kernel-staging/r303-7.4.0-rc3-sky1-ncz-20261115) -- MALI ONLY: the vendor
+# Mali out-of-tree modules are built against this tree, CONFIG_DRM_PANTHOR is
+# off and no panthor module or package is built.
+# Which version may be pinned (MIN_VERSION, CURRENT, RETIRED) lives in
+# assets/kernel/KERNEL-LIFECYCLE, written by the kernel-ci promotion registry.
+DEFAULT_BASE=7.4
 
-# An -rcN default is permitted ONLY while the pinned 7.3 version is still an
-# -rcN and RC_DEFAULT_ALLOWED=1. The verifier fails if a 7.3 default is an
+# An -rcN default is permitted ONLY while the pinned line version is still an
+# -rcN and RC_DEFAULT_ALLOWED=1. The verifier fails if a default is an
 # -rcN while this is 0, and also fails if this is 1 but the pinned version is
-# no longer an -rcN (a stale allowance). Clear it when 7.3.0 final lands:
-# RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
+# no longer an -rcN (a stale allowance). The accepted 7.4.0-rc3 base keeps an
+# -rcN default in play until the final 7.4 kernel ships in a PATCH release:
 RC_DEFAULT_ALLOWED=1
-RC_DEFAULT_EXPIRY_NOTE=replace by 7.3.0 final
+RC_DEFAULT_EXPIRY_NOTE=7.4.0-rc3 accepted for 26.10 Cygnus PR4 (operator 2026-11-16); the final 7.4 kernel replaces the rc3 default in a later PATCH release
 
 # RESCUE = the SAME pinned kernel as DEFAULT, not a separate series and not an
 # older kernel. Its whole difference is the accelerator drivers blacklisted on
@@ -43,19 +60,55 @@ RESCUE_ARM64_BLACKLIST=panthor,panfrost,mali_kbase,memory_group_manager,protecte
 # No EDGE channel any more (since 2026-10-05).
 EDGE_ENABLED=0
 
-# FRESHNESS ACKNOWLEDGEMENT (2026-10-11). build/preflight-freshness-
-# gate.sh refuses to build while assets/kernel/mainline is not the pool's newest
-# unified 7.3 build -- unless the operator has explicitly declined that newer
+# FRESHNESS ACKNOWLEDGEMENT. build/preflight-freshness-gate.sh refuses to
+# build while assets/kernel/mainline is not the pool's newest staging build of
+# the pinned line -- unless the operator has explicitly declined that newer
 # build. Value = "<pinned-build>:<declined-newer-build>": BOTH names must match
 # the resolved mainline pin AND the pool's newest build, so repointing mainline
 # or any even-newer build still FAILs closed. Set only with explicit operator
 # direction for this build.
 #
-# 2026-10-11 (fix accepted for the next
-# image): the DP-AUX kernel r286-7.3.0-rc6-sky1-ncz-20261011 that had been
-# staged as a supervised-test, NON-default MS-R1 boot entry is now the SHIPPING
-# pin (assets/kernel/mainline -> r286). It is the pool's newest unified 7.3
-# build, so no acknowledgement is needed and the former r285:r286 ACK is
-# CLEARED. Re-add a MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to
-# decline a genuinely newer non-shipping build, with explicit operator
-# direction.
+# 2026-11-16 (26.10 Cygnus PR4): the pin is r303-7.4.0-rc3-sky1-ncz-20261115,
+# the newest staged 7.4.0-rc3 build, so no acknowledgement is needed and the
+# former r285:r286 ACK stays cleared. Re-add a
+# MAINLINE_FRESHNESS_ACK=<pin>:<declined-newer> line only to decline a
+# genuinely newer non-shipping build, with explicit operator direction.
+
+# Retired kernels (<kver>+<rev>, '*' = every revision): generated from the kernel-ci
+# promotion registry; a retired kernel can never be pinned again.
+RETIRED_KERNELS_AMD64=7.3.0-t2-ncz+*,7.3.1-t2-ncz+r295,7.3.3-t2-ncz+r297-reinstate1,7.3.4-t2-ncz+r303,7.4.0-rc2-t2-ncz+*
+
+# Retired kernels (<kver>+<rev>, '*' = every revision): generated from the kernel-ci
+# promotion registry; a retired kernel can never be pinned again.
+RETIRED_KERNELS_ARM64=7.3.0-sky1-ncz+r293,7.3.3-sky1-ncz+r298,7.3.4-sky1-ncz+r304,7.4.0-rc2-sky1-ncz+*
+
+## DEFAULT KERNEL (SUPERSEDED history: 2026-11-12 01:35Z 7.3.3, 2026-11-13 7.3.4)
+Both earlier decisions are superseded -- kept out of this file on purpose: the
+machine-readable keys above ARE the policy now. See the git history of this file
+for the 7.3.3/7.3.4 text.
+
+## DEFAULT KERNEL (operator 2026-11-16) -- CURRENT
+"release will use 7.4 kernel, no edge and 7.3 will be retired" (26.10 Cygnus PR4,
+desktop and server, amd64 and arm64).
+- 7.4 is the default AND ONLY kernel line on EVERY arch: amd64
+  `7.4.0-rc3-t2-ncz` (package revision `7.4.0-rc3-4`, the rebuild that carries
+  7002 and the 7101-7107 AER/DPC series, replacing 9013), arm64 `7.4.0-rc3-sky1-ncz` (package version
+  `7.4.0-rc3-sky1-ncz+r303`, staged as r303-7.4.0-rc3-sky1-ncz-20261115).
+- Single source of truth: `assets/kernel/default-kernel.json` (both arches). The
+  image build gate `build/check-default-kernel.sh` FAILS if the default kernel is
+  not 7.4 -- it is a hard fail, never a stderr note (NG2-NC-004).
+- The 7.4.0-rc3 base is ACCEPTED for this release (RC_DEFAULT_ALLOWED=1) and must
+  move to the final 7.4 kernel in a later PATCH release.
+- 7.3.x is retired: no default, no rescue, no installer, no previous-kernel
+  entry, not in any apt component for the image (RETIRED_KERNELS_*,
+  assets/kernel/KERNEL-LIFECYCLE RETIRED, MIN_VERSION=7.4.0-rc3). The rescue
+  entry keeps the unchanged mechanism: the SAME 7.4 default kernel with the
+  accelerator drivers blacklisted (RESCUE_SAME_KERNEL=1).
+- No EDGE channel: it stays retired (EDGE_ENABLED=0). The edge-kernel lane is
+  cancelled and unmerged; do not re-add edge assets, pointers or entries.
+- Sky1 stays MALI ONLY: CONFIG_DRM_PANTHOR is off in the 7.4 kernel config, no
+  panthor module or package is built or installed, and mali_kbase plus the Mali
+  userspace are required. Enforced by `build/test-mali-only-image.sh` and
+  `build/test-default-kernel-gate.sh`.
+- Enforced by `build/check-default-kernel.sh` (hard 7.4 policy line above) +
+  `build/verify-kernel-default-policy.sh` + `build/check-kernel-lifecycle.py`.

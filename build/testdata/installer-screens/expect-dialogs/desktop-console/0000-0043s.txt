@@ -1,0 +1,25 @@
+# t=43s
+[                    (1**installer)  2 shell  3 shell  4- log
+
+  ┌────────────┤ [!!] NCZ-OS 26.10 Cygnus - select your REGION ├────────────┐
+  │                                                                         │
+  │ Pick your country. NCZ-OS uses it to set the language, timezone and     │
+  │ keyboard layout in one step. Press Enter to accept United States.       │
+  │                                                                         │
+  │ arm64 (Sky1) | build d90ed961                                           │
+  │                                                                         │
+  │ NCZ-OS 26.10 Cygnus - select your REGION                                │
+  │                                                                         │
+  │                            United States   ↑                            │
+  │                            Canada          ▮                            │
+  │                            Mexico          ▒                            │
+  │                            Brazil          ▒                            │
+  │                            United Kingdom  ▒                            │
+  │                            Ireland         ▒                            │
+  │                            Germany         ↓                            │
+  │                                                                         │
+  │     <Go Back>                                                           │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+<Tab> moves; <Space> selects; <Enter> activates buttons

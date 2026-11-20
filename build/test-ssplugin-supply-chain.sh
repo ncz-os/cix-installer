@@ -14,6 +14,10 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${SSP_TEST_ROOT:-$(cd "$HERE/.." && pwd)}"
 command -v dpkg-deb >/dev/null || { echo "SKIP: dpkg-deb not available"; exit 0; }
+# shellcheck source=lib/deb-fixture.sh
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/deb-fixture.sh"
+ncz_deb_fixture_check || { echo "ssplugin: ENVIRONMENT: this host cannot build deb fixtures; not a code failure" >&2; exit 3; }
+
 T="$(mktemp -d "${TMPDIR:-/var/tmp}/ssp-test.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 PASS=0; FAILS=0
@@ -90,6 +94,13 @@ if [ -r "$LOCK" ] && [ -r "$LIB" ]; then
     expect "pin: a pin missing a field is refused" 1 "no value for SSP_PAYLOAD" bash -c ". '$LIB'; ssplugin_load_lock '$T/lock.nopayload' arm64"
     sed 's/^\(NCZ_SSPLUGIN_SHA256_amd64=\).*/\1ZZZ/' "$LOCK" > "$T/lock.badhex"
     expect "pin: a non-hex sha256 is refused" 1 "not lowercase hex" bash -c ". '$LIB'; ssplugin_load_lock '$T/lock.badhex' amd64"
+    # The provenance gate authorizes the plugin deb in the image through its
+    # reviewed NCZ ledger row, so that row must carry the lock's sha256: a re-pin
+    # that updated only the lock fails provenance-gate on the finished image
+    # ("NCZ ledger sha256 mismatch"), hours into the build.
+    for a in amd64 arm64; do
+        expect "pin: the NCZ ledger row carries the lock sha256 for $a" 0 "" bash -c ". '$LIB'; ssplugin_load_lock '$LOCK' $a || exit 1; awk -F'\t' -v n=ncz-screensavers-plugin -v v=\"\$SSP_VERSION\" -v a=$a -v h=\"\$SSP_SHA256\" '\$1==n && \$2==v && \$3==a && \$4==h {f=1} END {exit !f}' '$ROOT/manifests/ncz-packages.tsv'"
+    done
 else
     FAILS=$((FAILS + 1)); echo "FAIL pin: $LOCK or $LIB missing (the plugin is not wired)"
 fi
@@ -116,7 +127,20 @@ if [ -r "$ST" ]; then
     sed -i "s/^NCZ_SSPLUGIN_SHA256_amd64=.*/NCZ_SSPLUGIN_SHA256_amd64=$(sed -n 's/^NCZ_SSPLUGIN_SHA256_arm64=//p' "$FL")/" "$T/lock.swap"
     cp -a "$A" "$T/store-swap"; cp "$A/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_arm64.deb" "$T/store-swap/ncz-screensavers-debs/plugin-test/ncz-screensavers-plugin_0.3.16_amd64.deb"
     expect "stage: a pin-matching deb with the wrong Architecture is refused" 1 "Architecture is 'arm64'" env NCZ_SSPLUGIN_LOCK="$T/lock.swap" NCZ_SSPLUGIN_SRC_ROOT="$T/store-swap" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
-    expect "stage: a missing source is refused" 1 "missing" env NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
+    mkdir -p "$T/offlinecurl-bin"
+    cat >"$T/offlinecurl-bin/curl" <<'EOF'
+#!/bin/sh
+: >"$OFFLINE_CURL_MARKER"
+exit 22
+EOF
+    chmod +x "$T/offlinecurl-bin/curl"
+    OFFLINE_CURL_MARKER="$T/offlinecurl-called"
+    rm -f "$OFFLINE_CURL_MARKER"
+    rm -rf "$O2"; mkdir -p "$O2"
+    expect "stage: public fetch failure leaves no staged file" 1 "public fetch of" env PATH="$T/offlinecurl-bin:$PATH" OFFLINE_CURL_MARKER="$OFFLINE_CURL_MARKER" NCZ_SSPLUGIN_LOCK="$FL" NCZ_SSPLUGIN_SRC_ROOT="$T" NCZ_SSPLUGIN_OUT="$O2" bash "$ST" amd64
+    if [ -f "$OFFLINE_CURL_MARKER" ]; then ok "stage: offline curl stub was invoked"; else bad "stage: offline curl stub was not invoked"; fi
+    if [ -z "$(find "$O2" -mindepth 1 -print -quit 2>/dev/null)" ]; then ok "stage: no staged file left after public fetch failure"; else bad "stage: staged file left after public fetch failure"; fi
+    if [ -z "$(find "$T" -maxdepth 1 -name '*.tmp*' -print -quit 2>/dev/null)" ]; then ok "stage: no temp leftover after public fetch failure"; else bad "stage: temp leftover after public fetch failure"; fi
 else
     FAILS=$((FAILS + 1)); echo "FAIL stage: $ST missing"
 fi
@@ -150,7 +174,11 @@ if [ -r "$CK" ]; then
     expect "abi: a rebuilt payload with a byte-identical libsingularity passes" 0 "ABI OK (lib-identical)" abi
     mkpayload "$C/ncz-singularity-desktop_20261008+bk0+tgzdddddddd_amd64.deb" amd64 20261008+bk0+tgzdddddddd LIB-CHANGED
     expect "abi: the newest payload with a changed libsingularity fails" 1 "ABI MISMATCH" abi
-    grep -q "amd64: .*container debian:forky" "$T/out" && grep -q "arm64: .*container debian:testing" "$T/out" && grep -q "tools/make-plugin-deb.sh" "$T/out" \
+    # The codename comes from release.conf, not from a hardcoded suite: the base has
+    # moved before, and an instruction that names the wrong container is worse than none.
+    base_codename="$(sed -n 's/^NCZ_BASE_CODENAME="\(.*\)"$/\1/p' "$ROOT/release.conf" 2>/dev/null)"
+    [ -n "$base_codename" ] || base_codename="forky"
+    grep -q "amd64: .*container debian:$base_codename" "$T/out" && grep -q "arm64: .*container debian:$base_codename" "$T/out" && grep -q "tools/make-plugin-deb.sh" "$T/out" \
         && ok "abi: the failure prints the rebuild hosts and commands" || bad "abi: the failure lacks rebuild instructions"
     expect "abi: --payload-deb selects an explicit payload" 0 "lib-identical" abi --payload-deb "$C/ncz-singularity-desktop_20261007+bk0+tgzcccccccc_amd64.deb"
     rm -f "$C/ncz-singularity-desktop_20261008"*
@@ -287,6 +315,24 @@ if python3 "$ROOT/build/gen-components-registry.py" --root "$ROOT" --out "$T/gen
     diff <(grep -P '^ncz-screensavers-plugin\t' "$T/gen.tsv") <(grep -P '^ncz-screensavers-plugin\t' "$ROOT/manifests/components.tsv") >/dev/null \
         && ok "registry: the committed plugin row is what the generator derives from the pin" || bad "registry: committed plugin row drifted from the pin"
 else bad "registry: generator failed"; fi
+
+# --- the additional symbol gate (ruling 1, 2026-11-06) -----------------------------
+# Identity must stay authoritative. These two checks are static on purpose: the
+# behavioural proof is the existing mismatch case above, which must still exit 1.
+grep -q 'check-payload-plugin-abi.sh' "$CK" \
+    && ok "abi: the stage-2 gate consults the symbol-superset tool" \
+    || bad "abi: the stage-2 gate never calls build/check-payload-plugin-abi.sh"
+grep -q 'this is not a waiver' "$CK" \
+    && ok "abi: a mismatch says in its own words that identity still governs" \
+    || bad "abi: the mismatch path does not state that identity still governs"
+# The symbol gate must never appear on the pass path: a mismatch has to exit 1 even
+# when the plugin would still load.
+# Range, not "any exit 0 after the verdict": from the mismatch message to the end of
+# the file there must be no exit 0, or a mismatch could be turned into a pass.
+awk '/identity gate: FAIL/{f=1} f && /exit 0/{print "BYPASS"; exit}' "$CK" \
+    | grep BYPASS >/dev/null \
+    && bad "abi: exit 0 is reachable after a mismatch" \
+    || ok "abi: nothing after the mismatch message can exit 0"
 
 echo "ssplugin supply-chain tests: $PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

@@ -43,13 +43,30 @@ CRITICAL_HOOK_FAILURES=""
 # networking, and a populated rescue partition. They still run in the
 # fail-tolerant phase so the bootloader/diagnostics always execute, but a
 # failure is propagated to d-i after those recovery affordances are written.
-CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition)\.sh$'
+# 61-ncz-console-saver is REQUIRED on the server variant (see its own FATAL
+# on missing assets and docs/platform-inventory.tsv), but it is NOT an
+# optional hook: it lives in REQUIRED_HOOKS. It is listed here only for
+# semantic completeness -- the grep on an optional-hook name never sees it --
+# and is never dispatched through lib/bounded-run.sh. Do not move it back
+# into MACHINE_HOOKS_RE (build/check-hook-registration.sh enforces single
+# registration).
+CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|61-ncz-console-saver)\.sh$'
 # 2026-09-28 arm64 ship-critical expansion: on arm64, a failure of
 # 12-sky1-firmware (no VPU codecs / DSP fw / Mali CSF) or 25-cix-proprietary
 # (no GPU userland, no NPU DKMS) is just as un-shippable as a missing greeter.
 # Both hooks used to degrade to a WARN that the install carried forward, and
 # the result was a black-screen or inoperable-NPU shipped artifact. amd64
 # keeps CRITICAL_OPTIONAL_HOOKS_RE unchanged (same regex bytes).
+#
+# 2026-10-28: 80-npu joins the arm64 critical set. It installs the MS-R1 NPU
+# ACPI SSDT and now VERIFIES the initrd actually carries it (an uncompressed
+# newc archive naming kernel/firmware/acpi/ssdt-npucre.aml). The MS-R1 shipped
+# twice with "only 0 of 3 NPU cores usable - disabling NPU" because that hook
+# only warned: the table was never compiled by the build, so the hook installed
+# its modules and initramfs hooks and had nothing to inject. A board that needs
+# the override and does not get it is not shippable -- the NPU is the reason
+# the SKU exists. On a Radxa O6/O6N the decision is 'skip', the hook never
+# takes this path, and the regex is irrelevant.
 INSTALLER_META=/usr/local/lib/cix-installer
 _NCZ_SYSTEM_ARCH="${NCZ_TARGET_ARCH:-}"
 if [ -z "$_NCZ_SYSTEM_ARCH" ] && [ -r "$INSTALLER_META/BUILD_ARCH" ]; then
@@ -58,7 +75,7 @@ fi
 _NCZ_SYSTEM_ARCH="${_NCZ_SYSTEM_ARCH:-$(dpkg --print-architecture 2>/dev/null || true)}"
 case "$_NCZ_SYSTEM_ARCH" in
     arm64)
-        CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|12-sky1-firmware|25-cix-proprietary)\.sh$'
+        CRITICAL_OPTIONAL_HOOKS_RE='^(20-desktop|19-sinty-nm|55-greeter|60-boot-splash|72-rescue-partition|12-sky1-firmware|25-cix-proprietary|80-npu)\.sh$'
         ;;
     amd64|"")
         # amd64: leave CRITICAL_OPTIONAL_HOOKS_RE untouched. Empty detection
@@ -71,9 +88,17 @@ esac
 REQUIRED_PHASE_OK=0
 # r156: baked-image mode — generic hooks already ran at build time; run
 # ONLY machine-specific hooks at install (fstab/rescue/bootloader/diag).
-NCZ_BAKED=0
-[ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
-[ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+# NCZ_BAKED: an explicitly set env value (0/1) wins over marker detection —
+# fixture hermeticity, the same class of seam as NCZ_COMP_FILE below. Without
+# it, a test harness running the real run-all.sh against synthetic hooks on a
+# baked-marked build host silently inherits NCZ_BAKED=1 and the baked filter
+# drops every fixture hook (measured: build/test-platform-lint.sh run-all cases
+# ran only the always-run specials). Marker detection runs only when unset.
+if [ -z "${NCZ_BAKED+set}" ]; then
+    NCZ_BAKED=0
+    [ -f /usr/local/lib/cix-installer/BAKED ] && NCZ_BAKED=1
+    [ -f /etc/ncz-baked ] && NCZ_BAKED=1   # survives late.sh rm -rf of cix-installer
+fi
 # r184: the CIX proprietary userland + NPU-userspace hooks were NEVER running on
 # a fresh baked install — they're not in build-squashfs-layers.sh BASE_HOOKS (so
 # not baked into base.squashfs) and the baked-mode filter below only whitelisted
@@ -165,13 +190,27 @@ NCZ_BAKED=0
 # across multiple ISO revisions.
 # 2026-10-06: and again. 61-chromium-icon (the Cygnus Chromium launcher icon,
 # added 2026-10-04) was put on hooks.list.sky1-arm64 but not here, so every
-# --mode full Sky1 install dropped it and kept the package's orange Maximilian
+# --mode full Sky1 install dropped it and kept the package's orange 26.7-codename
 # icon. Measured on O6N and MS-R1 (diag image 5830d91b): the orphan audit below
 # printed "ORPHAN: 61-chromium-icon.sh" into /var/log/cix-installer-late.log and
 # no 61-chromium-icon.log exists. build/test-run-all-baked-allowlist.sh now runs
 # this file in baked mode against every hook on both hooks.list files and fails
 # on any ORPHAN, so the next omission fails `make` instead of shipping.
-MACHINE_HOOKS_RE="^(12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|19-sinty-nm|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-t2-firmware|55-greeter|56-t2-dkms|56-icon-theme|57-qotd|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health)\.sh$"
+MACHINE_HOOKS_RE="^(10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|13-firmware-bom|15-mesa-sky1-pin|16-mesa-gpu-2613|19-sinty-nm|20-desktop|21-flatpak-arch-filter|22-display-fix|22-locale-gen|23-base-apt-sources|23-locale-env|24-apt-sources|25-cix-proprietary|26-gpu-default-mali|27-net-caps|31-remote-access|32-quadlet-shim|33-network|34-firewall|34-fstab|35-fstrim-fix|35-ssh|36-telemetry|37-failsafe-access|37-ntp-hostname|38-recovery-container|39-usb-gpt-autofix|40-claude-code|41-usb2-rescan|43-hw-quirks|44-apple-vbt-spoof|44-rtc-sync|45-wallpaper-rotator|46-ncz-cli|46-python311|47-embedkit|47-llm-stack|48-server-variant|49-artist-pack-browser|50-brand|50-update-manager|51-ncz-tour-slides|52-vivaldi|53-chrome|54-gpu-accel|55-greeter|55-t2-firmware|56-icon-theme|56-t2-dkms|57-qotd|58-screensaver-shader|58-boot-hygiene|59-desktop-curate|59-ncz-screensavers-pkg|60-boot-splash|61-chromium-icon|62-cygnus-screensaver-default|63-ncz-idle-lock-order|64-ncz-lock-saver-plan|64-t2-power-cap|65-ncz-titlebar-buttons|66-ncz-lite-profile|67-ncz-resume-modeset|72-rescue-partition|79-dkms-prep|80-npu|81-vpu|82-mali-gpu|83-panthor-gpu|83-vpu-ffmpeg|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|86-cix-dkms-register|87-mpam-cache-partition|88-noe-umd-venv|89-npu-embed-server|91-dbus-broker|92-apparmor-enable|93-zram-swap|94-dracut-config|95-console-font-autosize|96-setuid-audit|97-firstboot-report|98-gpu-health)\.sh$"
+# 61-ncz-console-saver (Magnetar server console saver, B3 04:40Z order) is
+# deliberately NOT in the optional MACHINE_HOOKS_RE list above: its contract
+# is server-variant MANDATORY (docs/platform-inventory.tsv; the hook's own
+# FATAL on missing assets is the enforcement), so it runs through the
+# REQUIRED_HOOKS / ship-critical path below, not through lib/bounded-run.sh.
+# The baked filter trims REQUIRED_HOOKS to the kernel hooks, but this hook
+# must survive that trim too: on a baked server image it is the mandatory
+# console-saver install, and the same v11 failure mode applies (trimmed from
+# REQUIRED, excluded from OPT_HOOKS, left in NO list, never runs).
+# Desktop behaviour is preserved by the hook's own BUILD_VARIANT guard
+# (it exits 0 immediately on desktop; assets are not staged on desktop
+# media), so adding it to REQUIRED_HOOKS does not affect desktop installs.
+# build/test-console-saver-wiring.sh pins this classification;
+# build/check-hook-registration.sh requires it to live in exactly one list.
 
 
 # r55+: surface progress on /dev/tty3 (the d-i log VT — Alt+F3 during install)
@@ -210,7 +249,7 @@ fi
 # every numbered script in the directory.
 PHASE0_HOOKS=$(ls 0[0-9]-*.sh 2>/dev/null | sort || true)
 REQUIRED_HOOKS=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort | \
-    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network)\.sh$' || true)
+    grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|12-sky1-firmware|33-network|61-ncz-console-saver)\.sh$' || true)
 if [ "$NCZ_BAKED" = 1 ]; then
     # 12-sky1-firmware and 33-network MUST SURVIVE THE BAKED FILTER.
     #
@@ -231,7 +270,7 @@ if [ "$NCZ_BAKED" = 1 ]; then
     # network config. Both are genuinely per-install work and must run under
     # --mode full like any other machine hook.
     REQUIRED_HOOKS=$(printf '%s\n' $REQUIRED_HOOKS | \
-        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot)\.sh$' || true)
+        grep -E '^(10-our-kernel|10-amd64-kernel|11-fix-cixmini-boot|61-ncz-console-saver)\.sh$' || true)
 fi
 # 12-sky1-firmware and 33-network are NOT excluded here any more.
 #
@@ -278,6 +317,16 @@ if [ -z "$PLATFORM" ]; then
     esac
 fi
 HOOKS_LIST="${NCZ_HOOKS_LIST:-}"
+# An explicit NCZ_HOOKS_LIST is an operator override. Only a bare filename
+# (no path separators) is resolved inside $HOOK_DIR (the legacy convention).
+# A path containing '/' — absolute or relative — is used verbatim and is never
+# silently rewritten, so an operator-intended path is not mis-interpreted.
+case "$HOOKS_LIST" in
+    */*) : ;;   # path: leave exactly as supplied
+    *)   if [ -n "$HOOKS_LIST" ] && [ ! -e "$HOOKS_LIST" ] && [ -e "$HOOK_DIR/$HOOKS_LIST" ]; then
+             HOOKS_LIST="$HOOK_DIR/$HOOKS_LIST"
+         fi ;;
+esac
 if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
     if   [ -f "$HOOK_DIR/hooks.list.$PLATFORM" ]; then HOOKS_LIST="$HOOK_DIR/hooks.list.$PLATFORM"
     elif [ -f "$HOOK_DIR/hooks.list" ];            then HOOKS_LIST="$HOOK_DIR/hooks.list"
@@ -285,6 +334,10 @@ if [ -z "$HOOKS_LIST" ] && [ -n "$PLATFORM" ]; then
 fi
 [ "$HOOKS_LIST" = none ] && HOOKS_LIST=""
 _PLAT_SKIPPED=""
+# A valid list must be an ordinary, readable file with at least one non-comment,
+# non-blank hook entry. If it is missing, unreadable, a directory, or empty, fall
+# back to legacy (run every hook) — never run zero hooks, and never treat a
+# directory named like the list as a list.
 if [ -n "$HOOKS_LIST" ] && { [ ! -f "$HOOKS_LIST" ] || [ ! -r "$HOOKS_LIST" ] || ! grep -qvE '^[[:space:]]*(#|$)' "$HOOKS_LIST"; }; then
     echo "[cix-installer] WARNING: hooks list $HOOKS_LIST is not a readable, non-empty file; running every hook (legacy behavior)"
     HOOKS_LIST=""
@@ -330,9 +383,17 @@ fi
 # (not regex-derived) so the relationship between a toggle and its hooks is
 # readable in one place. Lines that map a hook to a toggle that no chooser
 # currently writes are inert (no skipping).
-COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
-[ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
-[ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+# NCZ_COMP_FILE overrides the record location (fixture hermeticity: without it,
+# build/test-run-all-baked-allowlist.sh silently inherited the build host's
+# COMPONENTS record and the component-skip filters dropped hooks the fixture
+# expected to run).
+if [ -n "${NCZ_COMP_FILE:-}" ]; then
+    COMP_FILE="$NCZ_COMP_FILE"
+else
+    COMP_FILE=/usr/local/lib/cix-installer/COMPONENTS
+    [ -r "$COMP_FILE" ] || COMP_FILE=/etc/cix-installer/COMPONENTS
+    [ -r "$COMP_FILE" ] || COMP_FILE=/var/lib/cix-components/COMPONENTS
+fi
 _CDESKTO=1; _CBRW=1; _CMGMT=1; _CRESC=1; _CWP=1
 if [ -r "$COMP_FILE" ]; then
     _ck=$(tr -d ' \t\r\n' < "$COMP_FILE" 2>/dev/null || true)
@@ -364,7 +425,11 @@ fi
 # a console-only install -- skipping it there left 8x16 text on a 4K display.
 # It was in the skip list until 2026-08-22, harmless only because the component
 # selection was being lost and desktop was therefore never actually OFF.
-_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|50-brand|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode|89-npu-embed-server)\.sh$'
+# 84-vpu-mpv / 84-vpu-vaapi: video playback (mpv/VA-API) is a desktop workload.
+# 85-power-perf-mode: tunes the desktop power/perf profile (it is the one
+# hook in this list with a hardware-flavoured name — the tuning it applies
+# only makes sense with a desktop session).
+_SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pack-browser|52-vivaldi|53-chrome|55-greeter|56-icon-theme|57-qotd|59-desktop-curate|60-boot-splash|84-vpu-mpv|84-vpu-vaapi|85-power-perf-mode)\.sh$'
 # 54-gpu-accel and 55-t2-firmware are deliberately NOT in this list: GPU
 # compute (ROCm/CUDA/OpenVINO) and WiFi/BT firmware are not desktop-specific
 # concerns (a headless/console install with a discrete GPU still wants
@@ -374,9 +439,23 @@ _SKIP_DESKTOP_RE='^(20-desktop|22-display-fix|45-wallpaper-rotator|49-artist-pac
 # is what this regex gates, a separate concept from BUILD_VARIANT.
 # 49-artist-pack-browser IS in this list: it is desktop-only (Singularity
 # Desktop settings UI), so it is correctly skipped when desktop is OFF.
+# 89-npu-embed-server REMOVED from this list (2026-10-28): an OpenAI-compatible
+# /v1/embeddings service on the Zhouyi NPU is a SERVER workload, not a desktop
+# one -- an arm64 server with a working NPU is exactly what should serve
+# embeddings to MNEMOS, and gating it on the desktop toggle meant a server
+# install shipped a working NPU with nothing using it. The hook keeps its own
+# arm64 arch gate and no-ops elsewhere, so removing it here is safe on amd64.
+# 50-brand.sh is NOT in this list: it writes the release identity for both
+# variants (os-release, lsb-release, /etc/issue, motd: "Desktop" or "Server"),
+# and a console install without it had no NCZ-OS /etc/issue (2026-10-14 KVM
+# gate, every option off).
 # Per-toggle skips (work whether desktop is ON or OFF).
 _SKIP_BROWSERS_RE='^(52-vivaldi|53-chrome)\.sh$'
-_SKIP_MGMT_RE='^(38-recovery-container)\.sh$'
+# The ncz-recovery management container option carries both recovery-console
+# tiers: the nspawn container (38) and the static busybox console on :2323 (37).
+# Neither is installed when the option is unticked (operator decision
+# 2026-10-14: the failsafe console is part of that install option).
+_SKIP_MGMT_RE='^(37-failsafe-access|38-recovery-container)\.sh$'
 _SKIP_RESCUE_RE='^(72-rescue-partition)\.sh$'
 _SKIP_WALLPAPER_RE='^(45-wallpaper-rotator)\.sh$'
 # Audit every per-component skip so the install log records what was dropped
@@ -431,11 +510,16 @@ _ondisk=$(ls [0-9][0-9]-*.sh 2>/dev/null | sort -u)
 # explicitly opting OUT of a toggle. The five skip regexes must be remembered
 # here exactly as written in the toggle block above.
 _SKIP_ALL_RE="${_SKIP_DESKTOP_RE}|${_SKIP_BROWSERS_RE}|${_SKIP_MGMT_RE}|${_SKIP_RESCUE_RE}|${_SKIP_WALLPAPER_RE}"
+# A hook dropped by the platform hooks.list (already logged as PLATFORM-SKIP
+# above) is NOT an orphan — it was deliberately excluded for this platform.
+# _PLAT_SKIP_RE is populated from the hooks.list skip set when a list is active
+# and empty otherwise, so the exclusion below is a no-op in legacy mode.
+_PLAT_SKIP_ALL_RE="^(70-bootloader|99-diagnostics)\.sh$"
+[ -n "${_PLAT_SKIP_RE:-}" ] && _PLAT_SKIP_ALL_RE="$_PLAT_SKIP_ALL_RE|$_PLAT_SKIP_RE"
 _orphans=$(comm -13 <(printf '%s\n' $_planned | sort -u) \
                     <(printf '%s\n' $_ondisk | sort -u) \
-           | grep -vE '^(70-bootloader|99-diagnostics)\.sh$' \
-           | grep -vE "$_SKIP_ALL_RE" \
-           | { if [ -n "${_PLAT_SKIP_RE:-}" ]; then grep -vE "$_PLAT_SKIP_RE"; else cat; fi; } || true)
+           | grep -vE "$_PLAT_SKIP_ALL_RE" \
+           | grep -vE "$_SKIP_ALL_RE" || true)
 if [ -n "$_orphans" ]; then
     echo "[cix-installer] WARNING: hooks present on disk but in NO execution list (NCZ_BAKED=${NCZ_BAKED:-0}):"
     printf '%s\n' $_orphans | sed 's/^/[cix-installer]   ORPHAN: /'
@@ -523,6 +607,8 @@ finalize_bootloader() {
     # Keep finalization best-effort so bootloader failure cannot skip
     # the diagnostics hook.
     set +e
+    # The final bootloader run is authoritative: no install-in-progress deferral.
+    rm -f "${NCZ_INSTALL_MARK:-/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS}"
     BOOTLOADER_RC=0
     if [ -w /boot/efi ]; then
         { echo "TRAP ORIGINAL_RC=$ORIGINAL_RC REQUIRED_PHASE_OK=${REQUIRED_PHASE_OK:-unset}"; echo "TRAP 70bl=$([ -f "$HOOK_DIR/70-bootloader.sh" ] && echo YES || echo NO)"; } \
@@ -611,18 +697,29 @@ finalize_bootloader() {
 }
 trap finalize_bootloader EXIT
 
+# NCZ-INSTALL-IN-PROGRESS: while the hooks run, a package hook can call the
+# rEFInd refresh (on arm64 the cixmini-update-bootloader wrapper does, from an
+# initramfs trigger) before 72-rescue-partition.sh has written RESCUE_READY.
+# The refresh scripts leave the ESP to 70-bootloader.sh in that window when
+# this marker holds the running kernel's boot id; finalize_bootloader removes
+# it before 70-bootloader.sh runs, and on the installed system the boot id no
+# longer matches, so a left-over marker changes nothing.
+NCZ_INSTALL_MARK=/usr/local/lib/cix-installer/INSTALL_IN_PROGRESS
+cat /proc/sys/kernel/random/boot_id > "$NCZ_INSTALL_MARK" 2>/dev/null || rm -f "$NCZ_INSTALL_MARK"
+
 # Phase 0: diagnostic affordance hooks (set +e) — run BEFORE Phase 1.
-# These create the magnetar diag account + any other "must exist before
-# the install can fail" affordances. Failures logged but never block the
-# install. Specifically: 09-diag-account.sh creates magnetar/diags
-# so a remote operator has a working SSH login the moment this chroot
-# touches /etc/passwd, regardless of whether 10-our-kernel.sh or any
-# subsequent hook crashes.
+# Anything that "must exist before the install can fail" goes here:
+# failures are logged but never block the install. Today's only member is
+# 05-time-sync.sh (a wrong clock breaks HTTPS apt for every later hook);
+# the hook set is dynamic — `ls 0[0-9]-*.sh` — so any newly staged 0X-*
+# affordance (for example the retired 09-diag-account.sh, which created a
+# break-glass diag account during the r75/r76 shakedown and now lives
+# disabled in assets/dev/) joins Phase 0 automatically.
 #
-# Review-found bug 2026-05-07: on r78-take2, magnetar was missing from
-# installed system because 09-diag-account.sh was in Phase 2 alphabetic
-# sort and the install never reached Phase 2 — 10-our-kernel.sh had
-# already aborted run-all.sh. Phase 0 fixes that.
+# Review-found bug 2026-05-07: on r78-take2, the diag account was missing
+# from installed system because 09-diag-account.sh was in Phase 2
+# alphabetic sort and the install never reached Phase 2 — 10-our-kernel.sh
+# had already aborted run-all.sh. Phase 0 fixes that.
 set +e
 tty_msg "Phase 0: diag affordance hooks (run BEFORE required kernel install)"
 for hook in $PHASE0_HOOKS; do

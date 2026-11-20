@@ -6,5 +6,5 @@
 # snapshot does not authorize the substrate, or if the substrate is
 # older than NCZ_SUBSTRATE_MAX_AGE_DAYS at build time.
 # arch	substrate_sha256	substrate_date	snapshot	coverage_pct	source_url
-amd64	3b1d8c26825dad265d329db642fe91b9b150385ba1aa92f8f3a37a84dd804b43	Mon, 12 Oct 2026 02:15:03 UTC	20261012T023456Z	100.0	https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso
-arm64	5081ab4067e94a68822ffdd14198f8e9483e5991c28acddef934855a7cee2885	Mon, 12 Oct 2026 02:15:03 UTC	20261012T023456Z	100.0	https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/debian-testing-arm64-netinst.iso
+amd64	d1eb69349237e6738ea2354cb15314069ae91ed5dffb116e903fd0bc28af26d0	Mon, 09 Nov 2026 02:09:22 UTC	20261109T022520Z	100.0	https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd/debian-testing-amd64-netinst.iso
+arm64	446bdd9c98fabef7ee24c09058637615986784e4ed3b2a8e209f7f7ebff558f0	Mon, 09 Nov 2026 02:09:22 UTC	20261109T022520Z	100.0	https://cdimage.debian.org/cdimage/weekly-builds/arm64/iso-cd/debian-testing-arm64-netinst.iso

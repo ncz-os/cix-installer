@@ -1,8 +1,8 @@
 diff --git a/t2gmux.c b/t2gmux.c
-index ddc651e..3683ca8 100644
+index f8e6fc6..58f581d 100644
 --- a/t2gmux.c
 +++ b/t2gmux.c
-@@ -72,6 +72,13 @@ struct apple_gmux_data {
+@@ -73,6 +73,13 @@ struct apple_gmux_data {
  	acpi_handle dhandle;
  	int gpe;
  	bool gpe_enabled;
@@ -16,7 +16,7 @@ index ddc651e..3683ca8 100644
  	/*
  	 * Serializes complete power transitions including the wait for the gmux
  	 * power interrupt, like the AGC command gate that sleeps on it.
-@@ -1161,6 +1168,18 @@ static void gmux_interrupt_work(struct work_struct *work)
+@@ -1278,6 +1285,18 @@ static void gmux_interrupt_work(struct work_struct *work)
  	u8 status;
  
  	mutex_lock(&gmux_data->power_lock);
@@ -35,7 +35,7 @@ index ddc651e..3683ca8 100644
  	status = gmux_interrupt_get_status(gmux_data);
  	pr_debug("Interrupt: status %d\n", status);
  	if (!status) {
-@@ -1301,7 +1320,20 @@ static int gmux_suspend(struct device *dev)
+@@ -1437,7 +1456,20 @@ static int gmux_suspend(struct device *dev)
  	struct pnp_dev *pnp = to_pnp_dev(dev);
  	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
  
@@ -56,7 +56,7 @@ index ddc651e..3683ca8 100644
  	gmux_write_gpu_active(gmux_data);
  	return 0;
  }
-@@ -1310,7 +1342,13 @@ static void gmux_shutdown(struct pnp_dev *pnp)
+@@ -1446,7 +1478,13 @@ static void gmux_shutdown(struct pnp_dev *pnp)
  {
  	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
  
@@ -70,7 +70,7 @@ index ddc651e..3683ca8 100644
  	gmux_write_gpu_active(gmux_data);
  }
  
-@@ -1319,6 +1357,10 @@ static int gmux_resume(struct device *dev)
+@@ -1455,6 +1493,10 @@ static int gmux_resume(struct device *dev)
  	struct pnp_dev *pnp = to_pnp_dev(dev);
  	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
  
@@ -81,6 +81,3 @@ index ddc651e..3683ca8 100644
  	gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS, 0xff);
  	gmux_enable_interrupts(gmux_data);
  	gmux_start_interrupts(gmux_data);
--- 
-2.50.1 (Apple Git-155)
-

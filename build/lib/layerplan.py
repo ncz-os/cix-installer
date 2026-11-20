@@ -85,7 +85,7 @@ LAYERS = ("mirror", "base", "desktop", "hotfix")
 # a change to either never reached the image on a reused base.
 _BASE_ASSET_DIRS = (
     "gpu", "audio", "display", "refind", "grub", "branding", "dracut",
-    "regreet", "diag", "keys", "dev", "docs", "embedkit", "intel",
+    "regreet", "diag", "keys", "dev", "docs", "embedkit", "amd", "intel",
 )
 # dracut is Sky1-only: not staged into an amd64 base.
 _SKY1_ONLY_ALL = {"dracut"}

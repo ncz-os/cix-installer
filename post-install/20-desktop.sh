@@ -10,8 +10,9 @@
 # the package postinst configures its shared-library path.
 #
 # Runtime configs here are the proven-working versions captured from the O6N
-# bring-up box (Radxa Orion O6N, CIX Sky1). GPU userspace is swappable via
-# ncz-gpu-env (Mali libmali GLES today; Panthor/Mesa experimental).
+# bring-up box (Radxa Orion O6N, CIX Sky1). GPU userspace runs on Mali libmali
+# GLES (Mali only since the Panthor boot entry was removed by operator order
+# 2026-11-16, "No panthor Mali only").
 #
 # GREETER (SHIP): greetd + NATIVE singularity-greeter (wlr-layer-shell + loginui,
 # proven Mali-rendered (libmali/libEGL_cix, no llvmpipe), NCZ-branded, zero
@@ -371,9 +372,34 @@ fi
 systemctl --global enable xdg-desktop-portal-singularity.service 2>&1 | tail -2 || true
 echo "[20] singularity portal backend: enabled"
 
-# Fonts: Noto base + CJK + colour emoji.
+# Fonts: Noto base + CJK + colour emoji, and Inter (Singularity's design face)
+# as the default sans-serif. Inter has no CJK glyphs; fontconfig falls through
+# the prefer list to Noto Sans and then to Noto Sans CJK for those.
 ncz_apt_require --no-install-recommends \
-    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation || exit 1
+    fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji fonts-liberation \
+    fonts-inter-variable || exit 1
+install -d -m0755 /etc/fonts/conf.d
+cat > /etc/fonts/conf.d/60-ncz-inter.conf <<'FONTCONF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- NCZ: Inter is the default sans-serif (same choice as Singularity OS,
+     rootfs-overlay/etc/fonts/conf.d/60-sinty-inter.conf), Noto behind it. -->
+<fontconfig>
+  <alias>
+    <family>sans-serif</family>
+    <prefer>
+      <family>Inter</family>
+      <family>Noto Sans</family>
+    </prefer>
+  </alias>
+</fontconfig>
+FONTCONF
+fc-cache -f >/dev/null 2>&1 || true
+echo "[20] default sans-serif: Inter (/etc/fonts/conf.d/60-ncz-inter.conf)"
+
+# User folders (Documents, Downloads, ...): xdg-user-dirs' user unit is enabled
+# by its postinst and runs under graphical-session-pre.target.
+ncz_apt_require --no-install-recommends xdg-user-dirs || exit 1
 
 # Video: mpv HW player (84-vpu-mpv wires hwdec=v4l2m2m-copy). Browsers =
 # Vivaldi (52-vivaldi, real arm64 .deb, default) and (26.7+) real official
@@ -567,11 +593,12 @@ fi
 # ---------------------------------------------------------------------------
 # GPU userspace selector — ncz-gpu-env (Mali branch has NO
 # __EGL_VENDOR_LIBRARY_FILENAMES pin: that pin blackscreens libmali, confirmed
-# on O6N). Panthor branch keeps the mesa vendor ICD. Sourced by every session
-# launcher AND the greeter wrapper so the SAME binaries render on whichever GPU
-# stack booted (chosen per rEFInd entry). Panthor must be bound to a real DRM
-# card, not merely resident in lsmod: Sky1's Linlon display controllers expose
-# renderD* nodes too, and Mesa cannot render through those.
+# on O6N). Sourced by every session launcher AND the greeter wrapper so the
+# SAME binaries render on the Mali stack the Mali boot entry selects. Panthor
+# support below is inert since the Panthor boot entry was removed by operator
+# order 2026-11-16 ("No panthor Mali only"); the panthor branch must be bound
+# to a real DRM card, not merely resident in lsmod: Sky1's Linlon display
+# controllers expose renderD* nodes too, and Mesa cannot render through those.
 # ---------------------------------------------------------------------------
 install -d -m0755 /usr/local/bin
 cat > /usr/local/bin/ncz-gpu-env <<'GPUENV'
@@ -741,8 +768,9 @@ elif _ncz_panthor_live; then
     #   [../src/server.c:586] unable to create renderer
     #
     # greetd's greeter then exits after ~430ms without creating a session and
-    # start-limit-hits on the 5th try, so the Panthor boot entry comes up to a
-    # black screen while the Mali entry is fine. Mali never hits this because it
+    # start-limit-hits on the 5th try, so a Panthor boot came up to a
+    # black screen while the Mali entry is fine (historical: the Panthor boot
+    # entry was removed by operator order 2026-11-16). Mali never hits this because it
     # renders through /dev/mali0 and the libmali blob, not a DRM render node.
     #
     # Metal-confirmed on O6N 2026-09-04 against 7.2.3-sky1-ncz+r263: setting
@@ -785,7 +813,11 @@ else
         _ncz_msg="ncz-gpu-env: a hardware GPU is present but no hardware GPU stack is usable; software rendering REFUSED (NCZ_ALLOW_SOFTWARE_FALLBACK=1 overrides). Run: ncz-gpu-status --require-hardware"
         echo "$_ncz_msg" >&2
         logger -t ncz-gpu-env "$_ncz_msg" 2>/dev/null || true
-        echo "$(date -u +%FT%TZ 2>/dev/null) FAIL $_ncz_msg" >> "${NCZ_GPU_HEALTH_LOG:-/var/log/ncz-gpu-health.log}" 2>/dev/null || true
+        # The greeter sources this as _greetd, which cannot write /var/log (O6N 2026-10-26: "ncz-gpu-env: cannot
+        # create /var/log/ncz-gpu-health.log: Permission denied" on the console). The journal line above is the
+        # record for every caller; the health log gets the line only when this user can write it. The braces
+        # matter: a failed redirection is reported on the shell's stderr, not the command's.
+        { echo "$(date -u +%FT%TZ 2>/dev/null) FAIL $_ncz_msg" >> "${NCZ_GPU_HEALTH_LOG:-/var/log/ncz-gpu-health.log}"; } 2>/dev/null || true
         unset _ncz_msg
     else
         if _ncz_hw_present; then echo "ncz-gpu-env: WARNING NCZ_ALLOW_SOFTWARE_FALLBACK=1: software rendering ALLOWED on a machine with a GPU" >&2; fi
@@ -1031,7 +1063,7 @@ echo "[20] ncz-singularity-greeter wrapper installed (native greeter on /opt/sin
 # Install the Cygnus Singularity theme into libsingularity's system theme search
 # path and write the packaged gschema defaults so the out-of-box accent is the
 # Cygnus magenta (#D6208C) via accent-color='custom' and the desktop theme is
-# Cygnus -- not the old Maximilian red. The accent is written by StyleManager to
+# Cygnus -- not the old red accent. The accent is written by StyleManager to
 # the user gtk.css at runtime; setting it in the schema DEFAULT makes it the
 # out-of-box accent, and singularity-theme='Cygnus' makes the shell load the
 # theme below.
@@ -1117,13 +1149,15 @@ artist-pack-apt-sources=['https://packages.buildkite.com/ncz-os/ncz/any/', 'http
 #   - firefox-ncz-sky1.desktop is DROPPED. That branch ships Firefox; this one
 #     does not (no firefox .desktop on a r237 install), and pinning an absent
 #     app leaves a dead tile on the dock.
-#   - org.gnome.Console.desktop is ADDED. The original pinned no terminal at
-#     all. Console is the user-facing terminal here; foot is kept only as the
-#     fallback for the scripted NCZ installer launchers (see above), so it is
-#     the wrong thing to put on the dock.
+#   - a terminal is ADDED. The original pinned no terminal at all. It is
+#     dev.sinty.leafs.desktop, the native Singularity terminal (the session's
+#     TERMINAL, see ncz-singularity); gnome-console is no longer installed
+#     (2026-10-26). foot is kept only as the fallback for the scripted NCZ
+#     installer launchers (see above), so it is the wrong thing to put on the
+#     dock.
 # Every id below was verified present in /usr/share/applications or
-# /opt/singularity/share/applications on a real r237 install.
-pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'org.gnome.Console.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
+# /opt/singularity/share/applications on a real install (Leafs: 2026-10-26).
+pinned-apps=['dev.sinty.files.desktop', 'chromium-ncz-sky1.desktop', 'google-chrome.desktop', 'dev.sinty.leafs.desktop', 'dev.sinty.write.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calculator.desktop']
 # Upstream 795da47 (2026-09-18) split OCS/Bing/stock wallpaper browsing out
 # of the shell into plugins, disabled by default (schema default lacks
 # them). They were always-on before that refactor. Keep the in-app
@@ -1455,6 +1489,10 @@ echo "[20] Singularity Desktop installed: /opt/singularity + greetd/native singu
 # desktop whose greeter immediately died on missing libseat.so.1. Validate the
 # actual binaries that own the boot-to-login path so this class of defect fails
 # the installer instead of becoming a metal-only surprise.
+# Refresh the loader cache first: the singularity deb's postinst ldconfig can
+# still be a deferred trigger when this hook runs, which made ldd report
+# libsingularity*.so.0 "not found" against a stale cache (2026-11-11).
+ldconfig 2>/dev/null || true
 _missing_runtime=0
 for _bin in /opt/singularity/bin/labwc \
             /opt/singularity/bin/singularity-greeter \
@@ -1464,7 +1502,11 @@ for _bin in /opt/singularity/bin/labwc \
         _missing_runtime=1
         continue
     }
-    _missing=$(ldd "$_bin" 2>&1 | awk '/not found/ { print }')
+    # set +o pipefail: ldd exits 1 when libraries are missing -- under
+    # pipefail the substitution's status then kills this hook under set -e
+    # BEFORE the report below, reproducing the silent-death class fixed in
+    # stage-accel-overlays.sh (f721b5a8).
+    _missing=$(set +o pipefail; ldd "$_bin" 2>&1 | awk '/not found/ { print }')
     if [ -n "$_missing" ]; then
         echo "[20] ERROR: unresolved runtime libraries for $_bin:" >&2
         printf '%s\n' "$_missing" | sed 's/^/[20]   /' >&2

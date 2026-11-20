@@ -9,13 +9,15 @@
  * series to a pristine copy of the source and compiles this file against the
  * resulting header, so it tests exactly what DKMS builds.
  *
+ * The charge-limit (S4) and temperature-discovery (S1) validators were dropped
+ * with their patches (0004, 0002) when upstream KaiT2en-Fedora 8c7f725
+ * rewrote those code paths itself; see PROVENANCE.
+ *
  * Coverage:
- *   - range predicates (fan min/target, charge limit, RTC offset);
+ *   - range predicates (fan min/target, RTC offset);
  *   - S3, with fault injection: a rejected write is rejected by the
  *     validator before any narrowing; a target write does not read F%dTg;
  *     the min floor is the factory envelope, so it cannot ratchet;
- *   - S1 capacity model: the full candidate range is allocated, so a pass-2
- *     success after a pass-1 failure cannot overrun;
  *   - S2 return-value model.
  * The "fail-before" checks at the end of each affected section reproduce the
  * pre-fix behaviour and document why the fix is required.
@@ -88,27 +90,6 @@ static void test_fan_speed_valid(void)
 	      "negative val rejected for target");
 	CHECK(!t2smc_fan_speed_valid(1000, 6000, 3000, -1, true),
 	      "negative val rejected for min");
-}
-
-static void test_charge_limit_valid(void)
-{
-	CHECK(!t2smc_charge_limit_valid(false, false, 101), ">100 rejected");
-	CHECK(t2smc_charge_limit_valid(false, false, 0), "bclm-only 0");
-	CHECK(t2smc_charge_limit_valid(false, false, 100), "bclm-only 100");
-
-	CHECK(t2smc_charge_limit_valid(true, false, 0), "chls 0 (off)");
-	CHECK(t2smc_charge_limit_valid(true, false, 50), "chls 50");
-	CHECK(t2smc_charge_limit_valid(true, false, 99), "chls 99");
-	CHECK(t2smc_charge_limit_valid(true, false, 100), "chls 100");
-
-	CHECK(t2smc_charge_limit_valid(false, true, 80), "chwa fixed 80");
-	CHECK(t2smc_charge_limit_valid(false, true, 100), "chwa off");
-	CHECK(!t2smc_charge_limit_valid(false, true, 50), "chwa 50 rejected");
-	CHECK(!t2smc_charge_limit_valid(false, true, 0), "chwa 0 rejected");
-	CHECK(!t2smc_charge_limit_valid(false, true, 81), "chwa 81 rejected");
-
-	/* CHLS wins when both exist (it supports the full range) */
-	CHECK(t2smc_charge_limit_valid(true, true, 55), "chls+chwa 55");
 }
 
 static void test_rtc_offset_valid(void)
@@ -233,28 +214,6 @@ static void test_fail_before(void)
 }
 
 /*
- * S1 capacity model.  Pass one counts only the sp78 keys it could read; pass
- * two retries and can see more successes.  The old code sized the array from
- * pass one's count, so a recovered key overran it.  The fix sizes the array
- * from the whole candidate range.
- */
-static void test_temp_capacity(void)
-{
-	unsigned int pass1 = 3; /* transient failures skipped in pass 1 */
-	unsigned int pass2 = 5; /* recovered successes in pass 2 */
-	unsigned int capacity = t2smc_temp_alloc_count(10, 15);
-	unsigned int legacy_capacity = pass1; /* old: kcalloc(t2->temp_count) */
-
-	CHECK(t2smc_temp_alloc_count(10, 15) == 5, "allocation count = range size");
-	CHECK(t2smc_temp_alloc_count(15, 10) == 0, "inverted range yields 0");
-	CHECK(pass2 > pass1, "S1 model: pass-2 successes can exceed pass-1 count");
-	CHECK(pass2 > legacy_capacity,
-	      "fail-before: pass-2 successes overrun the pass-1-sized array");
-	CHECK(capacity >= pass2,
-	      "S1 fix: full-range capacity covers every pass-2 success");
-}
-
-/*
  * S2 return-value model.  Two callers can observe valid == false; after one
  * fills the entry the other reaches the locked out: label.  Pre-fix that
  * path used an uninitialised `ret`; the fix initialises it so the second
@@ -286,12 +245,10 @@ static void test_cache_return_model(void)
 int main(void)
 {
 	test_fan_speed_valid();
-	test_charge_limit_valid();
 	test_rtc_offset_valid();
 	test_rtc_offset_wrap();
 	test_fan_write_check();
 	test_fail_before();
-	test_temp_capacity();
 	test_cache_return_model();
 
 	if (failures) {
