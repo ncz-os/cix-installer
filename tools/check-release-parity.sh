@@ -205,7 +205,7 @@ fi
 # GitHub: name size sha(or -) url
 jq -r '.assets[] | [.name, (.size|tostring), ((.digest // "") | sub("^sha256:";"") | if .=="" then "-" else . end), .browser_download_url] | @tsv' "$W/gh.json" > "$W/gh-assets.tsv"
 # GitLab: links -> package files of this project
-jq -r '.assets.links[] | [.name, .url, (.direct_asset_path // ""), (.link_type // "")] | @tsv' "$W/gl.json" > "$W/gl-links.tsv"
+jq -r '.assets.links | sort_by(.id) | .[] | [.name, .url, (.direct_asset_path // ((.direct_asset_url // "") | sub("^.*/-/releases/[^/]+/downloads"; ""))), (.link_type // "")] | @tsv' "$W/gl.json" > "$W/gl-links.tsv"
 : > "$W/gl-assets.tsv"
 declare -A PKGFILES=()
 pkg_prefix="$RF_GITLAB_API/projects/$GL_PID/packages/generic/"

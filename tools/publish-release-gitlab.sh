@@ -307,7 +307,7 @@ for f in "${FILES[@]}"; do
   if [ -z "$lid" ]; then
     mutate POST "$API/projects/$PID/releases/$TENC/assets/links" "$WORK/link.json"
     log "  link added   $ln"
-  elif [ "$(jq -r --arg n "$ln" '[.[] | select(.name==$n)][0] | "\(.url) \(.direct_asset_path // "") \(.link_type // "")"' "$WORK/links.json")" != "$url $dp $lt" ]; then
+  elif [ "$(jq -r --arg n "$ln" '[.[] | select(.name==$n)][0] | "\(.url) \((.direct_asset_path // ((.direct_asset_url // "") | sub("^.*/-/releases/[^/]+/downloads"; "")))) \(.link_type // "")"' "$WORK/links.json")" != "$url $dp $lt" ]; then
     mutate PUT "$API/projects/$PID/releases/$TENC/assets/links/$lid" "$WORK/link.json"
     log "  link updated $ln"
   else
