@@ -447,8 +447,9 @@ their own, tighter hardware floors:
 
 **NPU support on x86 covers 2023+ silicon**: Intel AI Boost and AMD XDNA (Ryzen AI).
 NCZ-OS installs the Intel NPU driver stack and OpenVINO, or the AMD `amdxdna`
-driver and XRT runtime, when the install hook detects the NPU. No x86 NPU run is
-recorded for 26.10 yet, and the hardware is new, so report problems.
+driver and XRT runtime, when the install hook detects the NPU. We have tested the
+Intel NPU stack on two Intel Core Ultra desktop PCs (an Arrow Lake NPU in each). AMD XDNA
+hardware has not been tested yet, and the hardware is new, so report problems.
 
 ### Board-specific parts of the build
 

@@ -22,9 +22,11 @@ What that means today (the README's hardware section has the detail): NCZ-OS 26.
 Intel GPUs on amd64 and Arm Mali on CIX Sky1. It provides NPU support for CIX Sky1, for Intel (the Intel NPU driver
 and OpenVINO, packaged by NCZ-OS and installed when the install hook finds an Intel NPU) and for AMD (the `amdxdna`
 driver and XRT runtime, installed when it finds an XDNA NPU). The install hook also installs ROCm for a detected AMD
-GPU, OpenVINO for detected Intel hardware and CUDA for a detected NVIDIA GPU. **MEASURED** limits: GPU compute (ROCm, CUDA, oneAPI)
-has tighter hardware floors than the base system, and the README records no x86 NPU test on this release. The
-README lists which machines have been tested; the aim is wider than that list.
+GPU, OpenVINO for detected Intel hardware and CUDA for a detected NVIDIA GPU. **MEASURED:** we have tested the Intel NPU
+stack on two Intel Core Ultra desktop PCs (an Arrow Lake NPU in each), one of which also has an NVIDIA RTX 5060 with the
+proprietary driver and CUDA installed. Limits: GPU compute (ROCm, CUDA, oneAPI) has tighter hardware floors than the
+base system, and AMD XDNA hardware is not among the tested machines. The README lists the other tested machines; the
+aim is wider than that list.
 
 Every decision here looks arbitrary from the outside and several look wrong. Each was made against a measurement on
 real hardware, and the measurements are recorded with the decisions so a reader can re-litigate them on evidence
