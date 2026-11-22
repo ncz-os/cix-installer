@@ -18,10 +18,12 @@ as PCs that ran Windows 10 and Apple T2 Macs, and it aims to support NVIDIA, AMD
 not a board-support layer with a desktop bolted on, and not a lightweight desktop ported to new silicon: it builds
 the stack the hardware needs.
 
-What that means today (**MEASURED** in the README's hardware section): NCZ-OS 26.10 ships drivers for AMD, NVIDIA and
-Intel GPUs on amd64, Arm Mali on CIX Sky1, and the CIX Sky1 NPU and VPU. GPU compute (ROCm, CUDA, oneAPI) has tighter
-hardware floors than the base system, and NPU support on x86 is best-effort. The README lists which machines have
-been tested; the aim is wider than that list.
+What that means today (the README's hardware section has the detail): NCZ-OS 26.10 ships drivers for AMD, NVIDIA and
+Intel GPUs on amd64 and Arm Mali on CIX Sky1. It provides NPU support for CIX Sky1, for Intel (the Intel NPU driver
+and OpenVINO, packaged by NCZ-OS and installed when the install hook finds an Intel NPU) and for AMD (the `amdxdna`
+driver and XRT runtime, installed when it finds an XDNA NPU). **MEASURED** limits: GPU compute (ROCm, CUDA, oneAPI)
+has tighter hardware floors than the base system, and the README records no x86 NPU test on this release. The
+README lists which machines have been tested; the aim is wider than that list.
 
 Every decision here looks arbitrary from the outside and several look wrong. Each was made against a measurement on
 real hardware, and the measurements are recorded with the decisions so a reader can re-litigate them on evidence

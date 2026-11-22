@@ -282,8 +282,9 @@ Short version: NCZ-OS aims to be an exemplar of a modern Linux distribution. It
 began on ARM systems whose GPU, VPU and NPU are the point, and it has expanded to
 AMD64 (Intel and AMD PCs, and Apple T2 Macs). It specializes in older systems
 that their maker no longer supports well, such as PCs that ran Windows 10 and T2
-Macs, and it aims to support NVIDIA, AMD and Intel GPUs and NPUs fully, which
-the hardware section below qualifies. It is not a board-support layer with a
+Macs, and it aims to support NVIDIA, AMD and Intel GPUs and NPUs fully (it provides
+NPU support for Intel and AMD, and the hardware section below says what is
+tested). It is not a board-support layer with a
 desktop bolted on, and not a lightweight desktop ported to new silicon.
 
 Every non-obvious decision here (the GPU stack, the codec path, dropping
@@ -444,8 +445,10 @@ their own, tighter hardware floors:
 | **NVIDIA** | Proprietary driver and CUDA installed per GPU family at install time ([docs/CUDA-DYNAMIC-INSTALL.md](docs/CUDA-DYNAMIC-INSTALL.md)) | **2012+ / solid 2014+** (Kepler and newer); pre-Kepler falls back to nouveau, no CUDA | The proprietary driver was installed on an ASUS ROG GU502LV (RTX 2060 Mobile) on 26.10; CUDA itself was not tested. |
 | **Intel** | oneAPI / Level-Zero (open `i915` + Mesa) | **~2015+** (Skylake-class iGPU and newer) | |
 
-**NPU support on x86 is bleeding-edge only (2023+)** — Intel AI Boost / AMD
-XDNA-class silicon. Treat it as best-effort, not a support commitment.
+**NPU support on x86 covers 2023+ silicon**: Intel AI Boost and AMD XDNA (Ryzen AI).
+NCZ-OS installs the Intel NPU driver stack and OpenVINO, or the AMD `amdxdna`
+driver and XRT runtime, when the install hook detects the NPU. No x86 NPU run is
+recorded for 26.10 yet, and the hardware is new, so report problems.
 
 ### Board-specific parts of the build
 
