@@ -278,10 +278,13 @@ All screenshots are from NCZ-OS 26.10 images.
 
 ### Why this exists, and why it is built this way
 
-Short version: NCZ-OS targets ARM systems whose GPU, VPU and NPU are the point
-— not a board-support layer with a desktop bolted on, and not a lightweight
-desktop ported to new silicon. The same stack also targets AMD64 (Intel and AMD
-PCs, and Apple T2 Macs).
+Short version: NCZ-OS aims to be an exemplar of a modern Linux distribution. It
+began on ARM systems whose GPU, VPU and NPU are the point, and it has expanded to
+AMD64 (Intel and AMD PCs, and Apple T2 Macs). It specializes in older systems
+that their maker no longer supports well, such as PCs that ran Windows 10 and T2
+Macs, and it aims to support NVIDIA, AMD and Intel GPUs and NPUs fully, which
+the hardware section below qualifies. It is not a board-support layer with a
+desktop bolted on, and not a lightweight desktop ported to new silicon.
 
 Every non-obvious decision here (the GPU stack, the codec path, dropping
 X/XFCE for Singularity, the base distribution, the initramfs, the release

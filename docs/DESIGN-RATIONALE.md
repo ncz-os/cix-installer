@@ -12,9 +12,16 @@
 Why this distribution is built the way it is: the GPU stack, the media and codec path, the desktop, networking, the
 base distribution and the initramfs.
 
-The through-line: **NCZ-OS aims to be an exemplar of a modern Linux distribution for ARM-based systems.** Not a
-board-support layer with a desktop bolted on, and not a lightweight desktop ported to new silicon, but a distribution
-that treats ARM with an integrated GPU, VPU and NPU as the primary target and builds the stack that hardware needs.
+The through-line: **NCZ-OS aims to be an exemplar of a modern Linux distribution.** It began on ARM-based systems,
+and it has expanded to AMD64 and x86. It specializes in older systems that their maker no longer supports well, such
+as PCs that ran Windows 10 and Apple T2 Macs, and it aims to support NVIDIA, AMD and Intel GPUs and NPUs fully. It is
+not a board-support layer with a desktop bolted on, and not a lightweight desktop ported to new silicon: it builds
+the stack the hardware needs.
+
+What that means today (**MEASURED** in the README's hardware section): NCZ-OS 26.10 ships drivers for AMD, NVIDIA and
+Intel GPUs on amd64, Arm Mali on CIX Sky1, and the CIX Sky1 NPU and VPU. GPU compute (ROCm, CUDA, oneAPI) has tighter
+hardware floors than the base system, and NPU support on x86 is best-effort. The README lists which machines have
+been tested; the aim is wider than that list.
 
 Every decision here looks arbitrary from the outside and several look wrong. Each was made against a measurement on
 real hardware, and the measurements are recorded with the decisions so a reader can re-litigate them on evidence
