@@ -619,6 +619,9 @@ history:
   the NCZ-OS maintainer's account has 41 merged pull requests across the Singularity repositories (shell, libsingularity,
   plugins, session and others), and more are open.
 
+The PCIe error-handling, Wi-Fi and Bluetooth fixes all matter to Apple T2 Macs, and the lead T2 Linux maintainer
+encouraged us to send them upstream.
+
 **OPEN:** the Wi-Fi fix is merged; whether the PCIe and Bluetooth patches are merged is for their maintainers to decide.
 
 The combination is the point: a current kernel, a current Debian, a modern Wayland desktop and current hardware
