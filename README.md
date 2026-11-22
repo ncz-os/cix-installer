@@ -283,8 +283,8 @@ began on ARM systems whose GPU, VPU and NPU are the point, and it has expanded t
 AMD64 (Intel and AMD PCs, and Apple T2 Macs). It specializes in older systems
 that their maker no longer supports well, such as PCs that ran Windows 10 and T2
 Macs, and it aims to support NVIDIA, AMD and Intel GPUs and NPUs fully (it provides
-NPU support for Intel and AMD, installs ROCm and OpenVINO when it detects the
-hardware, and the hardware section below says what is tested). It is not a board-support layer with a
+NPU support for Intel and AMD, installs ROCm, OpenVINO and CUDA when it detects
+the hardware, and the hardware section below says what is tested). It is not a board-support layer with a
 desktop bolted on, and not a lightweight desktop ported to new silicon.
 
 Every non-obvious decision here (the GPU stack, the codec path, dropping
