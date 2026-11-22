@@ -6,6 +6,11 @@
 
 > Measurements below are from 26.7. Preview 4 ships one Linux 7.4 kernel per architecture. Sky1 uses Mali only. See
 > [releases/26.10-cygnus-preview4.md](releases/26.10-cygnus-preview4.md).
+>
+> **Scope.** Sections 0 to 7 were written for the first, Arm-only releases and their measurements come from CIX Sky1
+> hardware. NCZ-OS now also targets AMD64 (Intel and AMD PCs, and Apple T2 Macs) from the same pipeline. Section 8
+> applies to every target: why NCZ-OS is beta software, why it provides two kernels, and why it drops so much of
+> the older Linux stack.
 
 Why this distribution is built the way it is: the GPU stack, the media and
 codec path, the desktop, networking, the base distribution, and the initramfs.
@@ -490,6 +495,11 @@ while the target was Forky; Ubuntu carries `libsodium.so.23` and Forky carries
 
 ## 6. Initramfs: moving to dracut, carefully
 
+> **Status, 26.10.** The move is done: installed images build their initramfs with dracut, and the build no longer
+> installs `initramfs-tools` into the system (`manifests/installer-base.pkgs`). `initramfs-tools` stays in the
+> rescue environment as a recovery tool for rebuilding a target's initrd. The text below is the 26.7 reasoning and
+> measurements, kept as written.
+
 **Context.** Debian is switching the default initramfs builder to dracut during
 the Forky cycle (Debian bug #1114857): the kernel dependency becomes
 `dracut | initramfs-tools | linux-initramfs-tool` and new installs are expected
@@ -554,6 +564,152 @@ These cost real time and appear across several sections above.
   caught.
 - **A silent success is the expensive failure mode.** The Panthor DVFS bug
   survived because a failed vote returned zero and was then cached forever.
+
+## 8. Beta, two kernels, two filesystems, and the legacy we dropped
+
+Everything above explains individual choices. This section explains the situation they add up to, so nobody is
+surprised by it.
+
+### 8.1 NCZ-OS is beta software
+
+**DECIDED.** Treat every NCZ-OS release as beta. That is not modesty. It follows from what the system is built from
+(8.2), and from the pace at which those parts change.
+
+What it means for you:
+
+- **You may need to reinstall every few months.** Between previews, a major change in one of the parts can be
+  easier to ship as a new image than as an upgrade. Back up what you care about before you install, and again
+  before you move to a new preview.
+- **In-place upgrades between previews are not promised yet.** **OPEN.** We aim to make NCZ-OS an updateable
+  distribution by January 2027, with an upgrade path from one release to the next. Until it is shipped and tested,
+  assume a reinstall.
+- **Things will be rough.** Each preview lists its known issues in its release notes. Read them before you install.
+
+### 8.2 It is built from young parts
+
+**DECIDED.** NCZ-OS is a deliberate combination of several fast-moving projects. Each one is current, and none of
+them has had the years of use that a long-settled distribution has.
+
+| Part | State today | What follows from that |
+|---|---|---|
+| **Linux 7.4** | The current mainline kernel. No major distribution ships it yet. Preview 4 uses a release candidate, `7.4.0-rc3`. | The kernel itself is still being fixed upstream, so our patches are re-applied to each new candidate. |
+| **Debian Forky** | The Debian release now in development ("testing"). Debian has not released it. We expect the Debian part of NCZ-OS to stabilize by June 2027. **OPEN:** Debian sets its own release date. | Packages change underneath us until then. |
+| **Singularity desktop** | Also beta quality, and in ongoing development. NCZ-OS contributes to the project as well as using it. | Features and behaviour are still changing and bugs are still being found. We fix what we hit and carry the fixes as patches. |
+| **CIX Sky1 patches** | Maintained by hand at present: Sky1 boards need patches and vendor drivers that are not in mainline Linux. We expect upstream integration by mid-2027, with some patches reaching mainline earlier. **OPEN:** that depends on the upstream maintainers. | Until they land we re-apply and re-test them on every new kernel candidate. Some have already landed: the PHY maintainer applied part of the Sky1 DisplayPort PHY series on 2026-11-19 (lore.kernel.org, `20261116073800.2396894-1-Luo.Liu@cixtech.com`). |
+| **Apple T2 patches** | Still largely maintained independently of mainline Linux, by the T2 Linux community (the t2linux project) and by us. | Same: carried and re-ported when the kernel moves. A few have gone upstream, and each one that does is dropped from our set. |
+
+**How we carry the device patches.** NCZ-OS makes a best effort to bring the latest CIX Sky1 and Apple T2 driver and
+fix patches into its kernels. We apply them, we forward-port them to each new kernel as we test it, and we send the
+fixes we find to the kernel project that owns the code, as we meet them. Some of this has already reached the kernel projects, all of it public on the mailing lists and in the kernel
+history:
+
+- **Broadcom Wi-Fi: merged, and in stable kernels.** A regression report about an IOMMU fault on the Broadcom Wi-Fi
+  adapter of a T2 Mac (regressions list, 2026-10-20, `7A444F17-F81B-4A33-A7AF-9E30B3EEFA67@gmail.com`). The fix is a mainline commit authored by us,
+  `wifi: brcmfmac: map msgbuf RX packet IDs bidirectional` (`7ed5dce55fa8`): forwarded by a T2 Linux developer,
+  acked by Broadcom's brcmfmac maintainer and applied by the wireless maintainer on 2026-10-22 for Linux 7.4-rc2. It
+  is marked for stable, and Greg Kroah-Hartman has backported it to several stable kernels. The stable 6.12, 6.18 and 7.3
+  branches carry it as of 2026-11-22.
+- **PCIe error handling (AER and DPC).** A report that an Apple T2 MacBook Pro powered itself off about 20 seconds
+  after boot (regressions list, 2026-10-05), and a patch that stops the kernel advertising DPC on ports without
+  AER (linux-pci, 2026-11-16, `9ed2d8fb-fad5-44b3-82a2-0021edb405f4@gmail.com`). Lukas Wunner answered with a seven-patch series, which we tested and
+  answered with a Tested-by (linux-pci, 2026-11-18, `20261119010335.84545-1-jperlow@gmail.com`).
+- **Bluetooth.** A patch that names the BCM4364B3 controller (linux-bluetooth, first posted 2026-11-16, version 2 on
+  2026-11-22, `20261122165132.14015-1-jperlow@gmail.com`, with a reviewer's tag).
+- **Singularity desktop.** NCZ-OS is a contributor to the Singularity project, not only a user. As of 2026-11-22
+  the NCZ-OS maintainer's account has 41 merged pull requests across the Singularity repositories (shell, libsingularity,
+  plugins, session and others), and more are open.
+
+**OPEN:** the Wi-Fi fix is merged; whether the PCIe and Bluetooth patches are merged is for their maintainers to decide.
+
+The combination is the point: a current kernel, a current Debian, a modern Wayland desktop and current hardware
+support, in one image. It is also why this is beta.
+
+### 8.3 Why there are two kernel lines
+
+**DECIDED.** NCZ-OS provides both kernels, **Linux 7.4 and Linux 7.3**:
+
+- **7.4 is the default on the desktop.**
+- **7.3 is the default on the server.**
+- The desktop also offers 7.3 as a **Stable** boot entry. 7.3 is the recovery kernel on both editions. The server
+  offers 7.4 as an **Edge** entry.
+
+Why two. Linux 7.4 is mainline today, but whether it becomes a long-term-support kernel is not decided, and a
+distribution that bets on one line pays for a wrong guess. So we build, patch and test both. We expect to have a long-term-support kernel in place by January 2027.
+
+Why that split. A desktop is where new hardware support matters most, so it follows 7.4. A server and a recovery
+environment value predictability, so they follow the line most likely to be maintained for years.
+
+**Which releases.** Preview 4 predates this decision. It ships Linux 7.4 only (`7.4.0-rc3`), as one kernel per
+image, and its release notes record that the 7.3 line was dropped for that release. That decision was reversed
+afterwards, and the next preview carries both kernels. Only 7.3.5 and later are brought back; earlier 7.3 builds
+stay retired.
+
+What two lines cost us. Our patch set has to apply to both. When a stable 7.3 update changes code our patches
+touch, the patches are re-ported. That has already happened once: a stable update changed the same PCIe
+error-handling lines that one of our patch series edits.
+
+### 8.4 The legacy we dropped, and the legacy we kept
+
+**DECIDED.** NCZ-OS has no installed base of old workflows to protect (section 0), so it drops an older part
+whenever a newer one already does the job:
+
+| Older part | What NCZ-OS uses instead |
+|---|---|
+| X11 session, XFCE | Wayland (labwc) and the Singularity desktop (section 3) |
+| NetworkManager | `sinty-nm`, a native daemon that serves the same bus interface (section 4) |
+| `initramfs-tools` | dracut, which Debian is moving to during the Forky cycle (section 6) |
+| `dbus-daemon` | `dbus-broker` |
+| `rsyslog` next to journald | journald alone |
+| snap packaging | not shipped; there is no `snapd` (section 5) |
+| mpv, VLC and similar players | GStreamer-based players (section 2) |
+
+The rule that goes with it (section 0): **remove legacy that is redundant, keep legacy that is a fallback.** For
+example, `initramfs-tools` is gone from the installed system but kept in the rescue environment, because that is
+the tool you reach for when an initrd has to be rebuilt by hand.
+
+**OPEN: speed.** The aim of dropping this much is a smaller, simpler and faster system. We have not yet published
+a boot-time or install-time comparison against stock Debian, so this document makes no speed claim. Where we
+did measure something, the number is next to the decision (sections 1 to 2c and 6).
+
+### 8.5 Two root filesystems: btrfs and ext4
+
+**DECIDED.** NCZ-OS provides both, and the installer asks which one you want for the root (`/`) partition:
+
+- **btrfs is the default.** It gives snapshots and transparent compression, which suit a system that changes often
+  and may need to be rolled back.
+- **ext4 is the simple choice.** It is long established and has no extra features to go wrong, which is why some
+  people will want it for a server or a machine they leave alone.
+
+The rescue partition is always ext4, whichever you choose for the system, so the way back does not depend on the
+feature set of the filesystem it is meant to repair.
+
+### 8.6 What we do so beta is survivable
+
+**MEASURED**, each of these is in the build and its gates today:
+
+- **Every image is installed and booted in a virtual machine before release.** The build installs the image onto a
+  blank disk unattended, boots the installed system, and fails on a missing boot entry, a failed unit, a kernel
+  that does not start, or an installer screen that does not match what the installer is meant to show.
+- **There is always a way back.** The boot menu carries a rescue entry, a previous-kernel entry and a console
+  entry, and the default install adds a rescue partition. The Stable 7.3 entry in 8.3 adds a second kernel.
+- **Inputs are pinned and checked.** The Debian snapshot, the kernel packages and the build inputs are pinned by
+  hash and every package in an image has to be accounted for, so an image cannot quietly pick up a different one.
+
+None of this makes the system finished. It makes the failures visible before an image goes out, and recoverable
+after.
+
+### 8.7 What we expect, and when
+
+**OPEN.** These are targets, not promises. Each one depends on projects we do not control, and each will be
+restated here when it is met or moved.
+
+| Target | When | What it depends on |
+|---|---|---|
+| A long-term-support kernel | January 2027 | The kernel lines in 8.3, and which one upstream maintains for the long term |
+| NCZ-OS as an updateable distribution, with in-place upgrades between releases | January 2027 | The upgrade path in 8.1 being built, shipped and tested |
+| The Debian part of NCZ-OS stabilized | June 2027 | Debian Forky, which Debian has not released |
+| CIX Sky1 patches integrated upstream | Mid-2027, some earlier | Review by the upstream kernel maintainers |
+| The Singularity desktop | Ongoing development | The upstream project, and the fixes we carry for it |
 
 ---
 

@@ -1,5 +1,7 @@
 # One-kernel policy
 
+> **Update, 2026-11-22.** This document describes Preview 4, which ships one kernel per architecture. From the next preview NCZ-OS provides two kernel lines (7.4 default on the desktop, 7.3 default on the server); see [the design rationale, section 8.3](DESIGN-RATIONALE.md#83-why-there-are-two-kernel-lines).
+
 Preview 4 ships one Linux 7.4 kernel per architecture:
 `7.4.0-rc3-t2-ncz` on amd64 (package `linux-image-7.4.0-rc3-t2-ncz`, version
 `7.4.0-rc3-4`) and `7.4.0-rc3-sky1-ncz` on arm64 (package

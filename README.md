@@ -73,9 +73,12 @@ it as NCZ-OS. See [Architecture](#architecture).
 > The default, installer and rescue boot entries all boot that one kernel; the
 > rescue entry blacklists the GPU/accelerator drivers
 > (`assets/kernel/KERNEL-POLICY`). 7.4.0-rc3 is a **release candidate**.
-> **The 7.3.x kernel line (including 7.3.4 and the 7.3 T2 kernel) is no
-> longer maintained**; the 7.2 line and the old "edge" channel were retired
-> earlier.
+> **Preview 4 carries the 7.4 kernel only.** NCZ-OS provides both a 7.4 and a
+> 7.3 kernel: 7.4 is the default on the desktop and 7.3 is the default on the
+> server, from the next preview (see the
+> [design rationale, section 8.3](docs/DESIGN-RATIONALE.md#83-why-there-are-two-kernel-lines)). The earlier 7.3 builds
+> (7.3.4 and before, including the old 7.3 T2 kernel), the 7.2 line and the old
+> "edge" update channel stay retired.
 >
 > **Release notes:** [26.10 "Cygnus" Preview 4](docs/releases/26.10-cygnus-preview4.md) ·
 > [Download from the Releases page](https://github.com/ncz-os/cix-installer/releases)
@@ -146,7 +149,7 @@ What is new in Preview 4 is listed in the
 [Preview 4 release notes](docs/releases/26.10-cygnus-preview4.md). The
 [2026-10-13 notes](docs/releases/26.10-cygnus-20261013.md) and the
 [Preview 1 notes](docs/releases/26.10-cygnus-preview1.md) are kept as a
-historical record of the 7.3 kernel line, which is no longer maintained.
+historical record of the earlier 7.3 kernel builds, which stay retired.
 
 ### Artist packs
 
@@ -277,7 +280,8 @@ All screenshots are from NCZ-OS 26.10 images.
 
 Short version: NCZ-OS targets ARM systems whose GPU, VPU and NPU are the point
 — not a board-support layer with a desktop bolted on, and not a lightweight
-desktop ported to new silicon.
+desktop ported to new silicon. The same stack also targets AMD64 (Intel and AMD
+PCs, and Apple T2 Macs).
 
 Every non-obvious decision here (the GPU stack, the codec path, dropping
 X/XFCE for Singularity, the base distribution, the initramfs, the release
@@ -288,6 +292,17 @@ and their evidence are written up in full:
 
 Claims there are tagged MEASURED, DECIDED or OPEN, so you can re-litigate them
 on evidence rather than taste.
+
+**Why it is beta, why there are two kernels, and what we threw out.** NCZ-OS
+combines several young projects (Linux 7.4, Debian Forky, the Singularity
+desktop and the device patches), so expect to reinstall between previews.
+NCZ-OS provides both a 7.4 and a 7.3 kernel: 7.4 is the default on the desktop
+and 7.3 is the default on the server. It offers both btrfs (the default) and
+ext4 for the root filesystem. It also drops most of the older Linux stack where
+something newer already does the job. The project aims to have an updateable distribution and a
+long-term-support kernel by January 2027, and a stable Debian base by June 2027. The CIX Sky1 patches are carried by hand
+today, and we expect upstream integration by mid-2027. It makes a best effort to carry the latest Sky1 and T2 patches, forward-ports them as it tests each kernel, and sends the fixes it finds to the kernel projects. All of it is in
+[section 8 of the design rationale](docs/DESIGN-RATIONALE.md#8-beta-two-kernels-two-filesystems-and-the-legacy-we-dropped).
 
 ## Vendor-neutral by design
 
@@ -1231,8 +1246,8 @@ The latest is **[26.10 "Cygnus" Preview 4](docs/releases/26.10-cygnus-preview4.m
 are published on the [Releases page](https://github.com/ncz-os/cix-installer/releases). The earlier
 [26.10 images of 2026-10-13](docs/releases/26.10-cygnus-20261013.md) and
 [26.10 Preview 1](docs/releases/26.10-cygnus-preview1.md) notes (2026-10-12)
-are kept as a historical record; they describe the 7.3 kernel line, which is
-no longer maintained.
+are kept as a historical record; they describe the earlier 7.3 kernel builds, which
+stay retired.
 
 Earlier releases (26.7 "Maximilian" and before) are archived in
 [`docs/RELEASE-HISTORY.md`](docs/RELEASE-HISTORY.md). Every document in the
