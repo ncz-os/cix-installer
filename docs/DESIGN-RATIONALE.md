@@ -21,7 +21,8 @@ the stack the hardware needs.
 What that means today (the README's hardware section has the detail): NCZ-OS 26.10 ships drivers for AMD, NVIDIA and
 Intel GPUs on amd64 and Arm Mali on CIX Sky1. It provides NPU support for CIX Sky1, for Intel (the Intel NPU driver
 and OpenVINO, packaged by NCZ-OS and installed when the install hook finds an Intel NPU) and for AMD (the `amdxdna`
-driver and XRT runtime, installed when it finds an XDNA NPU). **MEASURED** limits: GPU compute (ROCm, CUDA, oneAPI)
+driver and XRT runtime, installed when it finds an XDNA NPU). The install hook also installs ROCm for a detected AMD
+GPU, OpenVINO for detected Intel hardware and CUDA for a detected NVIDIA GPU. **MEASURED** limits: GPU compute (ROCm, CUDA, oneAPI)
 has tighter hardware floors than the base system, and the README records no x86 NPU test on this release. The
 README lists which machines have been tested; the aim is wider than that list.
 
