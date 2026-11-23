@@ -19,7 +19,13 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 missing=""
 for s in 16 22 24 32 48 64 128 256 512; do [ -s "$ASSETS/$s.png" ] || missing="$missing $s"; done
 [ -s "$ASSETS/chromium-ncz-sky1.svg" ] || missing="$missing svg"
+for b in chrome-ncz vivaldi-ncz; do
+    [ -s "$ROOT/assets/branding/icons/$b/$b.svg" ] && [ "$(head -c 5 "$ROOT/assets/branding/icons/$b/$b.iride" 2>/dev/null)" = IRIDE ] || missing="$missing $b"
+done
 if [ -z "$missing" ]; then ok "all 9 PNG sizes and the scalable SVG are present"; else bad "missing assets:$missing"; fi
+# animated Iride icon: present, IRIDE magic, format version 3 (with motion)
+if [ -s "$ASSETS/chromium-ncz-sky1.iride" ] && [ "$(head -c 6 "$ASSETS/chromium-ncz-sky1.iride" | od -An -c | tr -d " ")" = "IRIDE\0" ] \
+   && [ "$(od -An -tu2 -j6 -N2 "$ASSETS/chromium-ncz-sky1.iride" | tr -d " ")" = 3 ]; then ok "Iride icon present (IRIDE magic, version 3 with motion)"; else bad "Iride icon missing or not a version 3 file"; fi
 
 python3 - "$ASSETS" <<'PY' > "$T/py.out" 2>&1
 import colorsys, sys
@@ -119,6 +125,11 @@ if [ "$diverted" = 10 ]; then ok "all 10 package files (9 hicolor + pixmaps) div
 if [ "$(cat "$H/48x48/apps/chromium-ncz-sky1.png.maximilian-orig")" = "ORANGE" ] && [ "$(cat "$P/chromium-ncz-sky1.png.maximilian-orig")" = "ORANGE" ]; then ok "original package files preserved at the divert names"; else bad "original not preserved"; fi
 if all_cygnus "$H" "$P"; then ok "Cygnus icons installed at every package path, pixmaps included"; else bad "installed icons differ from assets"; fi
 if cmp -s "$H/scalable/apps/chromium-ncz-sky1.svg" "$ASSETS/chromium-ncz-sky1.svg"; then ok "scalable SVG installed"; else bad "SVG not installed"; fi
+if cmp -s "$H/scalable/apps/chromium-ncz-sky1.iride" "$ASSETS/chromium-ncz-sky1.iride"; then ok "Iride icon installed beside the SVG"; else bad "Iride icon not installed"; fi
+CH="$ROOT/assets/branding/icons/chrome-ncz"
+if cmp -s "$H/scalable/apps/google-chrome.svg" "$CH/chrome-ncz.svg" && cmp -s "$H/scalable/apps/google-chrome.iride" "$CH/chrome-ncz.iride"; then ok "Chrome-palette icon (SVG + Iride) installed as google-chrome"; else bad "Chrome-palette icon not installed"; fi
+VI="$ROOT/assets/branding/icons/vivaldi-ncz"
+if cmp -s "$H/scalable/apps/vivaldi.svg" "$VI/vivaldi-ncz.svg" && cmp -s "$H/scalable/apps/vivaldi.iride" "$VI/vivaldi-ncz.iride"; then ok "Vivaldi-palette icon (SVG + Iride) installed as vivaldi"; else bad "Vivaldi-palette icon not installed"; fi
 rc=$(run_hook "$H" "$P" 1)
 if [ "$rc" = 0 ] && [ "$(wc -l < "$T_DIVERTS" | tr -d ' ')" = 10 ] && all_cygnus "$H" "$P"; then ok "second run is idempotent (no further diversions)"; else bad "second run not idempotent"; fi
 pkg_unpack "$H" "$P" ORANGE-UPGRADE

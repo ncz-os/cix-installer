@@ -20,4 +20,5 @@
   <circle cx="256" cy="256" r="120.000" fill="#120A22"/>
   <circle cx="256" cy="256" r="113.000" fill="none" stroke="#2ED8F0" stroke-width="10.000"/>
   <circle cx="256" cy="256" r="108.000" fill="#05030A"/>
+  <path d="M216 304 L216 208 L296 304 L296 208" fill="none" stroke="#8FF0FF" stroke-width="17.6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

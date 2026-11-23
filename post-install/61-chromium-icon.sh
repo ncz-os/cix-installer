@@ -1,5 +1,6 @@
 #!/bin/bash
-# 61-chromium-icon.sh -- install the Cygnus-coloured NCZ Chromium icon (Sky1 only).
+# 61-chromium-icon.sh -- install the Cygnus-coloured NCZ Chromium icon and the Chrome and
+# Vivaldi palette icons (Sky1 only).
 #
 # The chromium-ncz-sky1 package ships the launcher icon `chromium-ncz-sky1` in hicolor at
 # 16 22 24 32 48 64 128 256 512 px, plus /usr/share/pixmaps/chromium-ncz-sky1.png (a copy of
@@ -81,6 +82,26 @@ if [ -s "$ASSETS/$NAME.svg" ]; then
     install -d -m0755 "$ICON_ROOT/scalable/apps"
     install -m0644 "$ASSETS/$NAME.svg" "$ICON_ROOT/scalable/apps/$NAME.svg" && n=$((n + 1))
 fi
+# Animated Iride icon: SIT shows an .iride installed next to the SVG of the same name
+# (source branding/cygnus/iride/$NAME, built with the iride compiler).
+if [ -s "$ASSETS/$NAME.iride" ]; then
+    install -d -m0755 "$ICON_ROOT/scalable/apps"
+    install -m0644 "$ASSETS/$NAME.iride" "$ICON_ROOT/scalable/apps/$NAME.iride" && n=$((n + 1))
+fi
+
+# Chrome and Vivaldi icons in their own palettes, shipped as the scalable SVG plus the animated
+# Iride under the names those launchers use. Their packages ship only PNGs, so nothing here is
+# diverted. Assets: <icons>/<asset>/<asset>.{svg,iride}.
+for pair in chrome-ncz:google-chrome vivaldi-ncz:vivaldi; do
+    asset="${pair%%:*}"; name="${pair##*:}"
+    adir="${NCZ_ICON_BROWSER_ASSETS:-$(dirname "$ASSETS")}/$asset"
+    for ext in svg iride; do
+        if [ -s "$adir/$asset.$ext" ]; then
+            install -d -m0755 "$ICON_ROOT/scalable/apps"
+            install -m0644 "$adir/$asset.$ext" "$ICON_ROOT/scalable/apps/$name.$ext" && n=$((n + 1))
+        fi
+    done
+done
 
 # Launchers and the dock resolve Icon=chromium-ncz-sky1 through the GTK icon cache; refresh
 # it so a stale cache cannot keep serving the package's icon.

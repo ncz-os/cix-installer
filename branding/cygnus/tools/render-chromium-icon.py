@@ -59,6 +59,11 @@ def svg(px):
         segs.append(f'<path d="M{x0:.3f} {y0:.3f} A{mid_r:.3f} {mid_r:.3f} 0 0 0 {x1:.3f} {y1:.3f}" '
                     f'fill="none" stroke="url(#seg)" stroke-width="{width:.3f}"/>')
     rim_mid = (r_rim_out + r_seg_out) / 2
+    # letter N in the hole (matches the Iride icon); too small to read below 48 px
+    mark = ""
+    if px >= 48:
+        mark = ('<path d="M216 304 L216 208 L296 304 L296 208" fill="none" stroke="#8FF0FF" '
+                'stroke-width="17.6" stroke-linecap="round" stroke-linejoin="round"/>')
     ring_mid = (r_ring_out + r_ring_in) / 2
     return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{px}" height="{px}" viewBox="0 0 512 512">
   <defs>
@@ -80,6 +85,7 @@ def svg(px):
   <circle cx="256" cy="256" r="{r_ring_out + 2:.3f}" fill="{FIELD}"/>
   <circle cx="256" cy="256" r="{ring_mid:.3f}" fill="none" stroke="{CYAN}" stroke-width="{r_ring_out - r_ring_in:.3f}"/>
   <circle cx="256" cy="256" r="{r_hole:.3f}" fill="{HOLE}"/>
+  {mark}
 </svg>
 """
 
